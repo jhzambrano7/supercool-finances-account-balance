@@ -1,0 +1,55 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/ai-transcript-build.py\"",
+            "timeout": 20,
+            "statusMessage": "Rebuilding AI transcript..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/decision-log-capture.sh\"",
+            "timeout": 10,
+            "statusMessage": "Capturing decision-log entry..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/ai-transcript-build.py\"",
+            "timeout": 20,
+            "statusMessage": "Rebuilding AI transcript..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/decision-log-verify.sh\"",
+            "timeout": 10,
+            "statusMessage": "Verifying decision log..."
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/ai-transcript-build.py\"",
+            "timeout": 20,
+            "statusMessage": "Rebuilding AI transcript..."
+          }
+        ]
+      }
+    ]
+  }
+}
