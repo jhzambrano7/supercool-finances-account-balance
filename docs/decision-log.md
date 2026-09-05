@@ -96,4 +96,13 @@ Formato de cada entrada:
 - **Qué intentaba:** Entender por qué `from modules...` no resuelve tras agregar un servicio generador de IDs y dependency-injector.
 - **Prompt:** "agregué un generador de ids como servicio, agregué dependency injector y veo un reto con los imports, deberían incluir src pero no lo hace, parece falta consigurar algo, qué es?"
 - **Respuesta:** Causa raíz en **mi** setup, dos partes: (1) `[tool.uv] package = false` dejaba el proyecto fuera del venv, así que nada ponía `src` en `sys.path`; (2) `pythonpath = ["src"]` vivía en `[tool.pytest.ini_options]`, que **sólo lee pytest** — tapaba el síntoma bajo tests mientras `uv run python`, uvicorn y el editor seguían fallando. Reemplazado por instalación **editable** vía hatchling (`build-system` + `[tool.hatch.build.targets.wheel] packages = ["src/modules"]`) y eliminado el `pythonpath`, para que tests y servicio resuelvan imports por el mismo mecanismo. Los `.gitkeep` se reemplazaron por `__init__.py` (34 paquetes explícitos): mantienen el directorio y evitan namespace packages implícitos, que mypy strict maneja mal. Verificado: `modules` apunta a `src/modules` real, el contenedor DI instancia el singleton, y los 11 gates pasan incluido mypy strict sobre el código nuevo.
+- **Veredicto:** ✅ aprobado
+
+## 2026-09-04 23:52 — Unificar la generación de IDs en UUIDv7
+
+<!-- id: 20260904-235211-a1fe3a40 -->
+- **Qué intentaba:** Adoptar UUIDv7 para todos los IDs y aprovechar su ordenamiento, eliminando la variante aleatoria.
+- **Prompt:** "vale, usemos uuid7 y su bondad de ordenamiento para todo"
+- **Respuesta:** `IdGenerator` queda con un único método `next_id()`. Se eliminó el par `sorted_uuid`/`unsorted_uuid`: nombraba el mecanismo en vez de la intención y obligaba a decidir en cada call site si la entidad merecía un ID ordenado — basta que esa decisión se tome mal una vez, en una tabla que nadie mira, para fragmentar su índice. UUIDv7 lleva timestamp adelante, así los inserts caen cerca del borde derecho del B-tree en lugar de dispersarse; es lo que necesitan las tablas append-only del ledger y no cuesta nada en el resto. Primeros tests del proyecto (`tests/unit/shared/test_id_generator.py`) cubriendo las tres propiedades en que se apoya la decisión: versión, unicidad y orden creciente. Valida además la cadena completa editable install + pytest.
+- **Tradeoff registrado:** UUIDv7 expone el instante de creación dentro del ID. Aceptable acá porque el ledger ya expone timestamps al dueño de la cuenta, pero conviene tenerlo presente si algún ID llega a superficies públicas.
 - **Veredicto:** ⏳ pendiente

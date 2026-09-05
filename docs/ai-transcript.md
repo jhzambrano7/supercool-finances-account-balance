@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 12
+**Turns recorded:** 13
 
 ---
 
@@ -776,7 +776,7 @@ Ahora sí, sin nada más en el camino: **¿dominio puro o modelo de datos?**
 agregué un generador de ids como servicio, agregué dependency injector y veo un reto con los imports, deberían incluir src pero no lo hace, parece falta consigurar algo, qupe es?
 ```
 
-<details><summary>Tool calls (10)</summary>
+<details><summary>Tool calls (14)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== árbol src ==="; fd . src -t f | head -40 echo "=== __init__.py …
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== id_generator.py ==="; cat src/modules/shared/application/servic…
@@ -788,6 +788,10 @@ agregué un generador de ids como servicio, agregué dependency injector y veo u
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add -A src pyproject.toml uv.lock git commit -F - <<'MSG' 2>&1 | tail…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== qué corrigió ruff ==="; git diff --stat; git diff | head -20 gi…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git log --oneline -1 echo "=== pendiente ==="; git status --porcelain=v1 …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
+- `mcp__plugin_engram_engram__mem_save`
+- `mcp__plugin_engram_engram__mem_judge`
+- `mcp__plugin_engram_engram__mem_judge`
 
 </details>
 
@@ -812,5 +816,63 @@ Ahora hago los paquetes explícitos. Los `__init__.py` reemplazan a los `.gitkee
 El import resuelve y el singleton funciona. Ahora corro los gates — es la **primera vez que mypy strict ve código real**:
 
 Todo verde, incluido mypy strict sobre tu código nuevo. Commiteo:
+
+Faltaba **instalar el proyecto**, y el error era mío en dos capas:
+
+**1. `[tool.uv] package = false`.** Lo puse razonando "esto es una app, no una librería". La premisa es correcta, la consecuencia no: uv instala las *dependencias* pero nunca instala *tu proyecto*, así que nada pone `src` en `sys.path`.
+
+**2. `pythonpath = ["src"]` bajo `[tool.pytest.ini_options]`.** Ese setting **lo lee sólo pytest**. Por eso el síntoma era raro: los tests hubieran andado y todo lo demás no. Era un parche que tapaba el problema en un contexto y lo dejaba vivo en los otros tres — `uv run python`, uvicorn y el editor.
+
+La corrección es instalación **editable**:
+
+```toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/modules"]
+```
+
+Y saqué el `pythonpath`. Ahora hay **un solo mecanismo** que pone `src` en el path, así que tus tests importan exactamente por el mismo camino que el servicio corriendo. Dos mecanismos paralelos es cómo terminás con un test que pasa y producción que explota en el import.
+
+También reemplacé los `.gitkeep` por `__init__.py` — 34 paquetes explícitos. Cumplen la misma función de mantener el directorio, y además te evitan los namespace packages implícitos, que mypy strict maneja mal.
+
+Verificado: `modules` resuelve a `src/modules` real, el contenedor DI instancia el singleton, y los 11 gates pasan — **incluido mypy strict, que corrió por primera vez sobre código de verdad**.
+
+## Sobre tu código
+
+**`uuid7` para los IDs ordenados es una decisión fuerte y quiero que sepas por qué.** Un `uuid4` es aleatorio: cada insert cae en una página arbitraria del índice B-tree, lo que provoca page splits, fragmentación y cache misses. En una tabla `entries` append-only con volumen de escritura alto —que es exactamente lo que va a ser nuestro ledger— eso se paga caro. `uuid7` lleva timestamp al principio, así que los inserts caen cerca del borde derecho del índice. Localidad, menos splits. Elegiste bien.
+
+Ahora el challenge, y es de naming. `sorted_uuid()` y `unsorted_uuid()` describen **el mecanismo**, no **la intención**. Quien llame tiene que saber *"¿este ID va a una tabla de alta escritura o no?"* y acordarse de elegir bien, en cada call site, para siempre. El día que alguien use `unsorted_uuid()` para un `EntryId`, nadie lo nota hasta que el índice se degrada en producción.
+
+Esa decisión debería tomarse **una vez**, no en cada llamada. Algo como `next_entry_id()` / `next_account_id()` mueve la elección adentro del generador y deja el call site expresando qué necesita, no cómo se fabrica.
+
+No lo cambio sin tu visto bueno — es tu código y quizá ya tenías esa intención. ¿Lo dejamos así o lo llevamos a nombres por intención cuando definamos los IDs del dominio?
+
+---
+
+## Turn 13 — 2026-09-05 04:52:11.282 UTC
+
+### Prompt
+
+```text
+vale, usemos uuid7 y su bondad de ordenamiento para todo
+```
+
+<details><summary>Tool calls (4)</summary>
+
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/application/services/id_generator.py
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/shared/test_id_generator.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== tests ==="; uv run pytest 2>&1 | tail -12 echo "=== el contened…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -6 git add -A src tests git…
+
+</details>
+
+### Response
+
+Decidido. Un solo método, y de paso desaparece la elección en el call site:
+
+Y agrego el primer test — sirve para validar que la cadena completa (editable install + pytest) funciona de punta a punta:
 
 ---
