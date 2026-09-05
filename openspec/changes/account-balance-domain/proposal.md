@@ -311,10 +311,10 @@ push an optional through every USER path to describe two rows.
 | # | Question | Recommendation |
 | --- | --- | --- |
 | ~~Q1~~ | ~~G5 restatement (§8a)~~ | **Resolved** — stated over the *debited* leg, not every `USER` leg. PRD §9.1 is now authoritative |
-| Q2 | Is account closure in v1 (PRD §11)? If yes, `AccountStatus = {ACTIVE, CLOSED}` and `Account.close()` requires a zero balance | Include, with the zero-balance rule — it answers the PRD's own question cheaply |
-| Q3 | A reversal that would overdraft the original destination: refuse (D10), or allow an operator-authorized correction to breach I2? | Refuse. Some reversals then become impossible and must be resolved commercially, not by a ledger exception |
-| Q4 | Reversal authorization — payer or operator (PRD §11)? Does not block the domain model, but decides which `requested_by` is legal | Defer to the use-case phase |
-| Q5 | Module name `account_balance` (matches the repo and the PRD title) | Adopt |
+| ~~Q2~~ | ~~Account closure in v1?~~ | **Resolved** — yes. `Account.close()` is domain behaviour, `USER` accounts only, refuses on a non-zero balance. PRD §7.2 |
+| Q3 | A reversal that would overdraft the original destination: refuse, allow an I2 breach, or absorb the shortfall into a `SYSTEM` receivable? | **Still open** — see PRD §7.3. Compensating-entry mechanics (I7) answer *how* to reverse, not what to do when the reversal cannot be afforded |
+| ~~Q4~~ | ~~Reversal authorization — payer or operator?~~ | **Resolved** — operator only. Payer-initiated reversal turns every completed payment into one the payer can unilaterally claw back. PRD §7.1 |
+| ~~Q5~~ | ~~Module name~~ | **Resolved** — `account_balance` |
 
 ## 10. Capabilities
 

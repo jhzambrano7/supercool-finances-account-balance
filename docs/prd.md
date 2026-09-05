@@ -185,9 +185,30 @@ operational job.
 | Withdraw | Transfer from a `USER` account into a `SYSTEM` settlement account. Subject to I2 |
 | Read balance | Own accounts only |
 | Read movement history | The entry trail for an account — the auditable answer to "why is my balance this?" |
-| Reverse a transfer | A **new** compensating transfer referencing the original. Never a mutation or deletion (I7) |
+| Reverse a transfer | A **new** compensating transfer referencing the original. Never a mutation or deletion (I7). **Operator-authorized only** (§7.1) |
+| Close an account | `USER` accounts only, and only at a zero balance (§7.2) |
 
 All mutating capabilities are idempotent per §6.
+
+### 7.1 Reversal is operator-authorized, not customer-initiated
+
+Letting the payer reverse their own transfer creates a perverse incentive: it turns every completed
+payment into one the payer can unilaterally take back, which is indistinguishable from theft on the
+receiving side. Reversal exists to correct *our* errors and adjudicated disputes, so the authority to
+issue one sits with an operator.
+
+The domain records `requested_by` on every transfer, so a reversal is attributable. Which operator
+identities exist, and how they are proven, is the authentication adapter's problem (§9).
+
+### 7.2 Closing an account requires a zero balance
+
+`Account.close()` is domain behaviour, not a status field an adapter flips. It refuses unless the
+balance is exactly zero, which is the only closure that leaves no unexplained money: a closed account
+holding funds is either a liability nobody is watching or money quietly taken from a customer.
+Emptying the account first is a transfer like any other, and therefore leaves its own entries.
+
+A closed account can still be read — history does not disappear — but cannot be debited or credited.
+Only `USER` accounts close; `SYSTEM` accounts are infrastructure and outlive any customer.
 
 ---
 
@@ -289,6 +310,5 @@ The service is done when:
 
 - Retention window for idempotency records. Not a free parameter: it must exceed the maximum
   retry horizon of any client (§6.2). Needs the client retry policy to be pinned down first.
-- Whether account closure is in v1 scope (a closed account with a non-zero balance is a domain
-  question worth answering).
-- Reversal authorization: who is entitled to reverse a transfer, the payer or an operator?
+- What happens when a reversal cannot be afforded, because the original recipient already spent the
+  funds. Posting it would drive a `USER` account below zero and breach I2. See §7.3.
