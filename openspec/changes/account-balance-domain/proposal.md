@@ -312,7 +312,7 @@ push an optional through every USER path to describe two rows.
 | --- | --- | --- |
 | ~~Q1~~ | ~~G5 restatement (§8a)~~ | **Resolved** — stated over the *debited* leg, not every `USER` leg. PRD §9.1 is now authoritative |
 | ~~Q2~~ | ~~Account closure in v1?~~ | **Resolved** — yes. `Account.close()` is domain behaviour, `USER` accounts only, refuses on a non-zero balance. PRD §7.2 |
-| Q3 | A reversal that would overdraft the original destination: refuse, allow an I2 breach, or absorb the shortfall into a `SYSTEM` receivable? | **Still open** — see PRD §7.3. Compensating-entry mechanics (I7) answer *how* to reverse, not what to do when the reversal cannot be afforded |
+| ~~Q3~~ | ~~Reversal the recipient can no longer afford~~ | **Resolved** — post what is recoverable, absorb the shortfall into a `SYSTEM` receivable. I2 holds, the payer is made whole, the debt is stated. PRD §7.3. **Confirms D4:** a transfer is not always two legs, so I1 must be per-currency netting |
 | ~~Q4~~ | ~~Reversal authorization — payer or operator?~~ | **Resolved** — operator only. Payer-initiated reversal turns every completed payment into one the payer can unilaterally claw back. PRD §7.1 |
 | ~~Q5~~ | ~~Module name~~ | **Resolved** — `account_balance` |
 
@@ -358,4 +358,4 @@ restores the current state; `shared` is touched additively only. No migrations, 
 - [ ] No domain module imports from `application` or `adapters`; no `datetime.now()` and no id generation inside `domain/` (D6).
 - [ ] `mypy --strict` and `ruff` pass on the new module.
 - [ ] A `USER` account cannot be driven below zero through any public domain method; a `SYSTEM` account can (I2, PRD §4.1).
-- [ ] Q1–Q3 answered before the use-case phase begins.
+- [x] Q1–Q5 answered (PRD §7.1, §7.2, §7.3, §9.1).

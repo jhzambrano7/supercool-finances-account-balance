@@ -210,6 +210,44 @@ Emptying the account first is a transfer like any other, and therefore leaves it
 A closed account can still be read — history does not disappear — but cannot be debited or credited.
 Only `USER` accounts close; `SYSTEM` accounts are infrastructure and outlive any customer.
 
+### 7.3 A reversal the recipient can no longer afford
+
+A reversal debits the account that originally received the money. If that account has already spent
+it, the debit would drive a `USER` balance below zero, which I2 forbids. The compensating-entry rule
+(I7) says *how* to reverse; it does not say what to do when the reversal cannot be afforded.
+
+**Decision: post what is recoverable and record the shortfall as an explicit receivable.**
+
+Ana sends 100 to Bruno by mistake, Bruno spends 80, an operator reverses:
+
+| Leg | Account | Direction | Amount |
+| --- | --- | --- | --- |
+| 1 | Bruno (`USER`) | DEBIT | 20 — all that remains |
+| 2 | `SYSTEM` receivable | DEBIT | 80 — the shortfall |
+| 3 | Ana (`USER`) | CREDIT | 100 |
+
+The ledger balances, I2 holds without exception, and Ana is made whole. The 80 does not disappear:
+it becomes a stated debt the business owns and must pursue. **The receivable account's balance is
+therefore the running total SuperCool has absorbed from unaffordable reversals** — a number someone
+should be watching, which is precisely the point of not hiding it.
+
+**Rejected — refuse the reversal:** simplest, and leaves Ana without her money *and* without any
+accounting record of what she is owed. A claim that leaves no trace in the ledger is a claim that
+gets lost.
+
+**Rejected — let an operator breach I2:** turns the invariant into "never negative, except when it
+is", at which point every piece of code assuming a non-negative `USER` balance is potentially wrong.
+It also extends Bruno unsecured credit as a side effect of an operational action, rather than as a
+product decision.
+
+**Consequence for the domain model:** a transfer is not always two legs. This is why I1 is stated as
+per-currency netting rather than "one debit and one credit" — the two-leg formulation could not
+express this reversal at all. A leg of zero is never written, since I3 requires entry amounts to be
+strictly positive; when the recipient has nothing left, the reversal is Bruno-less and the receivable
+carries the whole amount.
+
+Recovering the receivable later is an ordinary transfer, and leaves its own entries.
+
 ---
 
 ## 8. Designed-for extension: multi-currency
@@ -310,5 +348,5 @@ The service is done when:
 
 - Retention window for idempotency records. Not a free parameter: it must exceed the maximum
   retry horizon of any client (§6.2). Needs the client retry policy to be pinned down first.
-- What happens when a reversal cannot be afforded, because the original recipient already spent the
-  funds. Posting it would drive a `USER` account below zero and breach I2. See §7.3.
+- Retention of the receivable: how long an unrecovered shortfall stays open before it is written
+  off is an accounting policy, not a domain rule.
