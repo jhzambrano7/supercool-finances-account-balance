@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 11
+**Turns recorded:** 12
 
 ---
 
@@ -645,7 +645,7 @@ Ahora sí: ¿dominio o modelo de datos?
 procede a committear lo existente
 ```
 
-<details><summary>Tool calls (31)</summary>
+<details><summary>Tool calls (36)</summary>
 
 - `Skill` — commit
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1 -uall echo "=== commits previos ==="; git log -…
@@ -678,6 +678,11 @@ procede a committear lo existente
 - `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/pyproject.toml
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add pyproject.toml uv.lock .python-version .pre-commit-config.yaml sc…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== verificación completa de gates sobre todo el repo ===" uv run p…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
+- `mcp__plugin_engram_engram__mem_save`
+- `mcp__plugin_engram_engram__mem_judge`
+- `mcp__plugin_engram_engram__mem_judge`
+- `mcp__plugin_engram_engram__mem_judge`
 
 </details>
 
@@ -722,5 +727,90 @@ Y en su lugar hago algo que sí vale: **que la convención de commits que defini
 Los 8 casos se comportan como corresponde. Ahora commiteo el setup, dejando que los propios gates lo validen:
 
 El gate hizo su trabajo: `T201` (prohibido `print`) frenó el commit. La regla es correcta para código de servicio, pero **este script es una CLI: su salida por stderr es su interfaz**. Le pongo la excepción acotada en vez de aflojar la regla global:
+
+Todos los gates en verde. Cierro con el log de decisiones y los artefactos de sesión:
+
+Hecho lo uno y lo otro. **7 commits**, working tree limpio.
+
+## Commits
+
+```
+1272e6d docs(session): sync AI transcript and decision log
+f3fb151 build: set up python 3.14 project with uv and quality gates
+7ea61dc docs(session): sync AI transcript and decision log
+848aac5 chore(tooling): add commit command traced to the PRD
+8b3641f chore(tooling): capture every prompt and response verbatim
+267c40d docs(prd): add challenge statement and account balance PRD
+9a27141 chore: scaffold ports and adapters module structure
+```
+
+Todos con trailer `PRD:`, sin atribución AI, artefactos generados aislados en sus propios commits. Y `git log --grep=I2` ya te devuelve la historia de la invariante de saldo no negativo.
+
+## Proyecto Python
+
+**Python 3.14.6 con uv.** Antes de comprometerme verifiqué que el stack real resuelve: 54 paquetes en 2.28s con FastAPI, SQLAlchemy, Alembic, psycopg y testcontainers. No lo di por sentado.
+
+**Gates:** ruff (lint + format), mypy strict, `uv lock --check`, y un validador propio de commit-msg. Ese último es el que más me importa: **la convención que definimos dejó de ser un documento y pasó a ser un gate**. Probado con 8 casos — acepta IDs válidos y `n/a` con razón, rechaza `n/a` pelado, trailer ausente, scope inválido y atribución AI.
+
+## Tres cosas que quiero que sepas
+
+**1. Me equivoqué en vivo y lo verifiqué antes de afirmarlo.** Vi que ruff había reescrito `except (A, B):` sin paréntesis y mi primera lectura fue "sintaxis Python 2, rompió el código". Falso: Python 3.14 incorporó **PEP 758** y esa forma es válida. Chequeé antes de seguir.
+
+Pero el chequeo destapó un problema **real**: los hooks se invocan con el `python3` del **sistema**, no el del venv. En 3.12 reventaban con `SyntaxError` — confirmado. Infraestructura de compliance no puede depender del target del proyecto, así que `.claude/hooks` quedó excluido de ruff.
+
+**2. Saqué `no-commit-to-branch`.** Bloqueaba commits a `main`, que es tu flujo real acá. Un gate que se saltea rutinariamente con `--no-verify` **entrena a saltear gates** — y eso es lo último que querés en un repo donde otros gates van a proteger movimientos de dinero.
+
+**3. El gate me frenó a mí y lo respeté.** `T201` rechazó el commit por los `print` del validador. Lo resolví con un per-file-ignore acotado a `scripts/**` — no aflojando la regla global. Si empezás a debilitar reglas para que pase tu propio código, el linter deja de servir.
+
+Un pendiente honesto: cuando invoqué `/commit`, el `Skill` cargó tu `commit.md` **global** (Jira + poetry), no el del repo. Commiteé siguiendo la convención del repo igualmente, pero la resolución no está funcionando como esperaba. Lo miro cuando quieras.
+
+Ahora sí, sin nada más en el camino: **¿dominio puro o modelo de datos?**
+
+---
+
+## Turn 12 — 2026-09-05 04:47:14.159 UTC
+
+### Prompt
+
+```text
+agregué un generador de ids como servicio, agregué dependency injector y veo un reto con los imports, deberían incluir src pero no lo hace, parece falta consigurar algo, qupe es?
+```
+
+<details><summary>Tool calls (10)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== árbol src ==="; fd . src -t f | head -40 echo "=== __init__.py …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== id_generator.py ==="; cat src/modules/shared/application/servic…
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/pyproject.toml
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/pyproject.toml
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance # Cada directorio bajo src/modules pasa a ser un paquete explícito. fd -t…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance timeout 300 uv sync 2>&1 | tail -6 echo "=== ¿el proyecto quedó instalado…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -30
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add -A src pyproject.toml uv.lock git commit -F - <<'MSG' 2>&1 | tail…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== qué corrigió ruff ==="; git diff --stat; git diff | head -20 gi…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git log --oneline -1 echo "=== pendiente ==="; git status --porcelain=v1 …
+
+</details>
+
+### Response
+
+Dejame ver qué agregaste y cómo quedó la estructura:
+
+Encontrado. El import falla por una decisión **mía** en el setup, no por algo que hiciste vos.
+
+Dejame ver los archivos antes de arreglarlo:
+
+Diagnóstico exacto — y son **dos** cosas, ambas mías:
+
+**Línea 34: `[tool.uv] package = false`.** Lo puse razonando "esto es una aplicación, no una librería". Es cierto, pero la consecuencia es que uv instala las **dependencias** y nunca instala **tu proyecto**. Nada pone `src` en `sys.path`.
+
+**Línea 40: `pythonpath = ["src"]`.** Está dentro de `[tool.pytest.ini_options]` — **sólo pytest lo lee**. Por eso los tests hubieran andado y todo lo demás no: `uv run python`, uvicorn y el editor no saben nada de ese setting. Un parche que tapaba el síntoma en un solo contexto.
+
+La solución correcta es **instalar el proyecto en modo editable**:
+
+Ahora hago los paquetes explícitos. Los `__init__.py` reemplazan a los `.gitkeep`: mantienen el directorio **y** evitan la ambigüedad de namespace packages, que con mypy strict trae dolor:
+
+El import resuelve y el singleton funciona. Ahora corro los gates — es la **primera vez que mypy strict ve código real**:
+
+Todo verde, incluido mypy strict sobre tu código nuevo. Commiteo:
 
 ---
