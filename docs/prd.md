@@ -73,7 +73,7 @@ error — currency mismatch is a domain rule, not an API validation.
 | ID | Invariant | Enforced where |
 | --- | --- | --- |
 | I1 | For every transfer, `sum(debits) == sum(credits)` | Domain — a transfer cannot be constructed unbalanced |
-| I2 | A `USER` account balance is never `< 0` | Domain — `Account.debit()` raises `InsufficientFunds` |
+| I2 | A `USER` account balance is never `< 0` | Domain — `Account.debit()` raises `InsufficientFundsError` |
 | I3 | Transfer amount is strictly positive | Domain — `Money` / transfer construction |
 | I4 | Source and destination currencies match | Domain — v1 rejects cross-currency |
 | I5 | Source and destination are different accounts | Domain — self-transfer is meaningless |
