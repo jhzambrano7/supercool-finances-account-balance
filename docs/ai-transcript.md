@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 16
+**Turns recorded:** 17
 
 ---
 
@@ -1175,7 +1175,7 @@ Deliberate deviation flagged in §5: one transaction touches two `Account` aggre
 </task-notification>
 ```
 
-<details><summary>Tool calls (12)</summary>
+<details><summary>Tool calls (17)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== existe y tamaño ==="; wc -l openspec/changes/account-balance-do…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## 8\./,/^## 10\./p' openspec/changes/account-balance-domain/pr…
@@ -1189,6 +1189,11 @@ Deliberate deviation flagged in §5: one transaction touches two `Account` aggre
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== ningún zero-width residual ===" uv run python -c " import pathl…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
+- `mcp__plugin_engram_engram__mem_save`
+- `mcp__plugin_engram_engram__mem_judge`
+- `mcp__plugin_engram_engram__mem_judge`
+- `mcp__plugin_engram_engram__mem_judge`
 
 </details>
 
@@ -1263,5 +1268,120 @@ P2P a terceros entra. Entonces la regla correcta es la de la pata debitada, y ha
 Ahora corrijo la proposal para que no quede con la regla rota, y registro el veredicto de Q1:
 
 Se me coló un typo en el markdown de esa cita. Lo arreglo:
+
+Corregido en los dos lados. **21 commits**, tests y gates verdes.
+
+## PRD §9.1 — nueva sección
+
+> **El llamador debe ser dueño de toda cuenta `USER` que la transferencia *debita*. Si no debita ninguna `USER` —un depósito— debe ser dueño de la `USER` que se *acredita*.**
+
+| Movimiento | Patas | Debe poseer |
+|---|---|---|
+| Retiro | `USER` → `SYSTEM` | el origen |
+| **A otro cliente** | `USER` → `USER` | **sólo el origen** — la cuenta del destinatario no es suya, y no hace falta que lo sea |
+| Depósito | `SYSTEM` → `USER` | el destino |
+| Movimiento de sistema | `SYSTEM` → `SYSTEM` | autoridad de operador |
+
+Cuatro movimientos, cero excepciones. Y dejé escrita la alternativa rechazada con su motivo, porque el error es instructivo: *"dueño de toda pata `USER`"* **suena más estricto y en realidad está roto**. Recibir dinero no es un privilegio que el destinatario conceda — el único que necesita estar habilitado es quien lo envía.
+
+También quedó anotado que validar que el destino existe y está operable **no puede filtrar información** sobre cuentas ajenas. Es el flanco por donde un P2P se convierte en un enumerador de cuentas.
+
+## Lo que me llevo de este ciclo
+
+El sub-agente encontró un agujero **real** que yo había dejado en el PRD. Pero el remedio que propuso estaba mal, y sólo se ve chequeando la regla **movimiento por movimiento** en vez de leer el resumen y asentir. Si aceptaba su reporte tal cual, hoy tendríamos un PRD "corregido" que prohíbe la funcionalidad más obvia de una fintech.
+
+Vale como recordatorio del propio statement: *"tell the AI what to do instead of asking it how you should think"*. El sub-agente ejecutó bien; el criterio sobre si la regla resiste los cuatro casos no era suyo.
+
+## Te queda por pulir
+
+Q1 quedó resuelta. Las otras cuatro son tuyas, y ninguna bloquea:
+
+- **Q2** — ¿cierre de cuenta en v1? Recomienda incluirlo con `close()` exigiendo saldo cero. Barato y responde una pregunta abierta del propio PRD.
+- **Q3** — una reversa que dejaría en descubierto al destinatario original: ¿se rechaza, o un operador puede romper I2? Recomienda rechazar. Coincido: **una invariante con excepción deja de ser invariante**, y esos casos se resuelven comercialmente, no relajando el ledger.
+- **Q4** — ¿quién puede reversar, el pagador o un operador? No bloquea el dominio.
+- **Q5** — nombre del módulo: `account_balance`.
+
+Y dos restricciones que la proposal registró para fases futuras, para que no aparezcan de sorpresa: **la doble reversa no es enforceable dentro de ningún agregado** (necesita índice único parcial sobre `transfers.reverses` + chequeo en el caso de uso), y **una transacción toca dos agregados `Account`** — desvío consciente de la guía de un-agregado-por-transacción, porque la alternativa es la consistencia eventual que §5 existe para rechazar.
+
+Cuando la termines de pulir, decime y sigo con spec y design.
+
+---
+
+## Turn 17 — 2026-09-05 13:32:56.398 UTC
+
+### Prompt
+
+```text
+Q2 - es correcto, close como funcionalidad de dominio, invariante de saldo cero, esto para las cuentas de usuario
+Q3 - La reversión viene dada por un asiento compensatorio, resuelve la duda?
+Q4 - Un operador, parece el camino seguro, abrirlo al usuario tiene un incentivo perverso.
+Q5 - Si.
+
+Ahondemos sobre esas restricciones futuras que mencionas, no estoy seguro de haber entendido
+```
+
+<details><summary>Tool calls (7)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## 7\. Capabilities/,/^## 8\./p' docs/prd.md echo "=== §11 ==="…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add docs/prd.md openspec/ git commit -q -F - <<'MSG' docs(prd): make …
+- `AskUserQuestion`
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+
+</details>
+
+### Response
+
+Q2, Q4 y Q5 quedan cerradas y las bajo a los documentos. **Q3 no la resuelve** — y quiero explicarte por qué, porque son dos preguntas distintas que es fácil confundir.
+
+Primero registro lo decidido:
+
+Q2, Q4 y Q5 bajadas al PRD (§7.1 y §7.2) y a la proposal. Ahora las dos cosas que preguntaste.
+
+## Q3 — el asiento compensatorio no resuelve la duda
+
+Son dos preguntas distintas y es facilísimo confundirlas:
+
+- **¿Cómo se revierte?** → con un asiento compensatorio. Eso es I7, ya está decidido, y tu respuesta es correcta.
+- **¿Qué pasa cuando ese asiento compensatorio no se puede postear?** → esto es Q3, y sigue abierta.
+
+Mirá el caso concreto:
+
+```
+Ana → Bruno  $100        Ana: -100    Bruno: +100  →  Bruno queda en 100
+Bruno gasta   $80                     Bruno: -80   →  Bruno queda en  20
+Reversa:  debitar Bruno $100, acreditar Ana $100
+                                      Bruno: 20 - 100 = -80  ✗ viola I2
+```
+
+El asiento compensatorio **debita la cuenta del destinatario original**. Si ya gastó el dinero, ese débito lo deja en negativo — y Bruno es una cuenta `USER`, así que I2 lo prohíbe. La reversa no es posteable.
+
+O sea: el mecanismo está claro, lo que falta es la **política** cuando el mecanismo choca contra la invariante. Y no hay forma de esquivarla: o rechazás la reversa, o rompés I2, o hacés que la diferencia caiga en otro lado.
+
+## Las dos restricciones futuras
+
+**1. La doble reversa no es enforceable dentro de un agregado.**
+
+Un agregado sólo puede garantizar invariantes sobre **su propio estado**. `Transfer` puede garantizar que está balanceada, que el monto es positivo, que origen ≠ destino — todo eso lo ve dentro de sí misma.
+
+Pero *"¿esta transferencia ya fue revertida?"* no es una pregunta sobre esta `Transfer`. Es una pregunta sobre **si existe otra `Transfer` en el sistema** cuyo campo `reverses` apunte a ésta. Ningún agregado puede responder eso sin salir a mirar la base — y un agregado que consulta la base para validarse deja de ser un agregado.
+
+Y aunque el caso de uso chequee antes de escribir, eso solo no alcanza: dos reversas concurrentes de la misma transferencia leen "no hay reversa" al mismo tiempo y ambas postean. **Se paga dos veces.** Por eso la garantía real tiene que estar en la base: un índice único parcial sobre `transfers.reverses`. El chequeo en el caso de uso es para dar un error lindo; el índice es lo que hace la garantía verdadera.
+
+**2. Una transacción toca dos agregados `Account`.**
+
+La guía clásica de DDD dice: una transacción, un agregado. Si necesitás modificar dos, el segundo se actualiza después, de forma eventual, vía evento.
+
+Acá lo violamos a propósito. Una transferencia mueve el saldo de **dos** cuentas, y las dos son agregados. Aplicar la regla al pie de la letra significaría: debitar a Ana ahora, y acreditar a Bruno "en algún momento". Entre esos dos momentos **el dinero no existe en ningún lado** — salió de una cuenta y no llegó a la otra.
+
+Eso es exactamente lo que tu decisión de posteo atómico (§5) existe para impedir. La guía de un-agregado-por-transacción está pensada para sistemas donde la consistencia eventual es aceptable; en un ledger de dinero no lo es. Así que la desviación es consciente, está documentada, y el motivo es más fuerte que la regla.
+
+Lo importante es que quede **escrito como decisión** y no como descuido — un revisor que vea dos agregados en una transacción va a preguntar, y la respuesta tiene que estar en el documento, no en tu memoria.
+
+Ahora sí, Q3:
+
+Buena decisión, y tiene una consecuencia elegante que quiero señalarte. Lo escribo:
 
 ---
