@@ -105,4 +105,13 @@ Formato de cada entrada:
 - **Prompt:** "vale, usemos uuid7 y su bondad de ordenamiento para todo"
 - **Respuesta:** `IdGenerator` queda con un único método `next_id()`. Se eliminó el par `sorted_uuid`/`unsorted_uuid`: nombraba el mecanismo en vez de la intención y obligaba a decidir en cada call site si la entidad merecía un ID ordenado — basta que esa decisión se tome mal una vez, en una tabla que nadie mira, para fragmentar su índice. UUIDv7 lleva timestamp adelante, así los inserts caen cerca del borde derecho del B-tree en lugar de dispersarse; es lo que necesitan las tablas append-only del ledger y no cuesta nada en el resto. Primeros tests del proyecto (`tests/unit/shared/test_id_generator.py`) cubriendo las tres propiedades en que se apoya la decisión: versión, unicidad y orden creciente. Valida además la cadena completa editable install + pytest.
 - **Tradeoff registrado:** UUIDv7 expone el instante de creación dentro del ID. Aceptable acá porque el ledger ya expone timestamps al dueño de la cuenta, pero conviene tenerlo presente si algún ID llega a superficies públicas.
+- **Veredicto:** ✅ aprobado
+
+## 2026-09-04 23:54 — Alinear el editor con el venv y los gates del proyecto
+
+<!-- id: 20260904-235428-a1fe3a40 -->
+- **Qué intentaba:** Entender por qué el IDE marca error de pylint en los imports de los tests si en runtime y pytest resuelven bien.
+- **Prompt:** "aunque funciona, del lado de los tests, el IDE me marca error de pylint en el import, algo por ajustar?"
+- **Respuesta:** Causa raíz: el editable install expone `src` mediante un `.pth` dentro de `.venv/lib/python3.14/site-packages/`, y el pylint que marca el error viene empaquetado con el editor y corre sobre **otro intérprete** que nunca lee ese `.pth`. Verificado que pylint no está ni en el venv, ni en PATH, ni en `pyproject.toml`, ni en pre-commit. Se agregó `.vscode/settings.json` y `.vscode/extensions.json` versionados: intérprete apuntando a `.venv`, pylint/flake8/black deshabilitados, y ruff + mypy resueltos `fromEnvironment` para que el editor use las versiones fijadas en `uv.lock`.
+- **Razonamiento de fondo:** el problema mayor no era el subrayado sino la desalineación — un editor que aplica un linter que el repo nunca adoptó marca lo que a CI no le importa y calla lo que sí bloquea el commit, y eso entrena a ignorar diagnósticos. Ahora lo que ve el editor es exactamente lo que valida el gate.
 - **Veredicto:** ⏳ pendiente

@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 13
+**Turns recorded:** 14
 
 ---
 
@@ -860,12 +860,17 @@ No lo cambio sin tu visto bueno — es tu código y quizá ya tenías esa intenc
 vale, usemos uuid7 y su bondad de ordenamiento para todo
 ```
 
-<details><summary>Tool calls (4)</summary>
+<details><summary>Tool calls (9)</summary>
 
 - `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/application/services/id_generator.py
 - `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/shared/test_id_generator.py
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== tests ==="; uv run pytest 2>&1 | tail -12 echo "=== el contened…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -6 git add -A src tests git…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
+- `mcp__plugin_engram_engram__mem_save`
+- `mcp__plugin_engram_engram__mem_judge`
+- `mcp__plugin_engram_engram__mem_judge`
+- `mcp__plugin_engram_engram__mem_judge`
 
 </details>
 
@@ -874,5 +879,75 @@ vale, usemos uuid7 y su bondad de ordenamiento para todo
 Decidido. Un solo método, y de paso desaparece la elección en el call site:
 
 Y agrego el primer test — sirve para validar que la cadena completa (editable install + pytest) funciona de punta a punta:
+
+Hecho. `IdGenerator` quedó con un solo método:
+
+```python
+class IdGenerator:
+    def next_id(self) -> UUID:
+        return uuid7()
+```
+
+Al haber una sola forma de generar IDs, el call site ya no elige nada — y el modo de falla que te describía (alguien usa el aleatorio para una tabla caliente y el índice se degrada callado) deja de ser posible por construcción. Es la mejor clase de garantía: la que no depende de que nadie se olvide.
+
+Dejé el *por qué* en el docstring, no en el commit solamente. Dentro de seis meses, quien vea `next_id()` va a entender que UUIDv7 no es capricho sino localidad de índice en las tablas append-only del ledger — y que la ausencia de una alternativa aleatoria es deliberada.
+
+**Primeros tests del proyecto**, y los elegí para cubrir exactamente las tres propiedades sobre las que se apoya la decisión: versión 7, unicidad, y orden creciente. Ese último es el que importa: si mañana alguien cambia la implementación por un `uuid4`, el test de ordenamiento falla y explica solo por qué era importante. **Un test que sólo verificara "devuelve un UUID" no habría protegido nada.**
+
+3 passed. De paso valida la cadena completa: editable install + pytest resolviendo `modules.*` igual que el servicio en runtime.
+
+Un tradeoff que registré en el log y quiero que tengas presente, aunque no cambia la decisión: **UUIDv7 lleva el instante de creación adentro del ID**. Acá es aceptable —el ledger ya le expone timestamps al dueño de la cuenta— pero si algún ID llega a una superficie pública, estás publicando cuándo se creó esa entidad. Vale tenerlo anotado, no resolverlo hoy.
+
+Estado: **11 commits**, gates en verde, working tree limpio.
+
+Ahora sí, sin nada más en el camino: **¿arrancamos el dominio?** `Money` primero, que es el value object del que cuelga todo lo demás.
+
+---
+
+## Turn 14 — 2026-09-05 04:54:28.651 UTC
+
+### Prompt
+
+```text
+aunque funciona, del lado de los tests, el IDE me marca error de pylint en el import, algo por ajustar?
+```
+
+<details><summary>Tool calls (7)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sp=$(uv run python -c "import site;print(site.getsitepackages()[0])") ech…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== pylint está en el proyecto? ===" uv run python -c "import pylin…
+- `AskUserQuestion`
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/.vscode/settings.json
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/.vscode/extensions.json
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== JSON válido (VS Code acepta comentarios; validamos como JSONC) …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -5 git add .vscode/ git com…
+
+</details>
+
+### Response
+
+Funciona en runtime pero el analizador estático no lo ve — eso tiene un culpable concreto y verificable. Dejame mirar **cómo** quedó instalado el editable:
+
+El `.pth` es una **ruta estática plana** apuntando a `src`. Eso descarta la causa que sospechaba: los analizadores estáticos sí pueden seguir eso — **siempre que usen el venv del proyecto**. Sigo por ahí:
+
+Diagnóstico cerrado, y no es un problema de tu código ni del import:
+
+```
+pylint en el venv del proyecto  → NO está instalado
+pylint en PATH                  → no existe
+pylint en pyproject / pre-commit → no figura
+```
+
+El `.pth` que hace importable `modules` vive en `.venv/lib/python3.14/site-packages/`. **El pylint que te marca el error no es del proyecto** — viene empaquetado dentro del IDE y corre con su propio intérprete, que nunca lee ese `.pth`. Por eso runtime y tests pasan y el editor se queja: están mirando dos entornos distintos.
+
+El arreglo inmediato es una sola cosa: **apuntar el intérprete del IDE a `.venv/bin/python`**. Eso resuelve pylint y de paso cualquier otro analizador, sin tocar el repo.
+
+Pero hay algo de fondo que quiero marcarte, porque es más importante que el squiggle. **Este proyecto no usa pylint.** Los gates son ruff + mypy strict, y son los que corren en pre-commit y van a correr en CI. Tener el editor aplicando un linter que el repo nunca adoptó te deja en el peor de los mundos: te marca cosas que a CI no le importan, y **no** te marca las que sí van a frenarte el commit. Terminás aprendiendo a ignorar los subrayados — y el día que uno sea real, también lo ignorás.
+
+Lo correcto es alinear el editor con lo que el repo realmente exige: **ruff como linter y mypy como type checker**, los mismos binarios del venv, las mismas reglas del `pyproject.toml`. Ahí lo que ves es literalmente lo que el gate va a validar.
+
+Para dejarlo configurado en el repo —y que le funcione a cualquiera que lo clone, sin setup manual— necesito saber con qué trabajás:
+
+VS Code entonces. Dejo la configuración **versionada**, así cualquiera que clone el repo ve exactamente las reglas que aplica el pre-commit, sin configurar nada:
 
 ---
