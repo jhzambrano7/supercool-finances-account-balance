@@ -645,7 +645,7 @@ Ahora sí: ¿dominio o modelo de datos?
 procede a committear lo existente
 ```
 
-<details><summary>Tool calls (8)</summary>
+<details><summary>Tool calls (31)</summary>
 
 - `Skill` — commit
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1 -uall echo "=== commits previos ==="; git log -…
@@ -655,6 +655,29 @@ procede a committear lo existente
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add docs/statement.md docs/prd.md git commit -q -F - <<'MSG' docs(prd…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add .claude/hooks/ .claude/settings.json git commit -q -F - <<'MSG' c…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add .claude/commands/commit.md .atl/skill-registry.md git commit -q -…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== trailer PRD presente en todos? ===" for c in $(git rev-list --a…
+- `Bash` — echo "=== pythons disponibles ===" for p in python3 python3.12 python3.13 python3.14; do command -v $p >/dev/null && echo "$p -> $($p --vers…
+- `Bash` — cd /private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-finances-account-balance/a1fe3a40-2333-42e1-821a-98bf612d98b7/scratchpad r…
+- `AskUserQuestion`
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/pyproject.toml
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "3.14" > .python-version python3 - <<'PY' p='.gitignore' s=open(p).r…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== venv e intérprete ===" uv run python -c "import sys; print(sys.…
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/pyproject.toml
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/.pre-commit-config.yaml
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit install 2>&1 | tail -3 echo "=== corrida completa sobre…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== ¿el archivo compila? ===" uv run python -c "import ast; ast.par…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== qué regla hizo la reescritura ===" git stash list >/dev/null 2>…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='.claude/hooks/ai-transcript-build.py' s=open(p).read(…
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/pyproject.toml
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/.pre-commit-config.yaml
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -25
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/scripts/check_commit_msg.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='.pre-commit-config.yaml' s=open(p).read() s=s.replace…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit install 2>&1 | tail -2 git add pyproject.toml uv.lock .…
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/pyproject.toml
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add pyproject.toml uv.lock .python-version .pre-commit-config.yaml sc…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== verificación completa de gates sobre todo el repo ===" uv run p…
 
 </details>
 
@@ -663,5 +686,41 @@ procede a committear lo existente
 Antes de commitear, dos cosas: no hay `.pre-commit-config.yaml` todavía (así que el gate queda saltado por condición), y el repo **no tiene ningún commit** — esto es historia inicial. Reviso que no se cuele nada sensible y agrego el cache del skill registry al ignore:
 
 Falso positivo: es la propia regla que dice "nunca commitees secretos". Procedo.
+
+Ahora escribo la entrada del log y recién después commiteo los artefactos de sesión, para que queden completos:
+
+Commits verificados: 5 commits, todos con trailer `PRD:`, sin atribución AI, y `git log --grep=I2` ya devuelve la historia de la invariante de saldo. Te lo resumo abajo.
+
+Ahora el proyecto Python. Dejame ver qué hay instalado antes de elegir herramienta:
+
+Todo disponible: **Python 3.14.6** (la más nueva), y tanto `uv` como `poetry`. Antes de elegir, verifico que el stack real que vamos a usar soporte 3.14 — no lo doy por sentado:
+
+Resuelve limpio en 3.14: **54 paquetes, 2.28s**, sin conflictos — FastAPI, SQLAlchemy, Alembic, psycopg y testcontainers soportan 3.14. Así que la versión más nueva es viable de verdad, no sólo en el papel.
+
+Queda una decisión que sí es tuya, porque contradice una convención tuya documentada:
+
+uv entonces. Configuro el proyecto:
+
+Ruff 0.16.6 sí soporta `py314` — corrijo el target que había puesto defensivo:
+
+Ahora pre-commit:
+
+⚠️ **Alto. El autofix de ruff rompió código funcional.**
+
+Me corrijo: **no lo rompió**. Verifiqué antes de seguir y el archivo parsea y corre bien.
+
+Lo que pasó es que Python 3.14 incorporó **PEP 758**, que permite `except A, B:` sin paréntesis. Ruff, con `target-version = "py314"`, aplicó esa reescritura legítimamente. Mi lectura inicial fue de sintaxis Python 2 y estaba equivocada.
+
+Pero eso destapa un problema **real** de portabilidad:
+
+Confirmado, y esto sí importa. El hook se invoca con `python3` pelado desde `settings.json` — el intérprete **del sistema**, no el del venv. Hoy es 3.14.6 y anda; en cualquier máquina con 3.12 revienta con `SyntaxError`. Es infraestructura de compliance: no puede depender del target del proyecto.
+
+Todo pasa salvo `no-commit-to-branch`, que bloquea commits a `main` — justo el flujo que estás usando en este repo solo. **Un gate que se saltea con `--no-verify` todas las semanas enseña a saltear gates**, y eso es exactamente lo que no querés en un repo donde otros gates van a proteger lógica de dinero. Lo saco.
+
+Y en su lugar hago algo que sí vale: **que la convención de commits que definimos deje de ser un documento y pase a ser un gate**.
+
+Los 8 casos se comportan como corresponde. Ahora commiteo el setup, dejando que los propios gates lo validen:
+
+El gate hizo su trabajo: `T201` (prohibido `print`) frenó el commit. La regla es correcta para código de servicio, pero **este script es una CLI: su salida por stderr es su interfaz**. Le pongo la excepción acotada en vez de aflojar la regla global:
 
 ---

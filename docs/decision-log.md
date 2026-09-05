@@ -79,4 +79,13 @@ Formato de cada entrada:
 - **Qué intentaba:** Versionar todo lo construido hasta ahora, que estaba sin commitear (el repo no tenía ningún commit).
 - **Prompt:** "procede a committear lo existente"
 - **Respuesta:** Cinco commits atómicos siguiendo `.claude/commands/commit.md`: scaffolding hexagonal, statement + PRD, hooks de transcript/decision-log, comando de commit, y por último los artefactos de sesión generados. Gate de pre-commit salteado por condición (no existe `.pre-commit-config.yaml` todavía). Escaneo de secretos previo: único hit fue la propia regla del comando que prohíbe commitear secretos. Se agregó `.atl/.skill-registry.cache.json` al gitignore por ser derivado. **Hallazgo:** el `Skill` tool cargó el `commit.md` GLOBAL (Jira + poetry) en vez del `.claude/commands/commit.md` del repo — el archivo del repo no tomó precedencia; se commiteó siguiendo la convención del repo igual, pero la resolución del comando hay que corregirla.
+- **Veredicto:** ✅ aprobado
+
+## 2026-09-04 23:31 — Configurar proyecto Python 3.14 con uv y gates de calidad
+
+<!-- id: 20260904-233101-a1fe3a40 -->
+- **Qué intentaba:** Dejar el proyecto Python configurado con la versión más nueva, virtualenv y pre-commit.
+- **Prompt:** "configura el proyecto python, usa la versión mas actualizada, agrega el virtual env y por último precommit"
+- **Respuesta:** Elegido **uv** sobre poetry (fork consultado; contradecía su convención global `poetry run`): gestiona intérprete + venv + dependencias en un binario y fija Python en el proyecto, lo que da reproducibilidad entre local, contenedor y CI — relevante porque el statement pide pensar el despliegue cloud-native. Se verificó **empíricamente** que el stack (FastAPI, SQLAlchemy, Alembic, psycopg, testcontainers) resuelve en 3.14 antes de comprometerse. Gates: ruff lint+format, mypy strict, y un validador commit-msg propio (`scripts/check_commit_msg.py`, 8 casos probados) que hace cumplir el trailer `PRD:` — la convención deja de ser documento y pasa a ser gate.
+- **Hallazgos:** (1) El autofix de ruff reescribió `except (A, B):` sin paréntesis usando PEP 758 de Python 3.14; **no era un bug** —lo verifiqué antes de afirmarlo— pero los hooks corren con el `python3` del SISTEMA, no el venv, así que rompían en 3.12; se excluyó `.claude/hooks` de ruff y se restauró la forma portable. (2) Se descartó `no-commit-to-branch` porque bloquearía el flujo real del repo y un gate que se saltea rutinariamente con `--no-verify` enseña a saltear gates. (3) `T201` frenó el commit por los `print` del validador: se resolvió con per-file-ignore acotado a `scripts/**` en vez de aflojar la regla global.
 - **Veredicto:** ⏳ pendiente
