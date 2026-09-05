@@ -987,7 +987,7 @@ Ahora sí, el dominio. Arranco por `Money` — enteros en unidades mínimas, mon
 dale, arrancá con Money en shared. Para el dominio en general, me parece lo core del asunto, iniciaremos con sdd vamos con la proposal y yo lo pulo, lo demás se va volviendo consmético, ya llegaremos a los casos de uso y adapters y te diré como los quiero
 ```
 
-<details><summary>Tool calls (16)</summary>
+<details><summary>Tool calls (22)</summary>
 
 - `mcp__plugin_engram_engram__mem_search` — sdd-init supercool-finances-account-balance
 - `mcp__plugin_engram_engram__mem_search` — skill-registry
@@ -1005,6 +1005,12 @@ dale, arrancá con Money en shared. Para el dominio en general, me parece lo cor
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add src tests docs/prd.md uv run pytest 2>&1 | tail -3 git commit -q …
 - `Agent` — Write an SDD **proposal** for the DOMAIN MODEL of the SuperCool Finances account balance service. ## Skills to load before work Read this fi…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat .claude/.decision-log-pending
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance mkdir -p /private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-f…
+- `Bash` — p=/private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-finances-account-balance/a1fe3a40-2333-42e1-821a-98bf612d98b7/scratchpad/pr…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== dónde aparece ==="; rg -l 'from __future__ import annotations' …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='scripts/check_commit_msg.py' s=open(p).read() s=s.rep…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add src scripts git commit -q -F - <<'MSG' refactor(domain): drop the…
 
 </details>
 
@@ -1033,5 +1039,67 @@ Actualizo el PRD para que no quede desalineado con el código:
 Ahora la proposal. Una cosa la resuelvo sin preguntarte: dijiste *"yo lo pulo"*, y para pulir necesitás un archivo editable — así que los artefactos SDD van **a archivos versionados** en el repo, no sólo a engram. Consistente con todo lo demás que venimos commiteando.
 
 Delego la proposal con contexto completo:
+
+`Money` está en el repo. **35 tests, gates verdes, 15 commits.**
+
+## Las decisiones que tomé y por qué
+
+**Enteros, y ningún constructor que acepte float.** No es paranoia: `0.1 + 0.2 != 0.3` en punto flotante, así que aritmética repetida deriva, y un ledger que deriva no se puede reconciliar. Hay un test que suma diez veces y verifica exactitud — falla el día que alguien meta un float por la puerta de atrás.
+
+**Rechazo explícito de `bool`.** Este es el detalle que se pasa por alto siempre: en Python `bool` es subclase de `int`, así que `Money(True, USD)` sería silenciosamente **un centavo**. Un `isinstance(x, int)` ingenuo lo deja pasar.
+
+**El ordenamiento lo escribí a mano en vez de usar `order=True`.** El generado compara la tupla `(amount, currency)`, o sea que `Money(100, JPY) < Money(5, USD)` te **devuelve un booleano** en lugar de rechazar la pregunta. Comparar monedas distintas sin una tasa no es una pregunta con respuesta, y el dataclass te la contesta igual. Esa es la clase de bug que no rompe nada hasta que corrompe un balance.
+
+**Pero la igualdad quedó total a propósito** — `Money(100, USD) != Money(100, EUR)` devuelve `True`, no lanza. Si `__eq__` lanzara, se rompen `set`, `dict` y cualquier `assert`. Es una asimetría deliberada, no un olvido.
+
+**`Currency` no lleva el exponente de unidades mínimas.** Adentro del servicio el dinero sólo existe en unidades mínimas, así que el exponente hace falta únicamente para renderizar o parsear un decimal humano — presentación, y eso es del adapter de entrada. No inventé una tabla de exponentes que nadie necesita todavía.
+
+**Money puede ser negativo.** Las cuentas `SYSTEM` lo requieren (I2 aplica sólo a `USER`). La positividad se exige donde una regla lo pide —el monto de una transferencia— no en el tipo.
+
+## Dos cosas que me frenó el tooling
+
+**N818** exigió sufijo `Error` en las excepciones. Renombré en vez de silenciar la regla: estas excepciones las atrapan los adapters, que viven fuera del dominio y esperan la convención de Python. Y actualicé el PRD (I2) para que el contrato no derivara del código.
+
+**Y un gotcha que vale oro:** `pre-commit run --all-files` **sólo mira archivos trackeados por git**. Me dio verde con los archivos nuevos sin agregar, y falló recién en el `git add`. Un `--all-files` limpio sobre código untracked no prueba absolutamente nada.
+
+## SDD
+
+No había `sdd-init`, así que registré el contexto del proyecto en engram — stack, capacidades de testing, convenciones. La **proposal del dominio está corriendo en un sub-agente** con el PRD como contrato autoritativo, alcance acotado a modelo de dominio (agregados, VOs, invariantes, comportamientos) y explícitamente **fuera** de casos de uso y adapters, que dijiste que vas a dirigir vos.
+
+Te aviso apenas termine y la revisamos juntos antes de que la pulas.
+
+Esa la preguntaste en otra sesión — el hook es del repo, así que el pendiente llegó acá. Te la contesto igual, y de paso la verifico en vez de recitarla.
+
+**Qué hace:** `from __future__ import annotations` (PEP 563) hace que las anotaciones de tipo **no se evalúen** en tiempo de definición; quedan guardadas como strings.
+
+**Por qué la puse en `money.py`:** por esto:
+
+```python
+class Money:
+    def __add__(self, other: Money) -> Money:   # ← "Money" todavía no existe acá
+```
+
+Dentro del cuerpo de la clase, el nombre `Money` aún no está ligado. Sin ese import, eso sería `NameError` al importar el módulo. Las alternativas clásicas son comillas (`-> "Money"`) o el import del futuro.
+
+Ahora, el punto que importa y que quiero verificar antes de afirmarlo: **Python 3.14 trae PEP 649**, que hace la evaluación diferida de anotaciones el comportamiento **nativo**. Si es así, en nuestro caso la línea sería redundante:
+
+Confirmado, y con un matiz que cambia la recomendación:
+
+| | 3.12 | 3.14 |
+|---|---|---|
+| Sin `from __future__` | `NameError` | **funciona** |
+
+Python 3.14 trae PEP 649: evaluación diferida nativa. Pero hay algo más — quiero ver **qué queda** en las anotaciones con y sin el import, porque no es lo mismo:
+
+Ahí está lo importante:
+
+```
+CON future import → {'other': 'Box',                'return': 'Box'}                 ← strings
+SIN future import → {'other': <class 'Box'>, 'return': <class 'Box'>}   ← tipos reales
+```
+
+En Python 3.14 el import del futuro **te degrada**. PEP 563 convierte las anotaciones en strings permanentemente; PEP 649 las deja diferidas pero como **objetos reales**. Y eso importa concretamente acá: `dependency-injector` —que acabás de agregar— inspecciona type hints en runtime para el wiring. Con strings, cualquier librería que introspeccione tiene que llamar `get_type_hints()` y resolver a mano.
+
+O sea: la línea que puse no sólo es innecesaria en 3.14, es **contraproducente**. La saco.
 
 ---

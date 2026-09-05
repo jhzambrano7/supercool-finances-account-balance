@@ -125,3 +125,11 @@ Formato de cada entrada:
 - **Hallazgos:** (1) N818 exigió sufijo `Error` en las excepciones; se renombró en vez de silenciar la regla, porque los adapters que las atrapan viven fuera del dominio y esperan la convención de Python — y se actualizó el PRD (I2) para que no derivara del código. (2) **`pre-commit run --all-files` sólo revisa archivos trackeados por git**: pasó en verde con los archivos nuevos untracked y falló recién al hacer `git add`.
 - **SDD:** sin `sdd-init` previo, se registró el contexto del proyecto en engram (`sdd-init/supercool-finances-account-balance`) con stack, capacidades de testing y convenciones. Artefactos en modo **openspec** (archivos versionados) porque él los va a pulir. Proposal del dominio delegada a sub-agente.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-05 00:04 — Quitar el import de future annotations por redundante en 3.14
+
+<!-- id: 20260905-000404-6ab996d1 -->
+- **Qué intentaba:** Entender para qué servía la línea `from __future__ import annotations` en el código nuevo. (Pregunta hecha en otra sesión del mismo repo; el hook de decision log es del repo, así que el pendiente llegó a esta.)
+- **Prompt:** "para que sirve l línea from __future__ import annotations"
+- **Respuesta:** Estaba para que `def __add__(self, other: Money) -> Money` pudiera nombrar la clase desde adentro de su propio cuerpo, donde el nombre todavía no está ligado. Verificado empíricamente en ambos intérpretes: en 3.12 sin el import es `NameError`; en 3.14 funciona solo, porque PEP 649 hace nativa la evaluación diferida. Además se comprobó que **mantenerlo es peor que sacarlo**: el import del futuro aplica PEP 563 y deja las anotaciones como strings (`{'other': 'Box'}`), mientras que 3.14 sin él las deja como objetos reales resueltos on demand (`{'other': <class 'Box'>}`). Todo lo que introspecciona tipos en runtime —el wiring de `dependency-injector`, pydantic— tendría que resolverlas a mano. Eliminado de `money.py` y de `scripts/check_commit_msg.py`.
+- **Veredicto:** ⏳ pendiente
