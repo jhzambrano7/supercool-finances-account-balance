@@ -12,6 +12,8 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.14",
     "psycopg[binary]>=3.2",
+    "uuid6>=2025.0.1",
+    "dependency-injector>=4.49.1",
 ]
 
 [dependency-groups]
@@ -26,16 +28,23 @@ dev = [
     "pre-commit>=4.0",
 ]
 
-# This is an application, not a distributable library: install the dependencies
-# but never build a wheel from it.
-[tool.uv]
-package = false
+# The project installs itself into the venv in editable mode, which is what puts
+# `src` on sys.path. Without this, only pytest (via its own `pythonpath`) could
+# resolve `modules.*`; `uv run python`, uvicorn and the editor could not.
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/modules"]
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+# No `pythonpath` here on purpose: the editable install is the single mechanism
+# that makes `modules.*` importable, so tests exercise the same import path as
+# the running service.
 testpaths = ["tests"]
 addopts = "-q --strict-markers --strict-config"
 asyncio_mode = "auto"
