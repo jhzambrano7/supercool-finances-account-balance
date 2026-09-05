@@ -1,0 +1,9 @@
+
+# Decision log scratch state
+.claude/.decision-log-pending
+
+# Transcript builder scan cache (derivado, se regenera solo)
+.claude/.transcript-scan-cache.json
+
+# Skill registry cache (derivado)
+.atl/.skill-registry.cache.json
