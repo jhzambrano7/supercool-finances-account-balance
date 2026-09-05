@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 14
+**Turns recorded:** 15
 
 ---
 
@@ -912,7 +912,7 @@ Ahora sí, sin nada más en el camino: **¿arrancamos el dominio?** `Money` prim
 aunque funciona, del lado de los tests, el IDE me marca error de pylint en el import, algo por ajustar?
 ```
 
-<details><summary>Tool calls (7)</summary>
+<details><summary>Tool calls (12)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sp=$(uv run python -c "import site;print(site.getsitepackages()[0])") ech…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== pylint está en el proyecto? ===" uv run python -c "import pylin…
@@ -921,6 +921,11 @@ aunque funciona, del lado de los tests, el IDE me marca error de pylint en el im
 - `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/.vscode/extensions.json
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== JSON válido (VS Code acepta comentarios; validamos como JSONC) …
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -5 git add .vscode/ git com…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
+- `mcp__plugin_engram_engram__mem_save`
+- `mcp__plugin_engram_engram__mem_judge`
+- `mcp__plugin_engram_engram__mem_judge`
+- `mcp__plugin_engram_engram__mem_judge`
 
 </details>
 
@@ -949,5 +954,84 @@ Lo correcto es alinear el editor con lo que el repo realmente exige: **ruff como
 Para dejarlo configurado en el repo —y que le funcione a cualquiera que lo clone, sin setup manual— necesito saber con qué trabajás:
 
 VS Code entonces. Dejo la configuración **versionada**, así cualquiera que clone el repo ve exactamente las reglas que aplica el pre-commit, sin configurar nada:
+
+Listo, y quedó versionado en el repo — no en tu máquina.
+
+**El bug:** el editable install expone `src` con un `.pth` dentro de `.venv/lib/python3.14/site-packages/`. El pylint que te marcaba el error viene empaquetado con el editor y corre sobre **otro intérprete**, que nunca lee ese archivo. Runtime y pytest miraban el venv; el editor miraba otra cosa. Nada roto, dos entornos distintos.
+
+De paso descarté una hipótesis peor antes de escribir nada: algunos backends generan editables con un *import hook* (`__editable___..._finder.py`) que los analizadores estáticos **no pueden seguir**, y ahí el problema sería estructural. Verifiqué el nuestro y es una ruta plana — hatchling se portó bien.
+
+**Qué hice, en dos capas.**
+
+La inmediata: `python.defaultInterpreterPath` al `.venv`, más `python.analysis.extraPaths: ["src"]` como red de seguridad para un clone fresco donde `.venv` todavía no existe.
+
+La de fondo, que importa más que el subrayado: **apagué pylint, flake8 y black**, y dejé ruff + mypy resueltos con `importStrategy: fromEnvironment`. Eso significa que el editor usa **los binarios exactos que fija `uv.lock`** — los mismos que corre el pre-commit. Editor y gate coinciden por construcción, no por coincidencia.
+
+Insisto en el porqué porque es la parte que se subestima: un editor que aplica reglas que el repo no adoptó te marca lo que a CI no le importa y **calla lo que sí te va a frenar el commit**. Convivís unos días con subrayados que resultan falsos, y aprendés a ignorarlos. El día que uno sea real —en la lógica que mueve plata— también lo vas a ignorar. Por eso no alcanzaba con seleccionar el venv.
+
+También agregué `extensions.json`: recomienda ruff y mypy, y pone pylint/flake8/black/isort en `unwantedRecommendations`. Quien clone el repo recibe la sugerencia correcta en vez de instalar lo que le suene.
+
+Verificado: JSON válido, los cuatro binarios existen en `.venv`, gates en verde, **13 commits**.
+
+Recargá la ventana de VS Code (`Cmd+Shift+P` → *Developer: Reload Window*) para que tome el intérprete.
+
+Ahora sí, el dominio. Arranco por `Money` — enteros en unidades mínimas, moneda como parte del tipo, y aritmética que rechaza mezclar monedas en el dominio, no en la API. ¿Le damos?
+
+---
+
+## Turn 15 — 2026-09-05 05:01:31.335 UTC
+
+### Prompt
+
+```text
+dale, arrancá con Money en shared. Para el dominio en general, me parece lo core del asunto, iniciaremos con sdd vamos con la proposal y yo lo pulo, lo demás se va volviendo consmético, ya llegaremos a los casos de uso y adapters y te diré como los quiero
+```
+
+<details><summary>Tool calls (16)</summary>
+
+- `mcp__plugin_engram_engram__mem_search` — sdd-init supercool-finances-account-balance
+- `mcp__plugin_engram_engram__mem_search` — skill-registry
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat .atl/skill-registry.md
+- `mcp__plugin_engram_engram__mem_save`
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/domain/errors.py
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/domain/money.py
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/shared/domain/test_money.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -20
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -12
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add src/modules/shared/domain tests/unit/shared/domain git commit -q …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance for f in src/modules/shared/domain/errors.py src/modules/shared/domain/mo…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sd 'raises `InsufficientFunds`' 'raises `InsufficientFundsError`' docs/pr…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add src tests docs/prd.md uv run pre-commit run 2>&1 | tail -8
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add src tests docs/prd.md uv run pytest 2>&1 | tail -3 git commit -q …
+- `Agent` — Write an SDD **proposal** for the DOMAIN MODEL of the SuperCool Finances account balance service. ## Skills to load before work Read this fi…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
+
+</details>
+
+### Response
+
+Vamos. Primero verifico el estado de SDD y el registry de skills, que necesito para delegar bien:
+
+Sin `sdd-init` previo. Leo el registry del repo, que es el fallback:
+
+Registry cacheado. No hay `sdd-init` previo, así que lo registro con lo que ya sabemos de esta sesión:
+
+Ahora `Money`. Empiezo por los errores de dominio, que son parte del contrato:
+
+35 en verde. Gates:
+
+El gate me frenó otra vez, y correctamente. Dos cosas:
+
+**N818** exige sufijo `Error` en excepciones (PEP 8). Podría silenciar la regla argumentando "lenguaje de dominio", pero sería exactamente lo que critiqué antes: aflojar el linter para que pase mi código. Y el argumento no se sostiene — estas excepciones las van a atrapar los adapters, código que vive fuera del dominio y espera la convención de Python. Renombro.
+
+**Y encontré un gotcha del tooling:** `pre-commit run --all-files` sólo mira archivos **trackeados por git**. Por eso pasó en verde hace un minuto y falló ahora: los archivos nuevos estaban untracked. Vale saberlo — un `--all-files` en verde sobre código sin agregar no prueba nada.
+
+Actualizo el PRD para que no quede desalineado con el código:
+
+`Money` commiteado. **37 tests, gates verdes.**
+
+Ahora la proposal. Una cosa la resuelvo sin preguntarte: dijiste *"yo lo pulo"*, y para pulir necesitás un archivo editable — así que los artefactos SDD van **a archivos versionados** en el repo, no sólo a engram. Consistente con todo lo demás que venimos commiteando.
+
+Delego la proposal con contexto completo:
 
 ---
