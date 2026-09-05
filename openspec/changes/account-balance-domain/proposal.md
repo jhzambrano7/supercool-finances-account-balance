@@ -281,11 +281,18 @@ deposit is a transfer from a `SYSTEM` funding account into a `USER` account (PRD
 own the source, so the rule as written either blocks every deposit or must be silently skipped for it —
 and a rule with a silent exception is how vaults get opened. The enforceable restatement of G5 is:
 
-> **The caller must own every `USER`-typed account leg of the transfer.**
+> **The caller must own every `USER` account the transfer *debits*. If it debits no `USER` account —
+> a deposit — the caller must own the `USER` account it *credits*.**
 
-Withdrawal and P2P collapse to "owns the source"; deposit resolves to "owns the destination"; a
-hypothetical SYSTEM→SYSTEM movement is operator-only. The domain supplies `Account.assert_owned_by`;
-choosing the legs is a use-case policy. **Needs the user's verdict (Q1).**
+**Resolved (2026-09-05).** This proposal first stated the rule as "owns every `USER`-typed leg". That
+version is broken: sending money to another customer has a `USER` destination the caller does not
+own, so it would have forbidden customer-to-customer transfers outright. The user confirmed those
+transfers are in v1 scope, so the rule is stated over the *debited* leg instead. Withdrawal and
+customer-to-customer resolve to "owns the source"; deposit to "owns the destination"; SYSTEM→SYSTEM
+is operator-only. Receiving money is not a privilege the recipient grants.
+
+`docs/prd.md` §9.1 now carries the authoritative statement, and PRD §5 step 1 was corrected. The
+domain supplies `Account.assert_owned_by`; choosing which legs to check is a use-case policy.
 
 **(b) Double reversal is not preventable inside an aggregate.** "Has this transfer already been
 reversed?" is a question about *other* `Transfer` instances. No aggregate can answer it. Enforcement
@@ -303,7 +310,7 @@ push an optional through every USER path to describe two rows.
 
 | # | Question | Recommendation |
 | --- | --- | --- |
-| Q1 | G5 restated as "owns every `USER` leg" (§8a)? | Adopt — the PRD rule as written cannot be implemented for deposits |
+| ~~Q1~~ | ~~G5 restatement (§8a)~~ | **Resolved** — stated over the *debited* leg, not every `USER` leg. PRD §9.1 is now authoritative |
 | Q2 | Is account closure in v1 (PRD §11)? If yes, `AccountStatus = {ACTIVE, CLOSED}` and `Account.close()` requires a zero balance | Include, with the zero-balance rule — it answers the PRD's own question cheaply |
 | Q3 | A reversal that would overdraft the original destination: refuse (D10), or allow an operator-authorized correction to breach I2? | Refuse. Some reversals then become impossible and must be resolved commercially, not by a ledger exception |
 | Q4 | Reversal authorization — payer or operator (PRD §11)? Does not block the domain model, but decides which `requested_by` is legal | Defer to the use-case phase |

@@ -21,7 +21,7 @@ ever created, destroyed, or duplicated by this service.**
 | G2 | Concurrent operations on the same account never corrupt a balance | Two simultaneous transfers must not both pass a stale balance check |
 | G3 | A retried request never moves money twice | Networks fail mid-flight; clients retry; money must not |
 | G4 | A customer account can never go negative | Overdraft is not a supported product |
-| G5 | A customer can only move money from accounts they own | Authentication without authorization is an open vault |
+| G5 | A customer can only move money out of accounts they own, and can only fund their own | Authentication without authorization is an open vault |
 
 ## 3. Non-Goals (explicitly out of scope for v1)
 
@@ -92,7 +92,9 @@ observable intermediate state, and therefore no way to leave money suspended in 
 
 Sequence, all inside a single database transaction:
 
-1. **Authorize** — resolve the caller from the session token; assert the caller owns the source account.
+1. **Authorize** — resolve the caller from the session token, then assert G5 as stated in §9.1.
+   Note this is *not* simply "owns the source": a deposit's source is a `SYSTEM` account nobody
+   owns, so a naive source check would block every deposit.
 2. **Idempotency check** — see §6. Short-circuit and return the cached result on replay.
 3. **Lock both accounts** with `SELECT ... FOR UPDATE`, **ordered deterministically by account id**.
    Ordering is not an optimization — without it, concurrent `A→B` and `B→A` transfers deadlock.
@@ -178,7 +180,7 @@ operational job.
 | Capability | Notes |
 | --- | --- |
 | Open an account | For a given owner and currency |
-| Transfer between accounts | The critical path (§5). Same currency in v1 |
+| Transfer between accounts | The critical path (§5). Same currency in v1. **Includes sending to another customer's account**, which is why authorization is stated over the debited leg (§9.1) |
 | Deposit | Transfer from a `SYSTEM` funding account into a `USER` account |
 | Withdraw | Transfer from a `USER` account into a `SYSTEM` settlement account. Subject to I2 |
 | Read balance | Own accounts only |
@@ -233,10 +235,36 @@ from currency conversion between two accounts we own, and it is out of scope.
 
 ## 9. Security
 
+### 9.1 The authorization rule (G5), stated so it is implementable
+
+> **The caller must own every `USER` account the transfer debits. If the transfer debits no `USER`
+> account — a deposit — the caller must own the `USER` account it credits.**
+
+The obvious phrasing, "the caller owns the source account", is wrong, and the way it is wrong
+matters: a deposit's source is a `SYSTEM` funding account that nobody owns, so the naive rule either
+rejects every deposit or is quietly skipped for it. **An authorization rule with a silent exception
+is how vaults get opened.**
+
+Stating it over the *debited* leg resolves all four movements without exceptions:
+
+| Movement | Legs | Caller must own |
+| --- | --- | --- |
+| Withdraw | `USER` → `SYSTEM` | the source (debited `USER`) |
+| Transfer to another customer | `USER` → `USER` | the source only — the recipient's account is not theirs, and need not be |
+| Deposit | `SYSTEM` → `USER` | the destination (no `USER` is debited) |
+| System movement | `SYSTEM` → `SYSTEM` | operator authority; no customer may request it |
+
+**Rejected alternative:** "the caller owns every `USER` leg". It reads tighter and is in fact
+broken — it would require owning the *recipient's* account, forbidding customer-to-customer
+transfers entirely.
+
+Receiving money is not a privilege the recipient grants; the sender is the only party who needs to
+be entitled. Validating that the destination exists and is operable must not disclose anything about
+an account the caller does not own.
+
 - **Authentication**: session token validated through a gateway port. v1 ships a simulated
   adapter; a real IdP replaces the adapter without touching the core.
-- **Authorization**: ownership of the **source** account is asserted before any money moves.
-  Authenticated ≠ entitled.
+- **Authorization**: see §9.1. Authenticated ≠ entitled.
 - Balances and history are readable only by the account owner.
 - No sensitive data in logs. Errors returned to clients do not leak the existence or state of
   accounts the caller does not own.
