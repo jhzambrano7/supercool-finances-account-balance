@@ -132,4 +132,13 @@ Formato de cada entrada:
 - **Qué intentaba:** Entender para qué servía la línea `from __future__ import annotations` en el código nuevo. (Pregunta hecha en otra sesión del mismo repo; el hook de decision log es del repo, así que el pendiente llegó a esta.)
 - **Prompt:** "para que sirve l línea from __future__ import annotations"
 - **Respuesta:** Estaba para que `def __add__(self, other: Money) -> Money` pudiera nombrar la clase desde adentro de su propio cuerpo, donde el nombre todavía no está ligado. Verificado empíricamente en ambos intérpretes: en 3.12 sin el import es `NameError`; en 3.14 funciona solo, porque PEP 649 hace nativa la evaluación diferida. Además se comprobó que **mantenerlo es peor que sacarlo**: el import del futuro aplica PEP 563 y deja las anotaciones como strings (`{'other': 'Box'}`), mientras que 3.14 sin él las deja como objetos reales resueltos on demand (`{'other': <class 'Box'>}`). Todo lo que introspecciona tipos en runtime —el wiring de `dependency-injector`, pydantic— tendría que resolverlas a mano. Eliminado de `money.py` y de `scripts/check_commit_msg.py`.
+- **Veredicto:** ✅ aprobado
+
+## 2026-09-05 00:10 — Revisar la proposal del dominio y detectar hueco de autorización
+
+<!-- id: 20260905-001056-a1fe3a40 -->
+- **Qué intentaba:** (Turno disparado por la finalización del sub-agente de SDD, no por un prompt del usuario.) Entregar la proposal del dominio revisada.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** Proposal en `openspec/changes/account-balance-domain/proposal.md` (354 líneas): `Account` / `Transfer` / `Entry`, 12 decisiones con su alternativa rechazada, mapa de enforcement de I1–I7 y taxonomía de errores con clasificación Client/Internal. **Hallazgo confirmado contra el PRD:** §5 paso 1 exige que el llamador sea dueño de la cuenta *origen*, pero el origen de un depósito es una cuenta `SYSTEM` que nadie posee (§7) — la regla bloquea todo depósito. Es un hueco del PRD, no de la proposal.
+- **Corrección a la proposal:** su restitución de G5 —"el llamador debe ser dueño de **toda** pata `USER` de la transferencia"— **rompe P2P a terceros**: el destino de un envío a otra persona es una cuenta `USER` ajena, así que la regla exigiría poseer la cuenta del destinatario. La formulación correcta gira sobre la pata *debitada*, no sobre todas. Queda pendiente el veredicto del usuario sobre si P2P a terceros entra en v1, que es lo que decide la forma final de G5.
 - **Veredicto:** ⏳ pendiente

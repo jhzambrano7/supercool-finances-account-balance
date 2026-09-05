@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 15
+**Turns recorded:** 16
 
 ---
 
@@ -987,7 +987,7 @@ Ahora sí, el dominio. Arranco por `Money` — enteros en unidades mínimas, mon
 dale, arrancá con Money en shared. Para el dominio en general, me parece lo core del asunto, iniciaremos con sdd vamos con la proposal y yo lo pulo, lo demás se va volviendo consmético, ya llegaremos a los casos de uso y adapters y te diré como los quiero
 ```
 
-<details><summary>Tool calls (22)</summary>
+<details><summary>Tool calls (27)</summary>
 
 - `mcp__plugin_engram_engram__mem_search` — sdd-init supercool-finances-account-balance
 - `mcp__plugin_engram_engram__mem_search` — skill-registry
@@ -1011,6 +1011,11 @@ dale, arrancá con Money en shared. Para el dominio en general, me parece lo cor
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== dónde aparece ==="; rg -l 'from __future__ import annotations' …
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='scripts/check_commit_msg.py' s=open(p).read() s=s.rep…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add src scripts git commit -q -F - <<'MSG' refactor(domain): drop the…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-05 00:04 — Quitar el impor…
+- `mcp__plugin_engram_engram__mem_save`
+- `mcp__plugin_engram_engram__mem_judge`
+- `mcp__plugin_engram_engram__mem_judge`
+- `mcp__plugin_engram_engram__mem_judge`
 
 </details>
 
@@ -1101,5 +1106,109 @@ SIN future import → {'other': <class 'Box'>, 'return': <class 'Box'>}   ← ti
 En Python 3.14 el import del futuro **te degrada**. PEP 563 convierte las anotaciones en strings permanentemente; PEP 649 las deja diferidas pero como **objetos reales**. Y eso importa concretamente acá: `dependency-injector` —que acabás de agregar— inspecciona type hints en runtime para el wiring. Con strings, cualquier librería que introspeccione tiene que llamar `get_type_hints()` y resolver a mano.
 
 O sea: la línea que puse no sólo es innecesaria en 3.14, es **contraproducente**. La saco.
+
+Respondida, verificada y **corregida** — porque al verificarla descubrí que estaba mal puesta.
+
+**Qué hacía:** permitir que `def __add__(self, other: Money) -> Money` nombre a `Money` desde adentro del cuerpo de la clase, donde ese nombre todavía no está ligado. Sin eso, `NameError` al importar el módulo.
+
+**Lo que encontré al probarlo en serio:**
+
+```
+Python 3.12, sin el import  →  NameError
+Python 3.14, sin el import  →  funciona (PEP 649: evaluación diferida nativa)
+```
+
+Hasta ahí, "redundante". Pero fui un paso más y miré **qué queda** en las anotaciones:
+
+```
+CON el import  →  {'other': 'Box',              'return': 'Box'}               ← strings
+SIN el import  →  {'other': <class 'Box'>, 'return': <class 'Box'>}  ← tipos reales
+```
+
+Ese es el punto. En 3.14 el import del futuro **te saca** de la semántica nueva y mejor. PEP 563 estringifica las anotaciones para siempre; PEP 649 las deja diferidas pero como **objetos reales**. Y eso te pega justo donde estás parado: `dependency-injector` introspecciona type hints en runtime para el wiring. Con strings, tanto él como pydantic tienen que llamar `get_type_hints()` y resolver a mano.
+
+O sea que no era neutral: era una pesimización. La saqué de `money.py` y de `scripts/check_commit_msg.py`. 35 tests, gates verdes, **17 commits**.
+
+Regla para el proyecto, ya guardada: **no agregar `from __future__ import annotations`**. Con `requires-python = ">=3.14"` las referencias adelantadas funcionan solas y conservar los tipos reales es estrictamente mejor.
+
+Un detalle operativo que salió de esto: esa pregunta la hiciste en **otra sesión** del mismo repo, y el pendiente aterrizó acá. El archivo `.claude/.decision-log-pending` es del repositorio, no de la sesión, así que dos sesiones concurrentes en el mismo repo se pisan el pendiente. Funcionó igual —la entrada quedó escrita con el id correcto— pero si vas a trabajar con varias sesiones en paralelo, conviene que el pendiente lleve el session id en el nombre. Decime si querés que lo ajuste.
+
+La proposal del dominio sigue corriendo en el sub-agente; te aviso cuando llegue.
+
+---
+
+## Turn 16 — 2026-09-05 05:10:56.802 UTC
+
+### Prompt
+
+```text
+<task-notification>
+<task-id>afcb9dcd6dfad4982</task-id>
+<tool-use-id>toolu_01ELNk7sV8PV3E8C5psGFiL9</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-finances-account-balance/5899ca45-2031-46b9-ada4-dcd2507881d3/tasks/afcb9dcd6dfad4982.output</output-file>
+<status>completed</status>
+<summary>Agent "SDD proposal for domain" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>**Status**: done
+
+**Executive summary**: Domain-model proposal for the account balance service — `Account` / `Transfer` / `Entry` shaped so that a balance cannot move without an entry explaining it and a transfer cannot exist unbalanced, with 12 named decisions each carrying its rejected alternative, a full I1–I7 enforcement map, and one real PRD contradiction surfaced.
+
+**Artifacts**:
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/changes/account-balance-domain/proposal.md`
+- Engram `sdd/account-balance-domain/proposal`
+
+**Next recommended**: `sdd-spec` and `sdd-design` (parallel) — but Q1 below should get a verdict first, since it changes what the authorization behaviour actually is.
+
+**Risks / findings the user must see**:
+
+1. **PRD gap, real one.** §5 step 1 says "assert the caller owns the **source** account". A deposit's source is a `SYSTEM` funding account (§7), which the caller does not own. As written, the rule either blocks every deposit or is silently skipped for it. Proposed enforceable restatement of G5: *the caller must own every `USER`-typed account leg of the transfer*. Withdrawal and P2P collapse to "owns the source"; deposit resolves to "owns the destination". **Needs a verdict.**
+2. **Double reversal is not enforceable inside any aggregate** — it is a question about *other* `Transfer` instances. Requires a partial unique index on `transfers.reverses` plus a use-case check. Recorded now so the persistence phase inherits it as a constraint rather than discovering it.
+3. **A reversal can be refused.** D10 makes reversal an ordinary transfer, so it is subject to I2: if the original destination already spent the funds, the reversal raises `InsufficientFundsError`. The alternative is exempting reversals from I2, and an invariant with an exemption is not an invariant. Product-visible, and the PRD does not cover it.
+4. Three more open questions carried in §9: account closure in v1 (PRD §11 asks it; recommended answer is include, with `close()` requiring a zero balance), reversal authorization, and the module name `account_balance`.
+
+The load-bearing decisions, if you only read three: **D1** (USER/SYSTEM as classification + `OverdraftPolicy`, not subclasses), **D4** (I1 stated as per-currency netting, which is what makes PRD §8's "the difference does not vanish, it is accounted for" mechanically true instead of aspirational), and **D5** (posting is a domain service that builds the entries *and* moves the balances, so the two can never disagree).
+
+Deliberate deviation flagged in §5: one transaction touches two `Account` aggregates. Knowingly against the one-aggregate-per-transaction guideline, because the alternative is the eventual consistency PRD §5 exists to reject.
+
+**Skill resolution**: `paths-injected` — `cognitive-doc-design` loaded from the injected path, plus the two SDD phase files.</result>
+<usage><subagent_tokens>66258</subagent_tokens><tool_uses>12</tool_uses><duration_ms>309598</duration_ms></usage>
+</task-notification>
+```
+
+<details><summary>Tool calls (6)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== existe y tamaño ==="; wc -l openspec/changes/account-balance-do…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## 8\./,/^## 10\./p' openspec/changes/account-balance-domain/pr…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## 3\. The shape/,/^## 4\. Decisions/p' openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## 6\. Invariant enforcement map/,/^## 8\./p' openspec/changes/…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add openspec/ git commit -q -F - <<'MSG' docs(docs): add domain model…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
+
+</details>
+
+### Response
+
+La proposal terminó. Antes de pasártela la reviso yo — y sobre todo verifico el hallazgo #1, que si es cierto es un agujero real en el PRD:
+
+El hallazgo #1 es **real y confirmado**:
+
+```
+§5 paso 1 →  "assert the caller owns the source account"
+§7        →  "Deposit | Transfer from a SYSTEM funding account into a USER account"
+```
+
+En un depósito la cuenta origen es `SYSTEM`, que el cliente no posee. La regla tal como la escribí **bloquea todo depósito**. Es un agujero mío en el PRD.
+
+Ahora, la solución que propone quiero mirarla de cerca antes de pasártela:
+
+Acá tengo que frenar. La restitución que propone **rompe las transferencias entre personas**:
+
+> *"The caller must own every `USER`-typed account leg of the transfer. Withdrawal and P2P collapse to 'owns the source'"*
+
+Eso último es falso. En un P2P a **otro cliente**, la cuenta destino es `USER` y **no** es del que llama. Bajo esa regla, mandarle plata a alguien exigiría ser dueño de la cuenta del destinatario — o sea, quedan bloqueadas todas las transferencias entre personas.
+
+Dejame ver el resto antes de darte mi lectura completa:
+
+Terminé de revisarla. Es un documento fuerte — y tiene un error que hay que corregir antes de avanzar. Lo commiteo como artefacto y te doy mi lectura:
 
 ---
