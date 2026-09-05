@@ -1,0 +1,110 @@
+[project]
+name = "account-balance"
+version = "0.1.0"
+description = "Account balance service for SuperCool Finances — double-entry ledger with safe concurrency"
+requires-python = ">=3.14"
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "sqlalchemy>=2.0",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pytest-asyncio>=0.25",
+    "httpx>=0.28",
+    "testcontainers[postgres]>=4.9",
+    "ruff>=0.9",
+    "mypy>=1.14",
+    "pre-commit>=4.0",
+]
+
+# This is an application, not a distributable library: install the dependencies
+# but never build a wheel from it.
+[tool.uv]
+package = false
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"
+asyncio_mode = "auto"
+markers = [
+    "integration: exercises real infrastructure (PostgreSQL via testcontainers)",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]
+
+# ---------------------------------------------------------------------------
+# Lint / format
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+src = ["src", "tests"]
+
+# Session hooks are invoked by the editor with the *system* `python3`, not the
+# project venv, so they must stay compatible with older interpreters. Linting
+# them under this project's py314 target rewrote them with 3.14-only syntax
+# (PEP 758 unparenthesized `except`), which would break them anywhere else.
+extend-exclude = [".claude/hooks"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # import sorting
+    "N",         # pep8-naming
+    "UP",        # pyupgrade
+    "B",         # bugbear
+    "A",         # builtin shadowing
+    "C4",        # comprehensions
+    "DTZ",       # timezone-aware datetimes — money needs unambiguous timestamps
+    "T20",       # no print()
+    "SIM",       # simplify
+    "PTH",       # pathlib over os.path
+    "RUF",
+]
+ignore = [
+    "B008",      # FastAPI dependency injection relies on calls in defaults
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+# Developer CLIs: stderr output is their interface, not a stray debug print.
+"scripts/**" = ["T20"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["modules"]
+
+# ---------------------------------------------------------------------------
+# Types
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.14"
+mypy_path = "src"
+strict = true
+warn_unreachable = true
+disallow_any_generics = true
+show_error_codes = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["testcontainers.*"]
+ignore_missing_imports = true

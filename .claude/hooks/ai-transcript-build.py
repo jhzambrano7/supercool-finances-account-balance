@@ -59,7 +59,14 @@ _SLASH = re.compile(
 
 # Per tool, the input field worth showing in the tool-call summary.
 _TOOL_HINT = (
-    "file_path", "command", "query", "pattern", "path", "url", "prompt", "skill",
+    "file_path",
+    "command",
+    "query",
+    "pattern",
+    "path",
+    "url",
+    "prompt",
+    "skill",
 )
 
 
@@ -181,9 +188,7 @@ def collect_turns(entries: list[dict]) -> list[dict]:
             # Identity must be stable ACROSS PROCESSES: the store is keyed by it.
             # Python's builtin hash() is seed-randomized per interpreter run and
             # would mint a new key every time, duplicating turns forever.
-            fallback = hashlib.sha1(
-                f"{entry.get('timestamp', '')}:{body}".encode("utf-8")
-            ).hexdigest()
+            fallback = hashlib.sha1(f"{entry.get('timestamp', '')}:{body}".encode()).hexdigest()
             current = {
                 "uuid": entry.get("uuid") or fallback,
                 "timestamp": entry.get("timestamp", ""),
@@ -243,22 +248,20 @@ def merge_into_store(stored: dict[str, dict], observed: list[dict]) -> list[dict
         if previous is None:
             stored[key] = turn
             continue
-        richer = (
-            len(turn.get("response") or []) >= len(previous.get("response") or [])
-            and len(turn.get("tools") or []) >= len(previous.get("tools") or [])
-        )
+        richer = len(turn.get("response") or []) >= len(previous.get("response") or []) and len(
+            turn.get("tools") or []
+        ) >= len(previous.get("tools") or [])
         if richer:
             stored[key] = turn
 
-    return sorted(stored.values(), key=lambda item: (item.get("timestamp", ""),
-                                                     item.get("uuid", "")))
+    return sorted(
+        stored.values(), key=lambda item: (item.get("timestamp", ""), item.get("uuid", ""))
+    )
 
 
 def write_store(path: Path, turns: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = "\n".join(
-        json.dumps(turn, ensure_ascii=False, sort_keys=True) for turn in turns
-    )
+    payload = "\n".join(json.dumps(turn, ensure_ascii=False, sort_keys=True) for turn in turns)
     path.write_text(payload + "\n", encoding="utf-8")
 
 
@@ -268,8 +271,8 @@ def render(turns: list[dict]) -> str:
         "",
         "Complete, verbatim record of every prompt given to the AI assistant and every",
         "response it returned, in chronological order — as required by the challenge",
-        "instructions (*\"you must provide each and every prompt you used along with",
-        "every response\"*).",
+        'instructions (*"you must provide each and every prompt you used along with',
+        'every response"*).',
         "",
         "This file is **generated**, never hand-written. It is rebuilt by",
         "`.claude/hooks/ai-transcript-build.py` from `.transcript-store.jsonl`, an",
@@ -308,8 +311,7 @@ def render(turns: list[dict]) -> str:
         out.append("")
 
         if turn["tools"]:
-            out.append("<details><summary>Tool calls "
-                       f"({len(turn['tools'])})</summary>")
+            out.append(f"<details><summary>Tool calls ({len(turn['tools'])})</summary>")
             out.append("")
             for line in turn["tools"]:
                 out.append(f"- {line}")
@@ -322,8 +324,10 @@ def render(turns: list[dict]) -> str:
         if turn["response"]:
             out.append("\n\n".join(turn["response"]))
         else:
-            out.append("*(No response was produced for this prompt — the turn was "
-                       "interrupted or the prompt was re-submitted.)*")
+            out.append(
+                "*(No response was produced for this prompt — the turn was "
+                "interrupted or the prompt was re-submitted.)*"
+            )
         out.append("")
         out.append("---")
         out.append("")

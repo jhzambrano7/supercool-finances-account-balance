@@ -1,0 +1,61 @@
+# Gates that run before every commit.
+#
+# Local hooks run through `uv run`, so they use the exact versions pinned in
+# uv.lock. A linter that drifts from the project's own toolchain reports
+# problems the project does not have, and misses the ones it does.
+default_install_hook_types: [pre-commit, commit-msg]
+default_language_version:
+  python: python3.14
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: end-of-file-fixer
+        exclude: ^docs/(ai-transcript\.md|\.transcript-store\.jsonl)$
+      - id: trailing-whitespace
+        exclude: ^docs/(ai-transcript\.md|\.transcript-store\.jsonl)$
+      - id: detect-private-key
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff (lint)
+        entry: uv run ruff check --force-exclude --fix
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff (format)
+        entry: uv run ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      # Scoped to src/ so the gate stays quiet until there is code to type-check.
+      - id: mypy
+        name: mypy (strict)
+        entry: uv run mypy
+        language: system
+        files: ^src/.*\.py$
+        pass_filenames: false
+        args: [src]
+        require_serial: true
+
+      - id: commit-msg-convention
+        name: commit message follows the PRD-traced convention
+        entry: uv run python scripts/check_commit_msg.py
+        language: system
+        stages: [commit-msg]
+
+      - id: uv-lock-current
+        name: uv.lock matches pyproject.toml
+        entry: uv lock --check
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
