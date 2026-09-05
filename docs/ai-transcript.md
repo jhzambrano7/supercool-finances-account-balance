@@ -1175,7 +1175,7 @@ Deliberate deviation flagged in §5: one transaction touches two `Account` aggre
 </task-notification>
 ```
 
-<details><summary>Tool calls (6)</summary>
+<details><summary>Tool calls (12)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== existe y tamaño ==="; wc -l openspec/changes/account-balance-do…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## 8\./,/^## 10\./p' openspec/changes/account-balance-domain/pr…
@@ -1183,6 +1183,12 @@ Deliberate deviation flagged in §5: one transaction touches two `Account` aggre
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## 6\. Invariant enforcement map/,/^## 8\./p' openspec/changes/…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add openspec/ git commit -q -F - <<'MSG' docs(docs): add domain model…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
+- `AskUserQuestion`
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n 'G5 \| A customer|assert the caller owns|ownership of the \*\*sourc…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== ningún zero-width residual ===" uv run python -c " import pathl…
 
 </details>
 
@@ -1210,5 +1216,52 @@ Eso último es falso. En un P2P a **otro cliente**, la cuenta destino es `USER` 
 Dejame ver el resto antes de darte mi lectura completa:
 
 Terminé de revisarla. Es un documento fuerte — y tiene un error que hay que corregir antes de avanzar. Lo commiteo como artefacto y te doy mi lectura:
+
+La proposal está en `openspec/changes/account-balance-domain/proposal.md` — 354 líneas, commiteada como artefacto de revisión. **19 commits.**
+
+## Lo que está bien, y es bastante
+
+**D5** es la decisión que sostiene todo: postear es un **servicio de dominio** que construye los asientos *y* mueve los saldos en la misma operación. Ese acoplamiento deliberado es lo que hace imposible que asientos y balance se desincronicen — que es exactamente el riesgo que aceptamos al materializar el saldo en §5.1 del PRD. Cierra el círculo.
+
+**D4** generaliza I1 a *neteo por moneda* en vez de "débitos = créditos". Suena a detalle y no lo es: es lo que vuelve **mecánicamente cierta** la frase del PRD §8 *"la diferencia no se evapora, se contabiliza"*. Con la formulación vieja, el spread de FX no tenía dónde caer.
+
+**D1** resuelve `USER`/`SYSTEM` como clasificación + `OverdraftPolicy`, no como subclases. Correcto: la política de sobregiro es lo que varía, no la naturaleza de la cuenta.
+
+**D9** — `Transfer` sin campo de estado — es coherente con tu decisión de posteo atómico. Si no hay estado intermedio observable, un `status` sería un campo que siempre vale lo mismo, o sea una mentira esperando a que alguien la use.
+
+Y la taxonomía de errores separa **Client / Internal** como hecho de dominio, no como código HTTP. `UnbalancedTransferError` marcado como *"si esto se lanza en producción es bug nuestro, no del cliente"* es la clase de distinción que se agradece a las 3 AM.
+
+## El hueco que encontró — es real, y es mío
+
+```
+PRD §5 paso 1 → "assert the caller owns the source account"
+PRD §7        → "Deposit: transfer from a SYSTEM funding account into a USER account"
+```
+
+El origen de un depósito es `SYSTEM`. Nadie lo posee. **La regla que escribí bloquea todo depósito**, o se saltea en silencio para ese caso — y una regla de autorización con excepción silenciosa es cómo se abren las bóvedas.
+
+## Pero su corrección está mal, y no la apliqué
+
+Propone: *"el llamador debe ser dueño de **toda** pata `USER` de la transferencia"*, y afirma que P2P colapsa a "dueño del origen".
+
+**Falso.** En un envío a otra persona, el destino es una cuenta `USER` **ajena**. Bajo esa regla, mandarle plata a alguien exigiría ser dueño de la cuenta del destinatario. Quedarían bloqueadas todas las transferencias entre clientes.
+
+La regla correcta gira sobre la pata **debitada**, no sobre todas:
+
+> El llamador debe ser dueño de toda cuenta `USER` que la transferencia **debita**. Si no debita ninguna `USER` —un depósito— debe ser dueño de la `USER` que se **acredita**.
+
+Con eso: retiro y P2P → dueño del origen. Depósito → dueño del destino. P2P a terceros sigue funcionando.
+
+Fijate que tu G5 original ya decía lo correcto: *"only move money **from** accounts they own"*. El que estaba mal era el paso 1 de §5, que dice "source" sin contemplar que el origen puede ser `SYSTEM`.
+
+## Lo que necesita tu decisión
+
+Hay cinco preguntas abiertas en §9. Cuatro las podés resolver al pulir. La primera no, porque decide la forma final de G5:
+
+P2P a terceros entra. Entonces la regla correcta es la de la pata debitada, y hay que corregir el PRD — porque el error está ahí, no en la proposal:
+
+Ahora corrijo la proposal para que no quede con la regla rota, y registro el veredicto de Q1:
+
+Se me coló un typo en el markdown de esa cita. Lo arreglo:
 
 ---
