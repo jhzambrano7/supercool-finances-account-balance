@@ -249,7 +249,7 @@ correctness wins.
 | I3 | `Transfer.__post_init__` (`amount.is_positive`) and `Entry.__post_init__` | `NonPositiveAmountError` |
 | I4 | `post_transfer` (source/destination/amount currencies) + `Account.debit`/`credit` (leg vs account currency) | `CurrencyMismatchError` *(shared)* |
 | I5 | `Transfer.__post_init__` (source ≠ destination) | `SelfTransferError` |
-| I6 | Structural — `Entry` is `frozen=True, slots=True`; `Transfer.entries` is a `tuple`. No mutator exists. Persistence is the second line (PRD §4.4) | — |
+| I6 | Structural — `Entry` is `frozen=True, slots=True`; `Transfer.entries` is a `tuple`. No mutator exists. Persistence is the second line (PRD §4.5) | — |
 | I7 | Structural — `post_reversal` produces a new `Transfer`; nothing can mutate an existing one | — |
 | G5 | `Account.assert_owned_by(owner_id)` — the *fact*; the *policy* of when to call it is the use case's (see §7) | `AccountOwnershipError` |
 
@@ -300,7 +300,7 @@ must be a partial unique index on `transfers.reverses` plus a use-case check —
 the out-of-scope persistence work, recorded here so it is not discovered later.
 
 **(c) I6 is only in-process immutability here.** Frozen dataclasses stop our code; append-only is a
-persistence guarantee (no UPDATE/DELETE path), exactly as PRD §4.4 states.
+persistence guarantee (no UPDATE/DELETE path), exactly as PRD §4.5 states.
 
 **(d) `SYSTEM` accounts have no human owner.** Decided: they carry a reserved platform `OwnerId`
 constant, keeping `owner_id` total and `assert_owned_by` uniform. Rejected `OwnerId | None`, which would
@@ -315,8 +315,8 @@ made here; one reverses Q3.
 | --- | --- |
 | **`SYSTEM` accounts are never locked and their balance is not materialized** (PRD §5.3) | No change to the domain model — but `OverdraftPolicy` for `SYSTEM` is now the *only* thing distinguishing them at the domain level, and the persistence phase must not add a balance column it maintains for them. D1 holds |
 | **A `USER` balance may go negative, but only through reversal** (PRD §7.3, G4, I2) | **Reverses Q3.** The `SYSTEM` receivable is gone. `Account` needs a second, named debit path — `debit_for_reversal()` — reachable only from `post_reversal`. This is D1's `OverdraftPolicy` doing exactly the job it was introduced for: the policy is now keyed on the *operation*, not only on the account type. D4 (per-currency netting) still holds and is still right, but the three-leg reversal that justified it no longer occurs |
-| **Idempotency keys only for money movements and account opening** (PRD §6.3) | `Transfer.idempotency_key` stays required (D12). Closure carries none: `close()` requires `ACTIVE`, so its precondition is its guard |
-| **An owner may hold several accounts in the same currency** (PRD §4.2) | `Account` was already keyed by `AccountId`, never by `(owner, currency)`, so nothing changes here. It does remove `(owner, currency)` as a natural uniqueness constraint, which is precisely why account opening keeps an idempotency key |
+| **Idempotency keys only for money movements** (PRD §6.3) | `Transfer.idempotency_key` stays required (D12). No lifecycle operation carries one: opening is guarded by the `(owner, purpose, currency)` constraint, closure by requiring `ACTIVE`. Both are safety from data, which cannot expire |
+| **An owner may hold several accounts in the same currency, one per `purpose`** (PRD §4.2, §4.4) | Adds `AccountPurpose` to the model — a second, independent axis from `AccountType`. `USER` takes `CHECKING`/`SAVINGS`, `SYSTEM` takes `FUNDING`/`SETTLEMENT`, and the pair is validated on `Account.open()`. `(owner, purpose, currency)` becomes a natural key, which is what lets account opening drop its idempotency key entirely |
 | **Observability signals** (PRD §11) | Confirms D11: `Entry` stores no `balance_after`. Balance drift is detected by reconciliation against `SUM(entries)`, which a stored `balance_after` would have made circular — it would agree with itself while both were wrong |
 
 `Transfer` still has no status field (D9), which the PRD revision independently confirms: a failed

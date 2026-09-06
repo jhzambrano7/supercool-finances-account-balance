@@ -48,17 +48,17 @@ So accounts are typed, and the invariant is scoped to the type:
 | Type | Meaning | Negative balance allowed |
 | --- | --- | --- |
 | `USER` | A customer's money. A liability of SuperCool towards a person | **Only via reversal** (§7.3) — never through the customer's own actions |
-| `SYSTEM` | The counterparty representing the outside world (funding, settlement) | **Yes** — its negative balance *is* the money owed/held externally |
+| `SYSTEM` | The counterparty representing the outside world. Its `purpose` (§4.4) says which: funding, settlement | **Yes** — its negative balance *is* the money owed/held externally |
 
 This is the single most important modelling decision in the service, and it is the reason the
 ledger balances by construction while customers still cannot overdraft.
 
 ### 4.2 Core aggregates
 
-- **Account** — identity, owner, `type`, `currency`, `balance`, `status`, `version`.
+- **Account** — identity, owner, `type`, `purpose`, `currency`, `balance`, `status`, `version`.
   Each account holds exactly one currency; **an owner may hold many accounts, including several in
-  the same currency** (a salary account and a savings account are not the same account). Currency is
-  a property of the account, never of the owner — which is what makes §8 cheap.
+  the same currency**, one per purpose. Currency is a property of the account, never of the owner —
+  which is what makes §8 cheap. See §4.4 for `purpose` and the uniqueness it creates.
 - **Transfer** — the intent: source account, destination account, amount, idempotency key,
   requested-by. Immutable once accepted.
 - **Entry** — one leg of the double-entry posting: account, direction (`DEBIT`/`CREDIT`),
@@ -70,7 +70,34 @@ ledger balances by construction while customers still cannot overdraft.
 forbidden anywhere in the money path. Arithmetic between different currencies raises a domain
 error — currency mismatch is a domain rule, not an API validation.
 
-### 4.4 Domain invariants
+### 4.4 Purpose, and the natural key it gives us
+
+`type` (§4.1) says what an account *is* to the ledger — `USER` or `SYSTEM` — and drives the overdraft
+policy. `purpose` says what it is *for*. They are separate axes and deserve separate names: a
+checking account and a savings account are both `USER`, and a funding account and a settlement
+account are both `SYSTEM`.
+
+| `type` | Valid `purpose` values |
+| --- | --- |
+| `USER` | `CHECKING`, `SAVINGS` |
+| `SYSTEM` | `FUNDING`, `SETTLEMENT` |
+
+Each purpose belongs to exactly one type, so the pair is validated on opening and an invalid
+combination cannot be constructed.
+
+**This yields a natural key: `(owner, purpose, currency)` is unique.** An owner has at most one
+checking account in USD, and may separately hold savings in USD and checking in EUR. The platform
+likewise holds exactly one USD funding account.
+
+The key earns its place by removing a mechanism (§6.3): account opening no longer needs an
+idempotency key, because retrying it is answerable from the data itself. It is enforced by a unique
+constraint, not only by a check-then-insert — two simultaneous opens would both read "none exists"
+and both insert, the same race that forces a constraint for double reversal.
+
+**Rejected — a free-form account label:** more flexible, and it destroys the uniqueness that makes
+opening retry-safe. Flexibility nobody asked for, paid for with a mechanism we would then need.
+
+### 4.5 Domain invariants
 
 | ID | Invariant | Enforced where |
 | --- | --- | --- |
@@ -176,7 +203,7 @@ The client generates the key (`Idempotency-Key`). That alone is not enough. The 
 | **In-flight concurrency** | Two simultaneous requests with the same key: one wins on the unique constraint, the other is rejected/retried — never both applied |
 | **Replay result** | A replay returns the result of the original operation — never an empty `200`. See §6.1 for where that result comes from |
 | **Retention** | Records are retained for a bounded window that **must exceed the client's maximum retry horizon**. See §6.2 |
-| **Scope of use** | Money movements, plus account opening. Not lifecycle transitions that can check their own preconditions. See §6.3 |
+| **Scope of use** | Money movements only. Lifecycle operations are made retry-safe by their own data — see §6.3 |
 
 ### 6.1 Where the replayed response comes from — it is not a cache
 
@@ -198,26 +225,6 @@ replay, but it duplicates data that already lives in the ledger and it rots — 
 schema changes, old rows still carry the old shape. Rebuilding from the ledger keeps exactly one
 source of truth and cannot drift from it.
 
-### 6.3 Idempotency keys are for money movements only
-
-An idempotency key exists to make a **non-idempotent** operation safe to retry. Applying it to every
-mutating endpoint is cargo cult: it adds a key, a payload hash and a retention policy to operations
-that already have a natural answer.
-
-| Operation | Retry-safe because |
-| --- | --- |
-| Transfer, deposit, withdraw, reversal | **Idempotency key.** Each application moves money again; nothing in the entity says it already happened |
-| Close an account | **State.** Closure requires `ACTIVE`; a second attempt finds `CLOSED` and is rejected. The precondition *is* the guard |
-| Open an account | See below — the one that needs care |
-
-Account opening has no prior state to check against, and `(owner, currency)` is not unique (§4.2), so
-a retried request would otherwise create a second account. It keeps an idempotency key for that
-reason alone, which is the honest justification rather than uniformity.
-
-**Rejected — idempotency keys everywhere:** uniform, and it hides the distinction between operations
-whose safety comes from a stored key and operations whose safety comes from their own preconditions.
-The second kind is strictly better: it cannot expire.
-
 ### 6.2 The one real failure mode: retention expiry
 
 If the retention window expires and the client retries *afterwards*, the key is gone and the
@@ -226,13 +233,39 @@ that the **retention window is chosen to be longer than the maximum retry horizo
 which makes it a product decision, not an infrastructure one. Expired records are pruned by an
 operational job.
 
+
+### 6.3 Idempotency keys are for money movements only
+
+An idempotency key exists to make a **non-idempotent** operation safe to retry. Applying it to every
+mutating endpoint is cargo cult: it adds a key, a payload hash and a retention policy to operations
+that already have a natural answer.
+
+| Operation | Retry-safe because |
+| --- | --- |
+| Transfer, deposit, withdraw, reversal | **Idempotency key.** Each application moves money again; nothing in the data says it already happened |
+| Open an account | **Natural key.** `(owner, purpose, currency)` is unique (§4.4), so a retry finds the account that already exists and returns it |
+| Close an account | **State.** Closure requires `ACTIVE`; a second attempt finds `CLOSED` and is rejected |
+
+Only money movements carry a key, and the reason is precise: **applying a transfer twice produces a
+different result than applying it once, and nothing in the resulting data distinguishes the two.**
+That is the condition an idempotency key exists to solve. Lifecycle operations do not meet it —
+opening the same account twice is prevented by a constraint, and closing a closed account is answered
+by its own state.
+
+Safety that comes from the data is strictly better than safety that comes from a stored key,
+because **it cannot expire** (§6.2). Every operation moved out of the key mechanism is one fewer
+thing depending on a retention window being long enough.
+
+**Rejected — idempotency keys everywhere:** uniform, and it hides which operations are actually
+unsafe to retry. Uniformity that obscures the distinction is not simplicity.
+
 ---
 
 ## 7. Capabilities (v1 surface)
 
 | Capability | Notes |
 | --- | --- |
-| Open an account | For a given owner and currency |
+| Open an account | For a given owner, purpose and currency; the three are unique together (§4.4). Needs no idempotency key |
 | Transfer between accounts | The critical path (§5). Same currency in v1. **Includes sending to another customer's account**, which is why authorization is stated over the debited leg (§9.1) |
 | Deposit | Transfer from a `SYSTEM` funding account into a `USER` account |
 | Withdraw | Transfer from a `USER` account into a `SYSTEM` settlement account. Subject to I2 |
@@ -241,8 +274,8 @@ operational job.
 | Reverse a transfer | A **new** compensating transfer referencing the original. Never a mutation or deletion (I7). **Operator-authorized only** (§7.1) |
 | Close an account | `USER` accounts only, and only at a zero balance (§7.2) |
 
-Money movements are idempotent per §6. Lifecycle operations are not, and do not need to be — see
-§6.3.
+Money movements carry an idempotency key per §6. Lifecycle operations do not need one: their own
+data makes retrying them safe — see §6.3.
 
 ### 7.1 Reversal is operator-authorized, not customer-initiated
 
