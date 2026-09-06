@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 17
+**Turns recorded:** 18
 
 ---
 
@@ -1320,7 +1320,7 @@ Q5 - Si.
 Ahondemos sobre esas restricciones futuras que mencionas, no estoy seguro de haber entendido
 ```
 
-<details><summary>Tool calls (7)</summary>
+<details><summary>Tool calls (12)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## 7\. Capabilities/,/^## 8\./p' docs/prd.md echo "=== §11 ==="…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
@@ -1329,6 +1329,11 @@ Ahondemos sobre esas restricciones futuras que mencionas, no estoy seguro de hab
 - `AskUserQuestion`
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s+=""" ## 2026…
+- `mcp__plugin_engram_engram__mem_save`
+- `mcp__plugin_engram_engram__mem_judge`
+- `mcp__plugin_engram_engram__mem_judge`
+- `mcp__plugin_engram_engram__mem_judge`
 
 </details>
 
@@ -1383,5 +1388,85 @@ Lo importante es que quede **escrito como decisión** y no como descuido — un 
 Ahora sí, Q3:
 
 Buena decisión, y tiene una consecuencia elegante que quiero señalarte. Lo escribo:
+
+Las cinco preguntas cerradas. **24 commits**, PRD con §7.1, §7.2, §7.3 y §9.1 nuevas.
+
+## Y tu decisión en Q3 destapó algo lindo
+
+Mirá la reversa que acabamos de definir:
+
+```
+Bruno (USER)        DEBIT    20   ← todo lo que le queda
+SYSTEM receivable   DEBIT    80   ← el faltante
+Ana (USER)          CREDIT  100
+```
+
+**Tres patas.** Una transferencia no siempre tiene dos.
+
+Eso valida retroactivamente la decisión **D4** de la proposal, que yo había marcado como una de las tres importantes sin saber todavía por qué iba a hacer falta. D4 enuncia I1 como **neteo por moneda** en lugar del clásico *"un débito y un crédito"*. Con la formulación de dos patas, esta reversa **no se puede expresar** — no hay dónde poner los 80.
+
+Es la segunda vez en esta sesión que esa generalización paga: la primera fue el spread de FX en §8. Una decisión que parecía académica resultó ser la que sostiene dos casos reales.
+
+Detalle fino que dejé escrito: una pata de cero **nunca se escribe**, porque I3 exige montos estrictamente positivos. Si Bruno no tiene nada, la reversa directamente no lo menciona y el incobrable se lleva los 100.
+
+Y el punto que más me gusta de tu elección: **el saldo de la cuenta de incobrables es el acumulado que SuperCool se comió en reversas impagables**. Es un número que alguien tiene que estar mirando — y existe justamente porque decidiste no esconderlo. Rechazar la reversa habría sido más simple y habría dejado a Ana sin plata *y* sin registro contable de lo que se le debe.
+
+## Qué queda
+
+Dos preguntas abiertas, ninguna bloquea el dominio: la ventana de retención de idempotencia (depende de la política de reintentos del cliente) y cuánto tiempo vive un incobrable antes de castigarse — política contable, no regla de dominio.
+
+Y las dos restricciones ahora están registradas como decisiones, no como deuda: el índice único parcial sobre `transfers.reverses` lo hereda la fase de persistencia, y la desviación de un-agregado-por-transacción queda documentada con su motivo para el revisor que la vea y pregunte.
+
+Cuando quieras, sigo con **spec y design** — pueden ir en paralelo, spec captura los requisitos y escenarios, design baja las decisiones técnicas. ¿Le damos, o querés pulir la proposal primero?
+
+---
+
+## Turn 18 — 2026-09-06 16:26:10.812 UTC
+
+### Prompt
+
+```text
+Sobre el PRD
+- Indicamos locking sobre ambas cuentas en una transacción, esto no debe aplicar en depósitos, no podemos bloquear la cuenta system, piensa en N depósitos ocurriendo al tiempo. NO veo la necesidad de materializar o verificar el balance de esta cuenta. Bloqueamos una cuenta para mantener la invariante de saldo negativo, pero system puede tener saldo negativo en cuanlquier momento.
+- G4, creo si debemos soportar que una cuenta se vaya a negativo, pero solo a través de una reversión, la razón? veo facilidad para iniciar un proceso de cobranza (fuera de scope) si identificas la cuenta/usuario. Además, un depósito de tedeja en verde, fácil. Ahora mismo, la reversión viola la invariante I1 a nivel de cuentas de usuario.
+- Sobre la idenpotencia, parece algo a mantener en los movimientos de donero, y no para cada acción ej crear/cerrar cuenta, este ultimmo tipo de operaciones puede validar el estado actual de la entidad y rechazar si no es un punto de partida válido para aplicar la operación.
+Adicional, el status no me está haciendo sentido, una transacción que falla ps simplemente hace rollback y nada queda, parece un campo muerto.
+- En la definición de aggregates mencionas que un usuario tiene una cuenta por moneda. Es muy restrictivo, un usuario podría tener más de una cuenta con una misma moneda.
+- No tenemos nada en observabilidad, y nos lo piden. Cosas como el rate de InsufficientFunds, colisiones de llave de idempotencia, latencias de espera en lock, crecimientos de reversiones + saldos negativos (incremento de riesgo cobranza). Estos a nivel de runtime me parecen valiosos.
+```
+
+<details><summary>Tool calls (11)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '20,26p;56,64p;93,106p' docs/prd.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== referencias colgadas a receivable? ===" rg -n 'receivable' docs…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add docs/prd.md openspec/ git commit -q -F - <<'MSG' docs(prd): stop …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
+
+</details>
+
+### Response
+
+Seis puntos, y cinco son correcciones que mejoran el diseño. Vamos uno por uno, porque en el segundo hay algo que corregir.
+
+Primero miro las secciones que tengo que tocar:
+
+Ahora aplico los cambios. Empiezo por el locking, que es el más importante:
+
+Ahora G4/I2 — negativo sólo por reversión, que reemplaza a la cuenta de incobrables:
+
+Ahora idempotencia acotada a movimientos de dinero, y cuentas múltiples por moneda:
+
+Y observabilidad, que efectivamente faltaba y el statement la pide:
+
+Dos cosas que quedaron mal: numeración duplicada y una pregunta abierta que quedó obsoleta (ya no hay incobrables). Corrijo:
+
+Ahora alineo la proposal con los cambios del PRD:
 
 ---
