@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 18
+**Turns recorded:** 20
 
 ---
 
@@ -1435,7 +1435,7 @@ Adicional, el status no me está haciendo sentido, una transacción que falla ps
 - No tenemos nada en observabilidad, y nos lo piden. Cosas como el rate de InsufficientFunds, colisiones de llave de idempotencia, latencias de espera en lock, crecimientos de reversiones + saldos negativos (incremento de riesgo cobranza). Estos a nivel de runtime me parecen valiosos.
 ```
 
-<details><summary>Tool calls (11)</summary>
+<details><summary>Tool calls (12)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '20,26p;56,64p;93,106p' docs/prd.md
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
@@ -1448,6 +1448,7 @@ Adicional, el status no me está haciendo sentido, una transacción que falla ps
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add docs/prd.md openspec/ git commit -q -F - <<'MSG' docs(prd): stop …
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1 -uall
 
 </details>
 
@@ -1468,5 +1469,132 @@ Y observabilidad, que efectivamente faltaba y el statement la pide:
 Dos cosas que quedaron mal: numeración duplicada y una pregunta abierta que quedó obsoleta (ya no hay incobrables). Corrijo:
 
 Ahora alineo la proposal con los cambios del PRD:
+
+Cinco de los seis puntos eran correcciones acertadas y están aplicadas. **26 commits.** Uno tiene un error técnico que quiero corregirte.
+
+## 1. Locking de `SYSTEM` — tenés toda la razón, y es el hallazgo más importante
+
+Se bloquea una fila para que un saldo no cambie bajo una regla que está por leerlo. **La única regla es I2, y I2 no aplica a `SYSTEM`.** O sea que ese lock protege una invariante que no existe.
+
+Y el costo es brutal: todos los depósitos debitan la misma cuenta de fondeo. Bloquearla serializa **los depósitos de todos los clientes por una sola fila**. Mil depósitos concurrentes haciendo cola de a uno. No es un problema de throughput para tunear después — es el diseño equivocado.
+
+Nueva **§5.3** con la asimetría, y va más lejos de lo que planteaste: si no hay lock, tampoco hay razón para materializar ese saldo. Se deriva como `SUM(entries)` cuando haga falta.
+
+| | `USER` | `SYSTEM` |
+|---|---|---|
+| Se bloquea al postear | Sí — I2 necesita leer un saldo estable | **No** |
+| Saldo materializado | Sí | **No** — derivado |
+
+Resultado: **un depósito bloquea exactamente una fila** y los depósitos no contienden entre sí. Metí además una señal de observabilidad para detectar si alguien reintroduce ese lock.
+
+## 2. Saldo negativo por reversión — acepto, pero I1 no se estaba violando
+
+Tu argumento es bueno y lo apliqué: la deuda vuelve a la cuenta que la debe, es atribuible a un cliente concreto, y **se salda sola con el próximo depósito** sin intervención de operador. Eso es exactamente el clawback de las cuentas bancarias reales. La cuenta de incobrables se fue.
+
+**Pero la reversa no violaba I1.** I1 es sobre la transferencia completa:
+
+```
+débitos:  Bruno 20 + receivable 80 = 100
+créditos: Ana 100                  = 100   ✓ I1 se cumplía
+```
+
+Lo que observaste **es real pero no es una violación**: mirando *sólo* las cuentas `USER`, los montos no cuadran (20 debitado vs 100 acreditado). Eso es precisamente cómo funciona la partida doble con cuentas de sistema — un depósito tiene la misma propiedad: acredita una `USER` sin debitar ninguna `USER`. Si eso fuera violación de I1, todo depósito violaría I1.
+
+La distinción importa porque I1 es la invariante que garantiza que no se crea ni destruye dinero. Si la interpretamos por subconjunto de cuentas, deja de significar eso.
+
+Dicho lo cual, tu decisión se sostiene por el argumento de cobranza, no por I1. Y la formulé para que **I2 no se convierta en una invariante con excepción**:
+
+> `Account.debit()` rechaza bajo cero y es lo que llama todo movimiento iniciado por el cliente. `debit_for_reversal()` es el único método que puede cruzar, y sólo el servicio de reversión lo alcanza.
+
+Un `grep debit_for_reversal` es la auditoría completa de dónde un saldo puede ponerse negativo. Regla total y verificable, no una excepción.
+
+## 3. Idempotencia — de acuerdo, y encontré un hueco
+
+Correcto: la llave existe para hacer segura una operación **no idempotente**. Ponerla en todo endpoint mutante es cargo cult. El cierre valida su precondición (`ACTIVE`) y esa precondición *es* la garantía — y es mejor que una llave, porque **no expira**.
+
+Pero **abrir una cuenta no tiene estado previo contra el cual validar**. Y como acabás de decidir que un titular puede tener varias cuentas en la misma moneda, `(owner, currency)` tampoco sirve como unicidad natural. Sin llave, un reintento crea una segunda cuenta.
+
+Así que la apertura conserva llave de idempotencia — por esa razón concreta, no por uniformidad. Quedó escrito así en §6.3.
+
+## 4. `status` en `Transfer` — ya estaba muerto
+
+Coincidís con **D9** de la proposal, que lo eliminó por el mismo motivo que das: si el posteo falla, hace rollback y no queda nada, así que el campo sólo podría valer una cosa.
+
+Ojo con no confundirlo: el `status` que **sí** queda es el de `Account` (`ACTIVE`/`CLOSED`), y lo necesitamos por el cierre que vos mismo decidiste en Q2.
+
+## 5. Varias cuentas por moneda — corregido
+
+§4.2 ahora dice que la moneda es propiedad **de la cuenta, nunca del titular**. Una cuenta de sueldo y una de ahorros en la misma moneda no son la misma cuenta.
+
+## 6. Observabilidad — faltaba, y tus señales eran las correctas
+
+Nueva **§11**, con las tuyas y algunas más, organizadas por lo que significan:
+
+**Corrección** (deben estar planas; cualquier movimiento es incidente): desbalance del ledger, drift `balance ≠ SUM(entries)`, `UnbalancedTransferError`. **Alerta al primer evento, no por umbral.**
+
+**Comportamiento**: tasa de `InsufficientFunds`, y una distinción que vale la pena — **colisiones de idempotencia** (misma llave, payload distinto → `409`) nunca son normales y son un defecto de integración del cliente; **replays** (misma llave, mismo payload) son sanos y sólo informan de inestabilidad aguas arriba. Más espera en lock, que es la alerta temprana de deadlock y de una regresión en el orden de locking.
+
+**Riesgo**: total de saldos negativos —que *es* la exposición crediticia—, tasa de reversiones, y **antigüedad** de los negativos: uno de un día es cobranza, uno de un mes es un castigo que nadie decidió.
+
+Y un criterio de éxito nuevo: *un ledger que cuadra pero no puede demostrarlo no está terminado*.
+
+---
+
+Vi que apareció un `src/modules/_blank copy/` y un `README.md` sin trackear. Asumo que estás duplicando la plantilla para el módulo `account_balance` — **no los toqué**. Si querés que renombre el directorio y lo deje listo, decime.
+
+¿Seguimos con spec y design?
+
+---
+
+## Turn 19 — 2026-09-06 16:46:36.719 UTC
+
+### Prompt
+
+```text
+Idenpotencia:
+- NO quiero la llave de idempotencia allí, prefiero un aproach donde soportamos tipos de cuenta, y hasta una cuenta por tipo por usuario, allí la precondición, idempotencia para movimientos de dinero. Hagamonos la vida simple
+```
+
+### Response
+
+*(No response was produced for this prompt — the turn was interrupted or the prompt was re-submitted.)*
+
+---
+
+## Turn 20 — 2026-09-06 16:47:00.530 UTC
+
+### Prompt
+
+```text
+Idenpotencia:
+- NO quiero la llave de idempotencia en la apertura o creación, prefiero un aproach donde soportamos tipos de cuenta, y hasta una cuenta por tipo por usuario, allí la precondición, idempotencia para movimientos de dinero. Hagamonos la vida simple
+```
+
+<details><summary>Tool calls (8)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== referencias a 4.4 ==="; rg -n '§4\.4|4\.4\)' docs/prd.md opensp…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n '^### 6\.' docs/prd.md python3 - <<'PY' import pathlib, re p = path…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '253,266p' docs/prd.md echo "=== §4.1 menciona purpose para SYSTEM…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== consistencia final ===" rg -n 'idempotency key' docs/prd.md | r…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
+
+</details>
+
+### Response
+
+Simplificación buena, y elimina la única excepción que quedaba fea. Pero hay un choque de nombres que hay que resolver antes de escribirlo:
+
+Ya tenemos `AccountType` = `USER`/`SYSTEM`, que es la **clasificación contable** y define la política de sobregiro. Lo que estás introduciendo es otro eje: el **propósito** de la cuenta. Son cosas distintas y meterlas en el mismo nombre confunde. Le digo `AccountPurpose`.
+
+Y fijate que el propósito aplica también a las `SYSTEM` — fondeo, liquidación — así que la unicidad `(titular, propósito, moneda)` funciona parejo para las dos:
+
+Quedó mal ubicada la numeración. La acomodo:
+
+§6.3 quedó antes de §6.2. Reordeno:
+
+§5.3 quedó antes de §5.2. Lo reordeno:
 
 ---
