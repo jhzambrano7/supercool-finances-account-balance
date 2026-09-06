@@ -38,7 +38,7 @@ where a domain decision constrains them (§7).
 | `Transfer` | Aggregate root (frozen), owns its `Entry` legs | `domain/transfer.py` |
 | `Entry` | Entity inside `Transfer`, references `Account` by id | `domain/entry.py` |
 | `AccountId`, `TransferId`, `EntryId`, `OwnerId` | Value objects over `UUID` | `domain/identifiers.py` |
-| `AccountType`, `AccountStatus`, `EntryDirection`, `OverdraftPolicy` | Enums (with behaviour) | with their owner |
+| `AccountType`, `AccountPurpose`, `AccountStatus`, `EntryDirection`, `OverdraftPolicy` | Enums (with behaviour) | with their owner |
 | `IdempotencyKey` | Value object | `domain/identifiers.py` |
 | `post_transfer`, `post_reversal` | Domain service (module-level functions) | `domain/posting.py` |
 
@@ -63,6 +63,19 @@ class OverdraftPolicy(Enum):
 
 `Account.debit()` computes the resulting balance and asks the policy. One call site, one rule, and the
 rule is unit-testable without constructing an `Account`.
+
+**Amended by the PRD revision of 2026-09-06 (§8b).** A `USER` balance may now go negative, but only
+through a reversal, so the policy is keyed on the *operation* as well as the account:
+
+```python
+def debit(self, amount: Money) -> None: ...              # asks the policy; refuses below zero
+def debit_for_reversal(self, amount: Money) -> None: ... # the only path permitted to cross zero
+```
+
+Two named methods rather than `debit(..., allow_overdraft=True)`: a boolean argument can be passed
+from anywhere, while a second method is reachable only by naming it, and `grep debit_for_reversal` is
+then a complete audit of every place a balance can go negative. I2 stays total — it constrains *which
+path*, not *whether the rule holds*.
 
 - **Rejected — `if self.account_type is AccountType.USER: ...` inside `debit()`.** Welds the invariant
   to the classification. The day a second overdraft-capable type appears (an FX settlement account,
@@ -245,7 +258,7 @@ correctness wins.
 | ID | Enforced by | Raises |
 | --- | --- | --- |
 | I1 | `Transfer.__post_init__` — per-currency signed sum is zero (D4) | `UnbalancedTransferError` |
-| I2 | `Account.debit()` → `OverdraftPolicy.assert_allows(resulting)` | `InsufficientFundsError` |
+| I2 | `Account.debit()` → `OverdraftPolicy.assert_allows(resulting)`. `Account.debit_for_reversal()` is the sole path that may cross zero (D1, PRD §7.3) | `InsufficientFundsError` |
 | I3 | `Transfer.__post_init__` (`amount.is_positive`) and `Entry.__post_init__` | `NonPositiveAmountError` |
 | I4 | `post_transfer` (source/destination/amount currencies) + `Account.debit`/`credit` (leg vs account currency) | `CurrencyMismatchError` *(shared)* |
 | I5 | `Transfer.__post_init__` (source ≠ destination) | `SelfTransferError` |
@@ -253,8 +266,17 @@ correctness wins.
 | I7 | Structural — `post_reversal` produces a new `Transfer`; nothing can mutate an existing one | — |
 | G5 | `Account.assert_owned_by(owner_id)` — the *fact*; the *policy* of when to call it is the use case's (see §7) | `AccountOwnershipError` |
 
-Additional guards: `Account.assert_operable()` (status) and `Entry`/`Account` id agreement in
-`Account.apply()`.
+Additional guards: `Account.assert_operable()` (status), `Entry`/`Account` id agreement in
+`Account.apply()`, and `AccountType`/`AccountPurpose` agreement in `Account.open()` (PRD §4.4).
+
+Two rules cannot live in any aggregate and are carried to the persistence phase as constraints, for
+the same reason: both are questions about rows other than the one being written, and a check-then-act
+in the use case loses the race.
+
+| Rule | Constraint |
+| --- | --- |
+| A transfer is reversed at most once | Partial unique index on `transfers.reverses` |
+| One account per `(owner, purpose, currency)` | Unique index; this is what lets account opening drop its idempotency key (PRD §6.3) |
 
 ## 7. Domain errors
 
