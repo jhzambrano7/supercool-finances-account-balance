@@ -153,6 +153,17 @@ an operational job.
 **Rejected alternative:** deriving the balance on read. Honest and simpler, but unlockable and
 unbounded in cost. Rejected on the strength of the locking requirement.
 
+### 5.2 Concurrency guarantees
+
+- Isolation: `READ COMMITTED` + explicit row locks. The lock, not the isolation level, is what
+  provides the guarantee — this keeps the behaviour easy to reason about.
+- Two concurrent debits on the same `USER` account serialize on that row's lock; the second re-reads
+  a balance already reflecting the first, so I2 cannot be bypassed by a race.
+- Deposits do not contend: their only lock is the destination `USER` account (§5.3).
+- Deadlock avoidance via deterministic lock ordering (§5, step 3).
+- The `version` column on accounts is kept for diagnostics and for future optimistic paths.
+
+
 ### 5.3 `SYSTEM` accounts are never locked, and their balance is not materialized
 
 We lock a row to keep a balance from changing under a rule that is about to read it. The only such
@@ -178,17 +189,6 @@ reads on the critical path, and the global contention that maintaining it would 
 
 **Consequence:** deposits are the cheapest operation in the system — one row locked. A
 customer-to-customer transfer locks two. Nothing locks more.
-
-### 5.2 Concurrency guarantees
-
-- Isolation: `READ COMMITTED` + explicit row locks. The lock, not the isolation level, is what
-  provides the guarantee — this keeps the behaviour easy to reason about.
-- Two concurrent debits on the same `USER` account serialize on that row's lock; the second re-reads
-  a balance already reflecting the first, so I2 cannot be bypassed by a race.
-- Deposits do not contend: their only lock is the destination `USER` account (§5.3).
-- Deadlock avoidance via deterministic lock ordering (§5, step 3).
-- The `version` column on accounts is kept for diagnostics and for future optimistic paths.
-
 ---
 
 ## 6. Idempotency
