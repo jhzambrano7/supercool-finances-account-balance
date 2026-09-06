@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 22
+**Turns recorded:** 23
 
 ---
 
@@ -1721,12 +1721,13 @@ Cuando quieras seguimos con spec y design del dominio, o arrancamos a escribir `
 Ojo, no quiero nada exagerado en documentos ni inventado. Vamos con spec y design. El spec hacia adelante sirve como documentación del repo
 ```
 
-<details><summary>Tool calls (4)</summary>
+<details><summary>Tool calls (5)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('README.md'); s = p.read…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add README.md git commit -q -F - <<'MSG' docs(docs): remove overstate…
 - `Agent` — Write the **specification** for the account balance DOMAIN. ## Skills to load before work Read in full first: `/Users/jhz7/.config/opencode/…
 - `Agent` — Write the **technical design** for implementing the account balance DOMAIN in Python. ## Skills to load before work Read in full first: `/Us…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
 
 </details>
 
@@ -1748,5 +1749,99 @@ Corregido. Lo que había:
 Y toda la sección "How the money is kept safe" ahora abre diciendo que **describe el diseño**, y que de eso sólo `Money` y la generación de IDs están implementados.
 
 Ahora spec y design, en paralelo. Ambos dependen sólo de la proposal, y le doy a spec la instrucción explícita de que es **documentación permanente del repo**, no un artefacto de una fase:
+
+Tomada la corrección, y quiero nombrar la lección porque me parece la parte útil.
+
+**Ninguna de las seis cosas que corregí era un dato falso.** El problema era **tiempo presente describiendo diseño**. Escribir *"a deposit locks exactly one row"* cuando ese código no existe no es mentir explícitamente, pero el lector lo interpreta como comportamiento real. Es la forma más fácil de exagerar sin decir una sola mentira — y por eso mismo la más difícil de detectar releyendo.
+
+Las dos que sí eran juicio disfrazado de dato: *"what is built is built properly... nothing is stubbed to look finished"* (auto-elogio, eliminado) y *"it was wrong often enough that the distinction matters"* (cuantificador vago que reemplacé por el único caso que el log efectivamente registra).
+
+Metí esa regla como restricción explícita en los prompts de spec y design: **no describir como existente nada que no lo esté**, y si algo está indefinido, listarlo como pregunta abierta en vez de inventar la respuesta.
+
+---
+
+**Spec y design corriendo en paralelo.** Ambos dependen sólo de la proposal, así que no hay razón para serializarlos.
+
+Al spec le di tu indicación tal cual: es **documentación permanente del repo**, no artefacto de fase. Va a `openspec/specs/account-balance/spec.md` — la ubicación de "verdad actual", no la de la carpeta del cambio — escrito en presente como reglas vigentes, sin lenguaje de propuesta. Con escenarios Given/When/Then concretos y cobertura explícita de los casos negativos, que es donde se pierde la plata: fondos insuficientes, monedas distintas, auto-transferencia, monto no positivo, cuenta cerrada, par tipo/propósito inválido, fallo de titularidad, y la reversa que deja negativo al destinatario.
+
+El design va a `openspec/changes/account-balance-domain/design.md`: layout de módulos bajo `src/modules/account_balance/domain/`, firmas exactas que compilen bajo mypy strict, cómo el servicio de posteo construye asientos y mueve saldos en una sola operación, el corte `debit()` / `debit_for_reversal()`, y qué tienen que **demostrar** los tests de concurrencia en vez de afirmar.
+
+Te aviso cuando lleguen los dos y los reviso antes de pasártelos.
+
+---
+
+## Turn 23 — 2026-09-06 17:00:56.974 UTC
+
+### Prompt
+
+```text
+<task-notification>
+<task-id>a6308d9ae85e795ff</task-id>
+<tool-use-id>toolu_01KEg5sMDge27bhzg4qmhLkf</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-finances-account-balance/5899ca45-2031-46b9-ada4-dcd2507881d3/tasks/a6308d9ae85e795ff.output</output-file>
+<status>completed</status>
+<summary>Agent "Domain spec as repo docs" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Spec written and persisted.
+
+**Status**: done
+**Executive summary**: Full domain specification for the account-balance service (`Account`, `Transfer`, `Entry`) written as permanent repo documentation — 23 requirements with Given/When/Then scenarios, each citing PRD G/I ids or section numbers, covering happy paths and all requested negative cases (insufficient funds, currency mismatch, self-transfer, non-positive amount, closed/inoperable account, invalid type/purpose pair, ownership failure, and the reversal-into-negative special path).
+
+**Artifacts**:
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/specs/account-balance/spec.md` (new, no prior spec existed — full spec, not delta)
+- Engram `sdd/account-balance-domain/spec` (topic_key, id 1373)
+
+**Next recommended**: sdd-design (design has not been produced yet for this change — needed before sdd-tasks per the DAG)
+
+**Risks / assumptions forced by gaps in the accepted proposal** (flagged as Open Questions in the spec rather than invented):
+1. No error class is named for an invalid `(AccountType, AccountPurpose)` pair on `Account.open()`.
+2. No error class is named for a refused `Account.close()` (non-zero balance / non-ACTIVE / SYSTEM-typed) — unclear if these three causes share one error.
+3. `IdempotencyKey` has no stated internal validation rule in either the PRD or proposal.
+
+One accuracy correction worth flagging explicitly: the proposal's §D10 narrative text ("reversal refused with `InsufficientFundsError` if unaffordable") is stale — it predates the §8b PRD revision. I followed the current authoritative rule (PRD §7.3 + proposal §8b): reversal always posts in full via `debit_for_reversal()`, no `InsufficientFundsError` path for reversals. Worth confirming this reading before design/tasks proceed, since the proposal document itself still carries the contradicting older paragraph in D10 body text.
+
+**Skill resolution**: paths-injected — `cognitive-doc-design/SKILL.md` (orchestrator-provided path), plus self-loaded `sdd-spec/SKILL.md` and `_shared/sdd-phase-common.md`.</result>
+<usage><subagent_tokens>82763</subagent_tokens><tool_uses>12</tool_uses><duration_ms>275715</duration_ms></usage>
+</task-notification>
+```
+
+<details><summary>Tool calls (12)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== D10 en la proposal ===" sed -n '/^### D10 /,/^### D11 /p' opens…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## Open Questions/,$p' openspec/specs/account-balance/spec.md e…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## Domain Errors/,/^## Requirements/p' openspec/specs/account-b…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/specs/account-…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n 'not yet named|Open Questions' openspec/specs/account-balance/spec.…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '226,238p' openspec/specs/account-balance/spec.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== 1. hypothesis está en dev deps? ===" rg -n 'hypothesis' pyproje…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib # 1. spec: escenario de cierre con refere…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('pyproject.toml'); s = p…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## 10\. Where this design departs/,$p' openspec/changes/account…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -2 git add openspec/ pyproject.toml uv.lock git…
+
+</details>
+
+### Response
+
+El spec llegó; el design sigue corriendo. Antes de nada verifico lo que reporta sobre D10, porque si es cierto la proposal se contradice a sí misma:
+
+Confirmado, y el hallazgo es correcto. D10 todavía dice:
+
+> *"the reversal is refused with `InsufficientFundsError`"*
+
+Esa es la respuesta **original** a Q3, superada dos veces: primero por la cuenta de incobrables, después por tu decisión de saldo negativo. La proposal se contradecía a sí misma. Lo corrijo:
+
+El spec quedó bien: 472 líneas, 23 requisitos con escenarios, y **no inventó** los nombres que faltaban — los listó como preguntas abiertas, que es exactamente lo que pedí.
+
+Esas tres son decisiones de nomenclatura dentro de convenciones ya establecidas, así que las resuelvo yo:
+
+Quedó una referencia colgada a las preguntas abiertas. La limpio:
+
+El design llegó también. Verifico sus afirmaciones antes de pasártelas — y de paso limpio lo que quedó colgando en el spec:
+
+Los tres verificados, y **los tres son reales**:
+
+Los tres riesgos verificados y corregidos. Commiteo:
 
 ---
