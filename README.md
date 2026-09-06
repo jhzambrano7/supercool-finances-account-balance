@@ -19,9 +19,7 @@ rejection is written down, because the reasoning is the deliverable, not the cod
 
 ## Status — read this first
 
-The design is complete and defended. The implementation is partial, and this section says exactly
-where the line is, because a README that overstates its subject is the first thing a reviewer stops
-trusting.
+The design is written down; the implementation is partial. This section says where the line is.
 
 | Area | State |
 | --- | --- |
@@ -32,9 +30,6 @@ trusting.
 | `Account`, `Transfer`, `Entry` aggregates | **Designed, not written** |
 | Use cases, HTTP API, PostgreSQL adapters, migrations | **Designed at the contract level, not written** |
 | Containers, IaC | **Planned** — approach described [below](#running-it-and-deploying-it), not yet committed |
-
-What is built is built properly: strict typing, tests that assert the properties a decision rests on,
-and gates that run on every commit. Nothing is stubbed to look finished.
 
 ---
 
@@ -70,6 +65,9 @@ wrong place for one.
 
 ## How the money is kept safe
 
+> This section describes the **design**. Of it, only `Money` and id generation are implemented
+> today; see [Status](#status--read-this-first).
+
 ### Double-entry, so the ledger balances by construction
 
 Every movement writes entries that net to zero per currency. The balance is not a number someone
@@ -93,12 +91,12 @@ non-negative-balance invariant, which applies to `USER` accounts only.
 | Locked while posting | Yes | **No** |
 | Balance materialized | Yes | **No** — derived from entries |
 
-That asymmetry is not an optimization; it follows from the invariant. Every deposit debits the same
-funding account, so locking it would serialize the deposits of every customer in the system through
-a single row — waiting on a lock taken to protect a rule that does not exist. **A deposit locks
-exactly one row. A customer-to-customer transfer locks two. Nothing locks more.**
+That asymmetry follows from the invariant rather than from tuning. Every deposit debits the same
+funding account, so locking it would serialize the deposits of every customer through a single row,
+waiting on a lock taken to protect a rule that does not apply. Under this design a deposit locks one
+row and a customer-to-customer transfer locks two.
 
-Locks are taken in deterministic account-id order, because concurrent `A→B` and `B→A` transfers
+Locks are to be taken in deterministic account-id order, because concurrent `A→B` and `B→A` transfers
 otherwise deadlock.
 
 ### Idempotency, scoped to the operations that actually need it
@@ -160,8 +158,9 @@ The full reasoning is in [`docs/prd.md`](docs/prd.md); this is the index.
 
 ## Observability
 
-Generic RED metrics say whether the service is up. They do not say whether the money is right. The
-signals that matter here are specific ([`docs/prd.md` §11](docs/prd.md)):
+Specified, not yet instrumented. Generic RED metrics say whether the service is up, not whether the
+money is right, so the signals below are the ones specific to this service
+([`docs/prd.md` §11](docs/prd.md)):
 
 - **Correctness — should be flat; alert on the first occurrence, not a threshold.** Ledger imbalance,
   and `balance ≠ SUM(entries)` drift. The drift check is what makes materializing the balance a safe
@@ -204,10 +203,10 @@ deployment model is understood, not to ship a platform.
 | --- | --- |
 | Python 3.14 | Latest stable; dependency resolution verified against it before committing |
 | uv | One tool for interpreter, virtualenv and dependencies, and it pins Python *in the project*, so the version is reproducible across laptop, container and CI |
-| PostgreSQL | `SELECT ... FOR UPDATE` is the concurrency mechanism the design rests on |
-| SQLAlchemy + Alembic | Mature, and keeps migrations reviewable |
+| PostgreSQL (planned) | `SELECT ... FOR UPDATE` is the concurrency mechanism the design rests on |
+| SQLAlchemy + Alembic (planned) | Declared as dependencies; no models or migrations written yet |
 | ruff + mypy strict | Enforced in pre-commit, not suggested |
-| pytest + testcontainers | Domain tested with no infrastructure; persistence and locking tested against a real database, because that is where those bugs live |
+| pytest | Domain tested with no infrastructure. `testcontainers` is a declared dependency for the persistence and locking tests, which are not written yet |
 
 ### Getting started
 
@@ -237,10 +236,11 @@ The instructions require every prompt and every response. Meeting that with a su
 - **[`docs/decision-log.md`](docs/decision-log.md)** is the curated layer: what was decided, why, and
   the verdict on each exchange. Two artifacts, two different questions.
 
-The AI was directed, not consulted for opinions — and it was wrong often enough that the distinction
-matters. One example, preserved in the log: it proposed restating the authorization rule as "the
-caller must own every `USER` leg". That reads tighter and forbids sending money to another customer.
-Checking a proposal against each case, rather than accepting its summary, is the work.
+The AI was directed rather than asked what to think, and its output was checked rather than
+accepted. One instance is preserved in the log: asked to review the domain, it correctly found a
+contradiction in the PRD, then proposed restating the authorization rule as "the caller must own
+every `USER` leg" — a rule that would forbid sending money to another customer. The gap was real and
+the proposed fix was not.
 
 ---
 
