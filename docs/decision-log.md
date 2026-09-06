@@ -200,3 +200,5 @@ Formato de cada entrada:
 - **Aporte principal del design:** cierra una ventana de mutación parcial. Aplicar sobre origen y después sobre destino deja el primero movido si el segundo rechaza, así que `credit`/`debit`/`debit_for_reversal` dejan de mutar: validan y devuelven un `PendingApplication` cuyo `commit()` es sólo asignación y no puede lanzar. El posteo se ordena para que todo lo que puede rechazar rechace antes de que algo se mueva.
 - **Resueltas por mí, reversibles:** los tres nombres que faltaban (`InvalidAccountPurposeError`; `AccountNotEmptyError` y `AccountNotClosableError` separados por si el llamador puede accionar sobre el error o no; tope de 255 en `IdempotencyKey`) y el agregado de `hypothesis` a las dependencias de desarrollo, que los criterios de éxito asumían y nada proveía.
 - **Veredicto:** ⏳ pendiente
+
+<!-- skip: 20260906-132614-a1fe3a40 -->

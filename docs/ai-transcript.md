@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 23
+**Turns recorded:** 24
 
 ---
 
@@ -1805,7 +1805,7 @@ One accuracy correction worth flagging explicitly: the proposal's §D10 narrativ
 </task-notification>
 ```
 
-<details><summary>Tool calls (12)</summary>
+<details><summary>Tool calls (13)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== D10 en la proposal ===" sed -n '/^### D10 /,/^### D11 /p' opens…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
@@ -1819,6 +1819,7 @@ One accuracy correction worth flagging explicitly: the proposal's §D10 narrativ
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('pyproject.toml'); s = p…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## 10\. Where this design departs/,$p' openspec/changes/account…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -2 git add openspec/ pyproject.toml uv.lock git…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
 
 </details>
 
@@ -1843,5 +1844,53 @@ El design llegó también. Verifico sus afirmaciones antes de pasártelas — y 
 Los tres verificados, y **los tres son reales**:
 
 Los tres riesgos verificados y corregidos. Commiteo:
+
+Spec y design listos. **37 commits.**
+
+## Spec — `openspec/specs/account-balance/spec.md`
+
+472 líneas, 23 requisitos con escenarios Given/When/Then, cada uno citando el id del PRD del que deriva. Escrito como documentación permanente, en presente, sin lenguaje de propuesta.
+
+Y respetó la regla que le puse: cuando encontró tres cosas que el diseño aceptado no definía, **las listó como preguntas abiertas en vez de inventarlas**. Eso es lo que quería ver.
+
+## Design — `openspec/changes/account-balance-domain/design.md`
+
+534 líneas. Su aporte más fuerte es cerrar un agujero que ni la proposal ni yo habíamos visto: **mutación parcial**.
+
+Si posteás aplicando sobre origen y después sobre destino, y el segundo rechaza, el primero **ya se movió**. La transacción de base hace rollback, sí — pero el objeto de dominio en memoria queda corrupto, y los tests que no tocan base lo ven. La solución: `credit`, `debit` y `debit_for_reversal` dejan de mutar. Validan y devuelven un token cuyo `commit()` es **sólo asignación y no puede lanzar**. El posteo se ordena para que todo lo que pueda rechazar rechace *antes* de que algo se mueva.
+
+## Tres contradicciones, verificadas una por una
+
+Ninguna la acepté por reporte; las chequeé contra los archivos.
+
+1. **D10 seguía diciendo que la reversa se rechaza con `InsufficientFundsError`** — la respuesta original a Q3, superada dos veces. Corregido, pero **conservé el texto viejo** marcado como superado: el razonamiento que lo produjo ("una invariante con excepción deja de serlo") es exactamente por qué el diseño final usa un método nombrado en vez de un flag. Borrarlo hubiera borrado el porqué.
+
+2. **La fila Q3 de la tabla** seguía describiendo la cuenta de incobrables. Un lector que fuera directo a las preguntas resueltas leía lo contrario del PRD.
+
+3. **La firma de D1 que yo escribí** — `debit(self, amount: Money)` — tomaba `Money` en vez de `Entry` y contradecía a D5. **No se podía implementar como estaba.** Ese error fue mío, del turno pasado, y lo encontró el sub-agente.
+
+## Decisiones que tomé yo, reversibles
+
+Los tres nombres que faltaban: `InvalidAccountPurposeError`, y el cierre partido en `AccountNotEmptyError` / `AccountNotClosableError` — separados por si el llamador **puede hacer algo al respecto** (vaciá la cuenta) o no. Tope de 255 en `IdempotencyKey`, sin imponer formato porque la genera el cliente y un UUID, un ULID y un hash son todos legítimos.
+
+Y agregué `hypothesis` a las dependencias de desarrollo: los criterios de éxito del PRD asumen tests de propiedades y nada lo proveía. Es una decisión de dependencia — si preferís tests tabulares, se saca.
+
+Quedan dos preguntas menores en el design, ninguna bloqueante: si `Account` expone `purpose`/`account_type` como propiedades públicas (asumido que sí), y que el tope de 255 se mueva si persistencia elige otro ancho de columna.
+
+El siguiente paso natural es **tasks** y después implementar. ¿Le damos, o querés leer spec y design primero?
+
+---
+
+## Turn 24 — 2026-09-06 18:26:14.280 UTC
+
+### Prompt
+
+```text
+Déjame reviso y corregimos donde corresponda
+```
+
+### Response
+
+*(No response was produced for this prompt — the turn was interrupted or the prompt was re-submitted.)*
 
 ---
