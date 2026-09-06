@@ -20,7 +20,7 @@ ever created, destroyed, or duplicated by this service.**
 | G1 | Every balance is explainable by an immutable trail of accounting entries | Auditability; a balance nobody can justify is not an asset, it's a liability |
 | G2 | Concurrent operations on the same account never corrupt a balance | Two simultaneous transfers must not both pass a stale balance check |
 | G3 | A retried request never moves money twice | Networks fail mid-flight; clients retry; money must not |
-| G4 | A customer account can never go negative | Overdraft is not a supported product |
+| G4 | No customer action can drive their own account negative. Only a reversal may (§7.3) | Overdraft is not a product; a clawback is a debt, and a debt should be visible on the account that owes it |
 | G5 | A customer can only move money out of accounts they own, and can only fund their own | Authentication without authorization is an open vault |
 
 ## 3. Non-Goals (explicitly out of scope for v1)
@@ -47,7 +47,7 @@ So accounts are typed, and the invariant is scoped to the type:
 
 | Type | Meaning | Negative balance allowed |
 | --- | --- | --- |
-| `USER` | A customer's money. A liability of SuperCool towards a person | **No** — invariant enforced in the domain |
+| `USER` | A customer's money. A liability of SuperCool towards a person | **Only via reversal** (§7.3) — never through the customer's own actions |
 | `SYSTEM` | The counterparty representing the outside world (funding, settlement) | **Yes** — its negative balance *is* the money owed/held externally |
 
 This is the single most important modelling decision in the service, and it is the reason the
@@ -56,7 +56,9 @@ ledger balances by construction while customers still cannot overdraft.
 ### 4.2 Core aggregates
 
 - **Account** — identity, owner, `type`, `currency`, `balance`, `status`, `version`.
-  A user holds **one account per currency**. This is what makes §8 cheap.
+  Each account holds exactly one currency; **an owner may hold many accounts, including several in
+  the same currency** (a salary account and a savings account are not the same account). Currency is
+  a property of the account, never of the owner — which is what makes §8 cheap.
 - **Transfer** — the intent: source account, destination account, amount, idempotency key,
   requested-by. Immutable once accepted.
 - **Entry** — one leg of the double-entry posting: account, direction (`DEBIT`/`CREDIT`),
@@ -73,7 +75,7 @@ error — currency mismatch is a domain rule, not an API validation.
 | ID | Invariant | Enforced where |
 | --- | --- | --- |
 | I1 | For every transfer, `sum(debits) == sum(credits)` | Domain — a transfer cannot be constructed unbalanced |
-| I2 | A `USER` account balance is never `< 0` | Domain — `Account.debit()` raises `InsufficientFundsError` |
+| I2 | A `USER` account balance is never driven `< 0` by a customer-initiated operation. Reversal is the sole exception, and it is a *named path*, not a flag | Domain — `Account.debit()` raises `InsufficientFundsError`; `Account.debit_for_reversal()` is the only method that may go below zero |
 | I3 | Transfer amount is strictly positive | Domain — `Money` / transfer construction |
 | I4 | Source and destination currencies match | Domain — v1 rejects cross-currency |
 | I5 | Source and destination are different accounts | Domain — self-transfer is meaningless |
@@ -96,13 +98,15 @@ Sequence, all inside a single database transaction:
    Note this is *not* simply "owns the source": a deposit's source is a `SYSTEM` account nobody
    owns, so a naive source check would block every deposit.
 2. **Idempotency check** — see §6. Short-circuit and return the cached result on replay.
-3. **Lock both accounts** with `SELECT ... FOR UPDATE`, **ordered deterministically by account id**.
-   Ordering is not an optimization — without it, concurrent `A→B` and `B→A` transfers deadlock.
+3. **Lock the `USER` accounts involved** with `SELECT ... FOR UPDATE`, **ordered deterministically
+   by account id**. Ordering is not an optimization — without it, concurrent `A→B` and `B→A`
+   transfers deadlock. **`SYSTEM` accounts are never locked** (§5.3): a deposit therefore locks
+   exactly one row, and concurrent deposits do not contend with each other at all.
 4. **Load the domain aggregates** from the locked rows.
 5. **Apply the transfer in the domain** — this is where I2 (no negative user balance) is enforced,
    on a balance that cannot change underneath us because we hold the lock.
-6. **Persist**: append the two entries, update both materialized balances, record the idempotency
-   result.
+6. **Persist**: append the entries, update the materialized balance of each `USER` account touched,
+   record the idempotency result.
 7. **Commit.** Any failure at any step rolls back everything — there is no partial transfer.
 
 ### 5.1 Balance: materialized, with entries as the source of truth
@@ -112,7 +116,8 @@ recomputing a sum over a growing ledger on every transfer degrades without bound
 
 **Decision:** entries are the source of truth; `accounts.balance` is a materialized projection
 updated *inside the same transaction* that writes the entries. It is therefore never stale, never
-eventually-consistent, and always lockable.
+eventually-consistent, and always lockable. **This applies to `USER` accounts only** — see §5.3 for
+why `SYSTEM` balances are derived instead.
 
 **Cost:** the balance can, in principle, drift from the ledger due to a bug. **Mitigation:** a
 reconciliation check asserting `account.balance == SUM(entries)` — run in tests, and available as
@@ -121,12 +126,39 @@ an operational job.
 **Rejected alternative:** deriving the balance on read. Honest and simpler, but unlockable and
 unbounded in cost. Rejected on the strength of the locking requirement.
 
+### 5.3 `SYSTEM` accounts are never locked, and their balance is not materialized
+
+We lock a row to keep a balance from changing under a rule that is about to read it. The only such
+rule is I2, and I2 does not apply to `SYSTEM` accounts — their balance is unconstrained by design
+(§4.1). Locking them buys nothing, and costs everything:
+
+**Every deposit debits the same funding account.** Locking it would serialize the deposits of every
+customer in the system through a single row. A thousand concurrent deposits would queue one behind
+another, waiting on a lock taken to protect an invariant that does not exist. That is not a
+throughput problem to tune later; it is the wrong design.
+
+So the asymmetry is deliberate and follows from the invariant:
+
+| | `USER` account | `SYSTEM` account |
+| --- | --- | --- |
+| Row locked during posting | Yes — I2 must read a stable balance | **No** |
+| Balance materialized | Yes — see §5.1 | **No** — derived from entries when needed |
+| Reconciliation `balance == SUM(entries)` | Applies | Not applicable; the sum *is* the balance |
+
+`SYSTEM` accounts still receive their entries: the ledger balances exactly as before (I1), and their
+position is always recoverable as `SUM(entries)`. What disappears is a maintained column that nothing
+reads on the critical path, and the global contention that maintaining it would have required.
+
+**Consequence:** deposits are the cheapest operation in the system — one row locked. A
+customer-to-customer transfer locks two. Nothing locks more.
+
 ### 5.2 Concurrency guarantees
 
 - Isolation: `READ COMMITTED` + explicit row locks. The lock, not the isolation level, is what
   provides the guarantee — this keeps the behaviour easy to reason about.
-- Two concurrent debits on the same account serialize on the row lock; the second one re-reads a
-  balance that already reflects the first, so I2 cannot be bypassed by a race.
+- Two concurrent debits on the same `USER` account serialize on that row's lock; the second re-reads
+  a balance already reflecting the first, so I2 cannot be bypassed by a race.
+- Deposits do not contend: their only lock is the destination `USER` account (§5.3).
 - Deadlock avoidance via deterministic lock ordering (§5, step 3).
 - The `version` column on accounts is kept for diagnostics and for future optimistic paths.
 
@@ -144,6 +176,7 @@ The client generates the key (`Idempotency-Key`). That alone is not enough. The 
 | **In-flight concurrency** | Two simultaneous requests with the same key: one wins on the unique constraint, the other is rejected/retried — never both applied |
 | **Replay result** | A replay returns the result of the original operation — never an empty `200`. See §6.1 for where that result comes from |
 | **Retention** | Records are retained for a bounded window that **must exceed the client's maximum retry horizon**. See §6.2 |
+| **Scope of use** | Money movements, plus account opening. Not lifecycle transitions that can check their own preconditions. See §6.3 |
 
 ### 6.1 Where the replayed response comes from — it is not a cache
 
@@ -164,6 +197,26 @@ reading the transfer and its entries** — the same immutable ledger that answer
 replay, but it duplicates data that already lives in the ledger and it rots — the day the response
 schema changes, old rows still carry the old shape. Rebuilding from the ledger keeps exactly one
 source of truth and cannot drift from it.
+
+### 6.3 Idempotency keys are for money movements only
+
+An idempotency key exists to make a **non-idempotent** operation safe to retry. Applying it to every
+mutating endpoint is cargo cult: it adds a key, a payload hash and a retention policy to operations
+that already have a natural answer.
+
+| Operation | Retry-safe because |
+| --- | --- |
+| Transfer, deposit, withdraw, reversal | **Idempotency key.** Each application moves money again; nothing in the entity says it already happened |
+| Close an account | **State.** Closure requires `ACTIVE`; a second attempt finds `CLOSED` and is rejected. The precondition *is* the guard |
+| Open an account | See below — the one that needs care |
+
+Account opening has no prior state to check against, and `(owner, currency)` is not unique (§4.2), so
+a retried request would otherwise create a second account. It keeps an idempotency key for that
+reason alone, which is the honest justification rather than uniformity.
+
+**Rejected — idempotency keys everywhere:** uniform, and it hides the distinction between operations
+whose safety comes from a stored key and operations whose safety comes from their own preconditions.
+The second kind is strictly better: it cannot expire.
 
 ### 6.2 The one real failure mode: retention expiry
 
@@ -188,7 +241,8 @@ operational job.
 | Reverse a transfer | A **new** compensating transfer referencing the original. Never a mutation or deletion (I7). **Operator-authorized only** (§7.1) |
 | Close an account | `USER` accounts only, and only at a zero balance (§7.2) |
 
-All mutating capabilities are idempotent per §6.
+Money movements are idempotent per §6. Lifecycle operations are not, and do not need to be — see
+§6.3.
 
 ### 7.1 Reversal is operator-authorized, not customer-initiated
 
@@ -212,41 +266,47 @@ Only `USER` accounts close; `SYSTEM` accounts are infrastructure and outlive any
 
 ### 7.3 A reversal the recipient can no longer afford
 
-A reversal debits the account that originally received the money. If that account has already spent
-it, the debit would drive a `USER` balance below zero, which I2 forbids. The compensating-entry rule
-(I7) says *how* to reverse; it does not say what to do when the reversal cannot be afforded.
+A reversal debits the account that originally received the money. If that account already spent it,
+the debit takes the balance below zero. The compensating-entry rule (I7) says *how* to reverse; this
+says what happens when the recipient cannot cover it.
 
-**Decision: post what is recoverable and record the shortfall as an explicit receivable.**
+**Decision: the reversal posts in full, and the recipient's balance goes negative.**
 
 Ana sends 100 to Bruno by mistake, Bruno spends 80, an operator reverses:
 
 | Leg | Account | Direction | Amount |
 | --- | --- | --- | --- |
-| 1 | Bruno (`USER`) | DEBIT | 20 — all that remains |
-| 2 | `SYSTEM` receivable | DEBIT | 80 — the shortfall |
-| 3 | Ana (`USER`) | CREDIT | 100 |
+| 1 | Bruno (`USER`) | DEBIT | 100 |
+| 2 | Ana (`USER`) | CREDIT | 100 |
 
-The ledger balances, I2 holds without exception, and Ana is made whole. The 80 does not disappear:
-it becomes a stated debt the business owns and must pursue. **The receivable account's balance is
-therefore the running total SuperCool has absorbed from unaffordable reversals** — a number someone
-should be watching, which is precisely the point of not hiding it.
+Bruno's balance becomes `-80`. Ana is made whole. **The debt sits on the account that owes it**,
+attributed to a specific customer, in a currency, as a number — which is exactly the input a
+collections process needs (out of scope, but this is what makes starting one cheap). It also settles
+itself: Bruno's next deposit brings him back to zero and beyond, with no operator intervention and no
+special-case code.
 
-**Rejected — refuse the reversal:** simplest, and leaves Ana without her money *and* without any
-accounting record of what she is owed. A claim that leaves no trace in the ledger is a claim that
-gets lost.
+This is the standard clawback behaviour of real deposit accounts, and it is why G4 is stated as *no
+customer action drives an account negative* rather than *accounts are never negative*.
 
-**Rejected — let an operator breach I2:** turns the invariant into "never negative, except when it
-is", at which point every piece of code assuming a non-negative `USER` balance is potentially wrong.
-It also extends Bruno unsecured credit as a side effect of an operational action, rather than as a
-product decision.
+**Why this is not an invariant with an exception.** I2 does not become "non-negative, except
+sometimes". It becomes a rule about **which path** may cross zero: `Account.debit()` refuses below
+zero and is what every customer-initiated movement calls; `Account.debit_for_reversal()` is the only
+method permitted to cross, and only the reversal service can reach it. The rule stays total and
+mechanically checkable — a grep for the second method is an audit of every place a balance can go
+negative.
 
-**Consequence for the domain model:** a transfer is not always two legs. This is why I1 is stated as
-per-currency netting rather than "one debit and one credit" — the two-leg formulation could not
-express this reversal at all. A leg of zero is never written, since I3 requires entry amounts to be
-strictly positive; when the recipient has nothing left, the reversal is Bruno-less and the receivable
-carries the whole amount.
+**Rejected — refuse the reversal:** leaves Ana without her money *and* without any record of what she
+is owed. A claim with no trace in the ledger is a claim that gets lost.
 
-Recovering the receivable later is an ordinary transfer, and leaves its own entries.
+**Rejected — absorb the shortfall into a `SYSTEM` receivable** (debit Bruno 20, debit the receivable
+80, credit Ana 100). It keeps `USER` balances non-negative, and was the earlier decision here. It
+loses the property that matters: the debt stops being *Bruno's* and becomes an aggregate the business
+holds, so recovering it needs an explicit operator-driven transfer instead of simply happening on his
+next deposit. Attribution is still recoverable by walking the entries, but a balance you can read
+beats a join you must remember to run.
+
+**Consequence:** a negative `USER` balance is now a meaningful business signal — the total across
+accounts is credit exposure, and its growth is a risk indicator (§11.3).
 
 ---
 
@@ -333,20 +393,74 @@ an account the caller does not own.
 The service is done when:
 
 1. The ledger balances: for every transfer, debits equal credits (property-tested).
-2. `SUM(entries) == account.balance` for every account after any sequence of operations.
+2. `SUM(entries) == account.balance` for every `USER` account after any sequence of operations;
+   `SYSTEM` positions reconcile as `SUM(entries)` by construction.
 3. Concurrent transfers against the same account never produce a negative `USER` balance —
-   demonstrated under actual parallel load, not just asserted in a unit test.
-4. Replaying any mutating request moves money exactly once and returns the result of the original
+   demonstrated under actual parallel load, not just asserted in a unit test. Only
+   `debit_for_reversal` can cross zero, and a test asserts no other path can.
+4. Concurrent deposits do not contend: no `SYSTEM` account is ever locked (§5.3).
+5. Replaying any mutating request moves money exactly once and returns the result of the original
    operation, reconstructed from the ledger.
-5. A transfer can be explained end-to-end from the entry trail.
-6. Domain invariants are covered by unit tests with no infrastructure; persistence and locking
+6. A transfer can be explained end-to-end from the entry trail.
+7. Domain invariants are covered by unit tests with no infrastructure; persistence and locking
    behaviour is covered by integration tests against a real PostgreSQL.
+8. The correctness signals of §11.1 are exported and are zero — a ledger that balances but cannot
+   prove it is not finished.
 
 ---
 
-## 11. Open questions
+## 11. Observability
+
+Generic RED metrics — request rate, error rate, duration — say whether the service is up. They do not
+say whether the money is right. The signals below are the ones specific to *this* service, and each
+exists because some failure mode is invisible without it.
+
+### 11.1 Correctness signals — these should be flat, and any movement is an incident
+
+| Signal | Why it matters | Expected |
+| --- | --- | --- |
+| **Ledger imbalance** — transfers where per-currency debits ≠ credits | I1 is enforced in the domain, so a non-zero count means the enforcement itself is broken | Always `0`. Alert on the first occurrence, not on a threshold |
+| **Balance drift** — `USER` accounts where `balance ≠ SUM(entries)` | The cost we accepted when materializing the balance (§5.1). This is the check that makes that tradeoff safe rather than hopeful | Always `0` |
+| **`UnbalancedTransferError` raised** | It is classified Internal: if it ever fires in production it is our bug, not a caller's | Always `0` |
+
+### 11.2 Behaviour signals — these move, and their shape is the information
+
+| Signal | What a change in it tells you |
+| --- | --- |
+| **`InsufficientFundsError` rate** | A normal background level is customers spending to their limit. A spike is either an attack probing balances or, worse, balances that are wrong |
+| **Idempotency key collisions** — same key, *different* payload (`409`) | Never normal. It means a client is reusing keys across distinct requests, which is exactly the bug the payload hash exists to catch (§6). Each one is a client integration defect worth chasing |
+| **Idempotency replays** — same key, same payload | Healthy and expected; it is retries working. A sudden rise points at timeouts or instability *upstream* of us |
+| **Lock wait time on `USER` accounts** | The direct measure of contention on the critical path. Rising p99 means accounts are getting hot; it is also the early warning for deadlock and for a lock-ordering regression (§5) |
+| **Deposits per second vs. lock waits** | Deposits should show near-zero contention by construction (§5.3). If they ever correlate, someone has reintroduced a lock on a `SYSTEM` account |
+
+### 11.3 Risk signals — the business ones
+
+| Signal | Why |
+| --- | --- |
+| **Count and total of negative `USER` balances** | This *is* the credit exposure created by reversals (§7.3). It is a number the business owns, not an engineering curiosity |
+| **Reversal rate, and reversals that land negative** | Growth here means either an upstream defect generating bad transfers, or abuse. Both need a human |
+| **Age of negative balances** | A balance negative for a day is a collections case; one negative for a month is a write-off nobody decided on |
+
+### 11.4 What every money movement must carry
+
+Structured logs and traces on the posting path carry the `transfer_id`, the `idempotency_key`, the
+account ids, the currency and the outcome — never the amounts of accounts the caller does not own,
+and never anything that would let a log reader enumerate accounts (§9). A movement that cannot be
+reconstructed from its trace is a movement that cannot be explained to a customer, and G1 says every
+balance must be explainable.
+
+Health checks distinguish *liveness* from *readiness*: readiness must fail when the database is
+unreachable, because a balance service that answers while blind to its ledger is worse than one that
+admits it is down.
+
+---
+
+## 12. Open questions
 
 - Retention window for idempotency records. Not a free parameter: it must exceed the maximum
   retry horizon of any client (§6.2). Needs the client retry policy to be pinned down first.
-- Retention of the receivable: how long an unrecovered shortfall stays open before it is written
-  off is an accounting policy, not a domain rule.
+- How long a negative `USER` balance stays open before it is written off, and whether write-off is
+  modelled as a transfer against a `SYSTEM` loss account. Accounting policy, not a domain rule, but
+  §11.3 makes the exposure visible in the meantime.
+- Whether a customer holding a negative balance may still receive incoming transfers. Assumed yes —
+  refusing them would block the very deposits that clear the debt.

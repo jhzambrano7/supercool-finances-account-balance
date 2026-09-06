@@ -306,6 +306,22 @@ persistence guarantee (no UPDATE/DELETE path), exactly as PRD §4.4 states.
 constant, keeping `owner_id` total and `assert_owned_by` uniform. Rejected `OwnerId | None`, which would
 push an optional through every USER path to describe two rows.
 
+## 8b. PRD revision of 2026-09-06 — what changed for this model
+
+Five corrections landed in the PRD after this proposal was written. Four confirm decisions already
+made here; one reverses Q3.
+
+| Change | Effect on this proposal |
+| --- | --- |
+| **`SYSTEM` accounts are never locked and their balance is not materialized** (PRD §5.3) | No change to the domain model — but `OverdraftPolicy` for `SYSTEM` is now the *only* thing distinguishing them at the domain level, and the persistence phase must not add a balance column it maintains for them. D1 holds |
+| **A `USER` balance may go negative, but only through reversal** (PRD §7.3, G4, I2) | **Reverses Q3.** The `SYSTEM` receivable is gone. `Account` needs a second, named debit path — `debit_for_reversal()` — reachable only from `post_reversal`. This is D1's `OverdraftPolicy` doing exactly the job it was introduced for: the policy is now keyed on the *operation*, not only on the account type. D4 (per-currency netting) still holds and is still right, but the three-leg reversal that justified it no longer occurs |
+| **Idempotency keys only for money movements and account opening** (PRD §6.3) | `Transfer.idempotency_key` stays required (D12). Closure carries none: `close()` requires `ACTIVE`, so its precondition is its guard |
+| **An owner may hold several accounts in the same currency** (PRD §4.2) | `Account` was already keyed by `AccountId`, never by `(owner, currency)`, so nothing changes here. It does remove `(owner, currency)` as a natural uniqueness constraint, which is precisely why account opening keeps an idempotency key |
+| **Observability signals** (PRD §11) | Confirms D11: `Entry` stores no `balance_after`. Balance drift is detected by reconciliation against `SUM(entries)`, which a stored `balance_after` would have made circular — it would agree with itself while both were wrong |
+
+`Transfer` still has no status field (D9), which the PRD revision independently confirms: a failed
+posting rolls back and leaves nothing, so the field could only ever hold one value.
+
 ## 9. Open questions — need the user's decision
 
 | # | Question | Recommendation |
