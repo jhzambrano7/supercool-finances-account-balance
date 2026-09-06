@@ -230,8 +230,7 @@ exactly zero. `SYSTEM` accounts MUST NOT be closeable.
 
 - GIVEN a `USER` account, status `ACTIVE`, balance `10 USD`
 - WHEN `close()` is called
-- THEN the closure is rejected by a domain error and status remains `ACTIVE`
-- (exact error class not yet named in the accepted design — see Open Questions)
+- THEN `AccountNotEmptyError` is raised and status remains `ACTIVE`
 
 ##### Scenario: SYSTEM accounts cannot be closed
 

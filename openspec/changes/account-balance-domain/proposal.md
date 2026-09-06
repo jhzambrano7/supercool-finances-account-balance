@@ -68,9 +68,14 @@ rule is unit-testable without constructing an `Account`.
 through a reversal, so the policy is keyed on the *operation* as well as the account:
 
 ```python
-def debit(self, amount: Money) -> None: ...              # asks the policy; refuses below zero
-def debit_for_reversal(self, amount: Money) -> None: ... # the only path permitted to cross zero
+def debit(self, entry: Entry) -> PendingApplication: ...              # refuses below zero
+def debit_for_reversal(self, entry: Entry) -> PendingApplication: ... # the only path that may cross
 ```
+
+These take an `Entry`, not a bare `Money`, so they stay consistent with D5 — posting produces the
+entries and moves the balances together. An earlier revision of this paragraph wrote
+`debit(self, amount: Money)`, which contradicted D5 and could not have been implemented as written.
+`design.md` settles the exact shape, including why these validate and return rather than mutate.
 
 Two named methods rather than `debit(..., allow_overdraft=True)`: a boolean argument can be passed
 from anywhere, while a second method is reachable only by naming it, and `grep debit_for_reversal` is
@@ -360,7 +365,7 @@ posting rolls back and leaves nothing, so the field could only ever hold one val
 | --- | --- | --- |
 | ~~Q1~~ | ~~G5 restatement (§8a)~~ | **Resolved** — stated over the *debited* leg, not every `USER` leg. PRD §9.1 is now authoritative |
 | ~~Q2~~ | ~~Account closure in v1?~~ | **Resolved** — yes. `Account.close()` is domain behaviour, `USER` accounts only, refuses on a non-zero balance. PRD §7.2 |
-| ~~Q3~~ | ~~Reversal the recipient can no longer afford~~ | **Resolved** — post what is recoverable, absorb the shortfall into a `SYSTEM` receivable. I2 holds, the payer is made whole, the debt is stated. PRD §7.3. **Confirms D4:** a transfer is not always two legs, so I1 must be per-currency netting |
+| ~~Q3~~ | ~~Reversal the recipient can no longer afford~~ | **Resolved — twice.** First as a `SYSTEM` receivable absorbing the shortfall; then reversed on 2026-09-06 (PRD §7.3): the reversal posts **in full** and the recipient's balance goes negative, so the debt stays on the account that owes it and clears on its next deposit. A reversal is therefore two legs, not three. D4 (per-currency netting) still stands on the FX case in PRD §8 |
 | ~~Q4~~ | ~~Reversal authorization — payer or operator?~~ | **Resolved** — operator only. Payer-initiated reversal turns every completed payment into one the payer can unilaterally claw back. PRD §7.1 |
 | ~~Q5~~ | ~~Module name~~ | **Resolved** — `account_balance` |
 
