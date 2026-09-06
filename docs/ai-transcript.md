@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 21
+**Turns recorded:** 22
 
 ---
 
@@ -1652,7 +1652,7 @@ Dos cosas:
 2. Arma el readme en base al PRD y el conocimiento que has ganado en esta sesión, importate que re-leas el statement.md, para que tengas en cuenta que ese readme debe ser la carta de presentación de la solución, con decisiones, tech y no tech, lo rechazado y sus motivos, todos muy bien presentado
 ```
 
-<details><summary>Tool calls (8)</summary>
+<details><summary>Tool calls (9)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== README existente ==="; wc -c README.md 2>/dev/null && cat READM…
 - `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/statement.md
@@ -1662,6 +1662,7 @@ Dos cosas:
 - `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/README.md
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== links internos válidos? ===" uv run python - <<'PY' import re, …
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add README.md git commit -q -F - <<'MSG' docs(docs): add the README a…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
 
 </details>
 
@@ -1674,5 +1675,78 @@ README vacío (0 bytes), así que lo escribo yo. El `_blank copy` ya no está. R
 Tengo el statement presente. Primero actualizo el cuerpo de la proposal — §8b registra los deltas, pero el cuerpo todavía tiene contenido viejo que un revisor lee antes de llegar ahí:
 
 Ahora el README. Lo escribo como carta de presentación, y con una regla que me parece innegociable: **decir con exactitud qué está construido y qué está diseñado**. Inflar el estado es la forma más rápida de perder credibilidad con quien evalúa.
+
+Ambas cosas hechas. **32 commits**, árbol limpio.
+
+## 1. Proposal alineada
+
+El changelog §8b ya tenía los deltas, pero **el cuerpo seguía describiendo el modelo viejo** — y un revisor que lee de arriba hacia abajo choca primero con lo obsoleto. Corregido:
+
+- **D1 enmendada**: la política de sobregiro ahora se llavea por operación además de por tipo de cuenta. Y ahí tomé una decisión de diseño que quiero que veas: dos **métodos nombrados** en vez de `debit(..., allow_overdraft=True)`. Un booleano se puede pasar desde cualquier lado; un segundo método hay que **nombrarlo** para alcanzarlo. Así `grep debit_for_reversal` es la auditoría completa de dónde un saldo puede ponerse negativo.
+- `AccountPurpose` en la tabla de tipos, mapa de I2 actualizado, y las dos reglas que ningún agregado puede enforcar quedaron juntas con sus constraints.
+
+## 2. README
+
+La decisión de fondo fue **encabezar con estado honesto**, separando lo construido de lo diseñado:
+
+| Construido | Diseñado, no escrito |
+|---|---|
+| `Money`/`Currency`, 35 tests | `Account`, `Transfer`, `Entry` |
+| Generación de IDs UUIDv7 | Casos de uso, API, persistencia |
+| Toolchain con gates activos | Contenedores, IaC |
+
+Podría haberlo escrito como si el servicio estuviera terminado. Sería peor: **un README que exagera su objeto es lo primero que un revisor deja de creer**, y a partir de ahí duda de todo lo demás — incluido lo que sí está bien hecho. El statement premia criterio sobre volumen, y admitir el límite con precisión *es* criterio.
+
+Lo que sí lleva:
+
+- **Defensa de la arquitectura** con sus alternativas rechazadas — monolito modular (que reconozco probablemente correcto para una empresa real temprana) y ledger/balance como servicios separados (rechazado porque mete un salto de red adentro de la invariante).
+- **Tabla de decisiones técnicas**, cada una con lo que derrotó y por qué.
+- **Tabla de decisiones NO técnicas** — por qué fraude, outbox, auth real y multi-moneda quedan afuera. El alcance es un juicio, y el statement pide verlo.
+- Observabilidad, plan de despliegue en AWS con IaC marcado como pendiente, y cómo correrlo.
+- **Sección de uso de IA** explicando por qué el transcript es generado y no resumido.
+
+En esa última sección incluí algo que dudé pero me parece lo más honesto del documento: el ejemplo de cuando el sub-agente propuso la regla de autorización rota. Sirve para mostrar que la IA fue **dirigida, no consultada** — que es literalmente lo que pide el statement — y que verificar caso por caso en lugar de aceptar el resumen es el trabajo.
+
+Verifiqué los cuatro links internos y las afirmaciones numéricas antes de commitear.
+
+Cuando quieras seguimos con spec y design del dominio, o arrancamos a escribir `Account`.
+
+---
+
+## Turn 22 — 2026-09-06 16:54:50.051 UTC
+
+### Prompt
+
+```text
+Ojo, no quiero nada exagerado en documentos ni inventado. Vamos con spec y design. El spec hacia adelante sirve como documentación del repo
+```
+
+<details><summary>Tool calls (4)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('README.md'); s = p.read…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add README.md git commit -q -F - <<'MSG' docs(docs): remove overstate…
+- `Agent` — Write the **specification** for the account balance DOMAIN. ## Skills to load before work Read in full first: `/Users/jhz7/.config/opencode/…
+- `Agent` — Write the **technical design** for implementing the account balance DOMAIN in Python. ## Skills to load before work Read in full first: `/Us…
+
+</details>
+
+### Response
+
+Tomo la corrección. Audité el README y tenías razón — encontré varias cosas:
+
+Corregido. Lo que había:
+
+| Antes | Ahora |
+|---|---|
+| *"The design is complete and defended"* | *"The design is written down; the implementation is partial"* |
+| *"What is built is built properly... Nothing is stubbed to look finished"* | eliminado — era auto-elogio, no dato |
+| *"A deposit locks exactly one row... Nothing locks more"* | *"Under this design a deposit locks one row..."* |
+| Observabilidad en presente | *"Specified, not yet instrumented"* |
+| PostgreSQL / SQLAlchemy / testcontainers como si se usaran | marcados `(planned)` y "no models or migrations written yet" |
+| *"it was wrong often enough that the distinction matters"* | el caso concreto, sin cuantificador vago |
+
+Y toda la sección "How the money is kept safe" ahora abre diciendo que **describe el diseño**, y que de eso sólo `Money` y la generación de IDs están implementados.
+
+Ahora spec y design, en paralelo. Ambos dependen sólo de la proposal, y le doy a spec la instrucción explícita de que es **documentación permanente del repo**, no un artefacto de una fase:
 
 ---
