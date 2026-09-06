@@ -217,10 +217,20 @@ def post_reversal(original: Transfer, *, transfer_id: TransferId, source: Accoun
 Mirror legs, same amount and currency, `reverses=original.id` (I7). The original is never touched. Full
 reversal only — a partial reversal is just another transfer and does not need a concept.
 
-Consequence, stated plainly because it is a product-visible behaviour and the PRD does not cover it:
-**a reversal is subject to I2 like anything else.** If the original destination is a `USER` account that
-has since spent the funds, the reversal is refused with `InsufficientFundsError`. Exempting reversals
-would mean punching a hole in I2, and an invariant with an exemption is not an invariant. See §8, Q3.
+**Superseded on 2026-09-06 — this paragraph originally said the opposite.** It argued that a reversal
+is subject to I2 like anything else, and is refused with `InsufficientFundsError` when the original
+recipient has already spent the funds. Q3 was then resolved the other way (PRD §7.3): the reversal
+**always posts in full**, and the recipient's balance goes negative. The debt then sits on the account
+that owes it and clears itself on that account's next deposit.
+
+I2 is not punched through, because the exception is a *path* and not a flag: `post_reversal` reaches
+`Account.debit_for_reversal()`, and no other caller does. Every customer-initiated movement still goes
+through `Account.debit()`, which refuses below zero. There is no `InsufficientFundsError` path for a
+reversal.
+
+The original text is kept rather than deleted because the reasoning that produced it — an invariant
+with an exemption is not an invariant — is the reason the final design uses a named method instead of
+an `allow_overdraft` flag. See §8b.
 
 ### D11 — `Entry` does not store `balance_after`
 
