@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 20
+**Turns recorded:** 21
 
 ---
 
@@ -1570,7 +1570,7 @@ Idenpotencia:
 - NO quiero la llave de idempotencia en la apertura o creación, prefiero un aproach donde soportamos tipos de cuenta, y hasta una cuenta por tipo por usuario, allí la precondición, idempotencia para movimientos de dinero. Hagamonos la vida simple
 ```
 
-<details><summary>Tool calls (8)</summary>
+<details><summary>Tool calls (9)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== referencias a 4.4 ==="; rg -n '§4\.4|4\.4\)' docs/prd.md opensp…
@@ -1580,6 +1580,7 @@ Idenpotencia:
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== consistencia final ===" rg -n 'idempotency key' docs/prd.md | r…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('docs/prd.md'); s = p.re…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
 
 </details>
 
@@ -1596,5 +1597,82 @@ Quedó mal ubicada la numeración. La acomodo:
 §6.3 quedó antes de §6.2. Reordeno:
 
 §5.3 quedó antes de §5.2. Lo reordeno:
+
+Aplicado. **29 commits.**
+
+## §4.4 — Propósito, y la clave natural que regala
+
+| `type` | `purpose` válidos |
+|---|---|
+| `USER` | `CHECKING`, `SAVINGS` |
+| `SYSTEM` | `FUNDING`, `SETTLEMENT` |
+
+Cada propósito pertenece a **un solo** tipo, y el par se valida al abrir — así una combinación inválida (`USER` con propósito `FUNDING`) no se puede construir.
+
+Y de ahí sale **`(titular, propósito, moneda)` único**. Un titular tiene a lo sumo una cuenta corriente en USD, y puede tener además ahorros en USD y corriente en EUR. La plataforma tiene exactamente una cuenta de fondeo en USD.
+
+Lo que más me gusta de tu propuesta: **la clave natural no agrega un mecanismo, elimina uno.** La apertura deja de llevar llave de idempotencia porque el reintento ahora se responde desde los propios datos.
+
+## §6.3 reescrito
+
+La condición que justifica una llave quedó dicha con precisión:
+
+> Aplicar la operación dos veces difiere de aplicarla una, **y nada en los datos resultantes las distingue**.
+
+Sólo los movimientos de dinero la cumplen. Abrir dos veces la misma cuenta lo impide un constraint; cerrar una cuenta cerrada lo responde su propio estado.
+
+Y el argumento que cierra el caso, que es tuyo y vale más de lo que parece: **la seguridad que viene de los datos no expira.** La que viene de una llave guardada depende de que la ventana de retención sea suficiente (§6.2). Cada operación que sacamos del mecanismo de llaves es una cosa menos colgando de ese supuesto.
+
+## Un detalle de implementación que dejé escrito
+
+La unicidad tiene que ser un **constraint en la base, no un check-then-insert**. Dos aperturas simultáneas leerían "no existe" al mismo tiempo y ambas insertarían. Es exactamente la misma carrera que nos obliga al índice único en la doble reversa — el chequeo en el caso de uso sirve para dar un error lindo, el constraint es lo que hace la garantía.
+
+## Y una advertencia de nombres
+
+Marqué explícitamente que `AccountType` y `AccountPurpose` son **ejes independientes**, porque es fácil que alguien los colapse en el futuro:
+
+- `type` → qué **es** la cuenta para el ledger. Define la política de sobregiro. `USER` / `SYSTEM`.
+- `purpose` → para qué **sirve**. `CHECKING` / `SAVINGS` / `FUNDING` / `SETTLEMENT`.
+
+Si se mezclan, terminás con un enum donde `SAVINGS` y `SYSTEM` conviven y nadie sabe cuál manda sobre el sobregiro.
+
+De paso corregí el orden de §5.2/§5.3 y §6.2/§6.3, que me habían quedado invertidos al insertar secciones.
+
+¿Vamos a spec y design ahora, o queda algo más del PRD?
+
+---
+
+## Turn 21 — 2026-09-06 16:50:35.935 UTC
+
+### Prompt
+
+```text
+Dos cosas:
+1. Si no lo has hecho, ajusta la proposal de dominio con estas nuevas consideraciones del PRD.
+2. Arma el readme en base al PRD y el conocimiento que has ganado en esta sesión, importate que re-leas el statement.md, para que tengas en cuenta que ese readme debe ser la carta de presentación de la solución, con decisiones, tech y no tech, lo rechazado y sus motivos, todos muy bien presentado
+```
+
+<details><summary>Tool calls (8)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== README existente ==="; wc -c README.md 2>/dev/null && cat READM…
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/statement.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^### D1 /,/^### D2 /p' openspec/changes/account-balance-domain/p…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add openspec/ git commit -q -F - <<'MSG' docs(docs): fold the PRD rev…
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/README.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== links internos válidos? ===" uv run python - <<'PY' import re, …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add README.md git commit -q -F - <<'MSG' docs(docs): add the README a…
+
+</details>
+
+### Response
+
+Dos cosas. Primero miro el README que ya creaste — no lo voy a pisar sin leerlo — y releo el statement:
+
+README vacío (0 bytes), así que lo escribo yo. El `_blank copy` ya no está. Releo el statement como pediste:
+
+Tengo el statement presente. Primero actualizo el cuerpo de la proposal — §8b registra los deltas, pero el cuerpo todavía tiene contenido viejo que un revisor lee antes de llegar ahí:
+
+Ahora el README. Lo escribo como carta de presentación, y con una regla que me parece innegociable: **decir con exactitud qué está construido y qué está diseñado**. Inflar el estado es la forma más rápida de perder credibilidad con quien evalúa.
 
 ---
