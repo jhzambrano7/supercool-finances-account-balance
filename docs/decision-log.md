@@ -506,3 +506,12 @@ Formato de cada entrada:
 - **Prompt:** "Estoy viendo algo de reto en los errores que has creado, no tienen body y en consecuencia no creo aporten valor al invocador, cómo se verían?"
 - **Respuesta:** De acuerdo con la crítica — `IntegrationError` ya lo hace bien (guarda `code`/`cause`/`metadata` como atributos reales), el resto no. Mostrados dos ejemplos concretos (`ResourceNotFoundError`, `AccountNaturalKeyConflictError`) con `__init__` guardando campos tipados como atributos y armando el mensaje una sola vez adentro de la clase, en vez de duplicarlo en cada call site. Todavía no implementado — es una pregunta exploratoria, planteada la decisión de alcance (¿las ~19 clases de error del dominio, o sólo las que llegan a un route/HTTP, dejando los guards internos como están?).
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 13:39 — Crear ResourceAlreadyExistsError y AccountAlreadyExistsError
+
+<!-- id: 20260907-133951-a1fe3a40 -->
+- **Qué intentaba:** Implementar la propuesta anterior sobre errores con body estructurado, empezando por reemplazar `AccountNaturalKeyConflictError`.
+- **Prompt:** "Crea un ResourceAlreadyExistsError simil a ResourceNotFoundError y de él extienede un AccountAlreadyExistError en remplazo de AccountNaturalKeyConflictError, de nuevo no reinventemos la rueda"
+- **Respuesta:** Corregido primero `ResourceNotFoundError` para que realmente guarde `resource_type`/`resource_identifier` como atributos (no sólo en el string), y agregado `ResourceAlreadyExistsError` con la misma forma. `AccountAlreadyExistsError` (nombre corregido a plural correcto, no "AlreadyExist") reemplaza a `AccountNaturalKeyConflictError` en el puerto, el adapter SQL, el caso de uso y ambos test suites — guarda `owner_id`/`purpose`/`currency` como atributos propios además de lo que hereda de `ResourceAlreadyExistsError`. Los tests de integración ahora aseran los campos estructurados directamente, no sólo el tipo de excepción. Documentada la convención nueva en `docs/coding-conventions.md`, acotada a errores que un invocador real inspecciona — no aplicada a guards internos que nadie atrapa por tipo.
+- **151 tests, gates verdes.**
+- **Veredicto:** ⏳ pendiente
