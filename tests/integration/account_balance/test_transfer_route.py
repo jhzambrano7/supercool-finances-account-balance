@@ -296,6 +296,26 @@ async def test_a_non_positive_amount_is_unprocessable_not_a_server_error(
     assert response.status_code == 422
 
 
+async def test_a_blank_idempotency_key_is_unprocessable_not_a_server_error(
+    client: AsyncClient,
+) -> None:
+    owner_id = str(uuid4())
+    account_id = await _open_user_account(client, owner_id=owner_id)
+
+    response = await client.post(
+        "/transfers",
+        json={
+            "source_account_id": str(FUNDING_ACCOUNT_ID),
+            "destination_account_id": account_id,
+            "amount": 100,
+            "currency": "USD",
+        },
+        headers=_headers(caller_id=owner_id, idempotency_key="   "),
+    )
+
+    assert response.status_code == 422
+
+
 async def test_a_lowercase_currency_code_is_unprocessable_not_a_server_error(
     client: AsyncClient,
 ) -> None:

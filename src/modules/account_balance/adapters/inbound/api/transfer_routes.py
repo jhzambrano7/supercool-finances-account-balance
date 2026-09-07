@@ -18,6 +18,7 @@ from modules.account_balance.domain.errors import (
     AccountNotOperableError,
     AccountOwnershipError,
     InsufficientFundsError,
+    InvalidIdempotencyKeyError,
     NonPositiveAmountError,
     SelfTransferError,
 )
@@ -28,9 +29,10 @@ from modules.shared.domain.money import Currency, Money
 router = APIRouter(prefix="/transfers", tags=["transfers"])
 
 # Error-mapping table (openspec/specs/transfer/spec.md, "Domain Errors Map To
-# Stable HTTP Statuses"). NonPositiveAmountError and InvalidCurrencyError are
-# both reachable straight from this endpoint's own input (a zero/negative
-# amount, a currency code that fails Currency's ISO-4217 *shape* check) --
+# Stable HTTP Statuses"). NonPositiveAmountError, InvalidCurrencyError and
+# InvalidIdempotencyKeyError are all reachable straight from this endpoint's
+# own input (a zero/negative amount, a currency code that fails Currency's
+# ISO-4217 *shape* check, a blank or over-length Idempotency-Key header) --
 # ordinary client mistakes, not the "should never happen" class the 500
 # default below exists for.
 _UNPROCESSABLE_ERRORS = (
@@ -40,6 +42,7 @@ _UNPROCESSABLE_ERRORS = (
     CurrencyMismatchError,
     NonPositiveAmountError,
     InvalidCurrencyError,
+    InvalidIdempotencyKeyError,
 )
 _FORBIDDEN_ERRORS = (AccountOwnershipError, SystemToSystemTransferNotAllowedError)
 

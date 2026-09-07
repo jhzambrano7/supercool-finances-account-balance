@@ -65,9 +65,11 @@ class TransferRow(Base):
 class EntryRow(Base):
     """The persisted shape of one `Entry` leg (T9's sibling table).
 
-    `account_id` is indexed implicitly by the FK, which is also the column
-    T7's `SUM(signed_amount)` query for a `SYSTEM` account's balance filters
-    on.
+    `account_id` carries an explicit index (migration `5bf582a92358`,
+    `ix_entries_account_id`) -- Postgres does not index a foreign-key column
+    on its own. This is the column T7's `SUM(signed_amount)` query for a
+    `SYSTEM` account's balance filters on, so the index is load-bearing, not
+    incidental.
     """
 
     __tablename__ = "entries"
