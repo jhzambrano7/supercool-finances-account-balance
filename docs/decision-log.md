@@ -387,3 +387,12 @@ Formato de cada entrada:
 - **Prompt:** (respuesta a la pregunta sobre la sesión par vía AskUserQuestion: "Sí, es mía, la cierro")
 - **Respuesta:** Confirmado que la colisión era la propia sesión par del usuario sobre el mismo working directory; la cierra. El estado final de `account_repository.py` ya estaba verificado correcto (un solo commit, sin archivo espurio). El reformateo cosmético en `design.md`/`proposal.md` archivados se commiteó tal cual (sin cambio semántico). Verificado independientemente antes de continuar: 147 tests reales (139 unit + 8 integración contra Postgres real vía testcontainers, confirmados uno por uno con `-v`), `pre-commit run --all-files` en verde. Lanzada una revisión adversarial en contexto fresco sobre todo el diff `main...feat/account-opening`, con foco en el manejo de la carrera de clave natural (AO4), semántica HTTP 201/200 (AO3), que `account_type` no sea aceptable desde el request (AO1), y que el dominio no se haya tocado.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 01:17 — Corregir los dos hallazgos reales de la revisión fresca
+
+<!-- id: 20260907-011755-a1fe3a40 -->
+- **Qué intentaba:** (Turno disparado por la finalización de la revisión fresca.) Cerrar los hallazgos antes de abrir el PR.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** La revisión no encontró bloqueantes en el dominio/aplicación (AO1–AO4 correctos y testeados, dominio intacto), pero sí un bug real y **reproducido**: `alembic/env.py` leía `DATABASE_URL` incondicionalmente y pisaba la URL que `conftest.py` ya había fijado programáticamente para testcontainers — cualquier developer con `DATABASE_URL` exportada localmente (el nombre natural, coincide con la variable de `Settings`) corría las migraciones de los tests de integración contra ese host en vez del Postgres efímero. **Verificado por mí de forma independiente:** reproduje el fallo exportando una URL bogus antes de tocar código, confirmé la falla, apliqué el fix (`config.attributes["sqlalchemy.url"]` en vez de env var, chequeado primero en `env.py`), y reproduje el mismo caso después confirmando que ahora pasa. Corregido también el segundo hallazgo (no bloqueante pero barato): `SqlAccountRepository.add()` atrapaba cualquier `IntegrityError` como conflicto de clave natural; ahora valida el nombre del constraint violado contra `uq_accounts_owner_purpose_currency` antes de relabelearlo, y relanza cualquier otro.
+- **147 tests, gates verdes, tras los fixes.**
+- **Veredicto:** ✅ aprobado
