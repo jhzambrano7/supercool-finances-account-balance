@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 31
+**Turns recorded:** 32
 
 ---
 
@@ -2322,7 +2322,7 @@ Spec distinguishes `AccountNotOperableError` (debit/credit on non-active account
 </task-notification>
 ```
 
-<details><summary>Tool calls (6)</summary>
+<details><summary>Tool calls (7)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== tests ==="; uv run pytest -q 2>&1 | tail -3 echo "=== gates ===…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest -q 2>&1 | rg 'passed|failed' echo "=== identifiers.py ===";…
@@ -2330,6 +2330,7 @@ Spec distinguishes `AccountNotOperableError` (debit/credit on non-active account
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n 'AccountPurposeMismatchError' openspec/ || echo "sin residuos del n…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add openspec/ git commit -q -F - <<'MSG' docs(docs): use the error na…
 
 </details>
 
@@ -2344,5 +2345,70 @@ Confirmado: `AccountId(u) == TransferId(u)` → **False**. La afirmación del do
 Y el gap que reportó es real — además §4.5 quedó con lenguaje de mutación, viejo de antes de la inmutabilidad:
 
 Quedan dos referencias al nombre viejo que el código ya descartó. Las alineo con el spec:
+
+Taxonomía completa y consistente: 15 errores definidos, y los 4 que faltan (`CurrencyMismatchError`, `DomainError`, `InvalidAmountError`, `InvalidCurrencyError`) vienen de `shared`, como el spec manda.
+
+Primera tajada en el repo. **53 commits, 66 tests, 11 gates en verde** — verificado corriendo, no por reporte.
+
+```
+src/modules/account_balance/domain/  errors.py  identifiers.py  entry.py
+tests/unit/account_balance/domain/   test_errors.py  test_identifiers.py  test_entry.py
+```
+
+## El ciclo TDD se cumplió de verdad
+
+| Unidad | Rojo confirmado | Verde |
+|---|---|---|
+| errors | `ImportError: cannot import name 'errors'` | 16 tests |
+| identifiers | `ModuleNotFoundError` | 9 tests |
+| entry | `ModuleNotFoundError` | 6 tests |
+
+Los rojos son por símbolo faltante, que es el motivo correcto.
+
+## Verifiqué la afirmación que sostiene el diseño de identificadores
+
+El docstring dice que no se usó `NewType` porque en runtime un `NewType` **es** el tipo subyacente, y entonces un `AccountId` y un `TransferId` construidos del mismo UUID serían intercambiables. Lo probé:
+
+```
+AccountId(u) == TransferId(u)  →  False   ✓
+```
+
+Se sostiene. Y `AccountId` quedó ordenable **a propósito**, con la razón escrita: es lo que permite lockear cuentas en secuencia determinística (§5, evitar deadlocks). Un detalle de tipos que existe por una razón de concurrencia — eso es diseño conectado, no decoración.
+
+`PLATFORM_OWNER_ID` es el UUID nil, y el argumento de por qué es seguro reservarlo también se sostiene: el generador sólo emite UUIDv7, así que nunca va a colisionar.
+
+## Tres desalineaciones que sólo aparecen al implementar
+
+1. **`design` §4.5 seguía hablando de mutar** (`_status`, `_version`) — obsoleto desde que `Account` pasó a inmutable.
+2. **Nombraba `AccountNotOperableError` para un cierre rechazado.** Ese error significa *"movimiento rechazado por estado"*. Reusarlo volvía indistinguible "esta cuenta no puede transaccionar" de "esta cuenta no se puede cerrar" — dos cosas que el cliente resuelve distinto.
+3. **Dos referencias a `AccountPurposeMismatchError`**, nombre que el spec y el código ya habían descartado. Habría mandado a la unidad 4 a buscar una clase inexistente.
+
+Cotejé la taxonomía completa: los 19 errores que el spec exige existen — 15 en el módulo, 4 heredados de `shared`.
+
+## Una falla mía
+
+El agente reportó `skill_resolution: none`: **no le inyecté las rutas del skill registry** en el prompt. No afectó el resultado —tenía la lista de lectura explícita— pero es un paso del protocolo que salteé. Lo corrijo en la próxima delegación.
+
+Siguiente es la unidad 4, `Account` — la grande (~430 líneas). Ahí vive `debit_for_reversal`, la política de sobregiro y la inmutabilidad que decidiste. ¿Le damos, o querés mirar el código de esta tajada primero?
+
+---
+
+## Turn 32 — 2026-09-07 04:06:03.583 UTC
+
+### Prompt
+
+```text
+procede
+```
+
+<details><summary>Tool calls (1)</summary>
+
+- `Agent` — Implement **Work Unit 4 only** — `Account` — of the account balance domain. Do NOT start Work Unit 5 (`Transfer`) or anything after it. Stop…
+
+</details>
+
+### Response
+
+Corrijo mi omisión anterior: esta vez le inyecto las rutas del skill registry.
 
 ---
