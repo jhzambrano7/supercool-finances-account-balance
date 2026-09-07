@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 26
+**Turns recorded:** 27
 
 ---
 
@@ -1943,7 +1943,7 @@ Revisando el diseño
 - Adicional, quiero evitarme el CRUD like al momento de definir comportamientos, en el caso de post_transfer debe bastar transfer, algo así le moví en el PRD
 ```
 
-<details><summary>Tool calls (11)</summary>
+<details><summary>Tool calls (12)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1 -uall echo "=== diff del PRD ===" git diff docs…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git diff openspec/changes/account-balance-domain/proposal.md
@@ -1956,6 +1956,7 @@ Revisando el diseño
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib, re p = pathlib.Path('openspec/specs/acco…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
 
 </details>
 
@@ -1994,5 +1995,81 @@ Dejame ver las secciones a reescribir:
 Escribo el cambio. `Account` pasa a ser inmutable y los comportamientos devuelven la instancia nueva:
 
 Quedaron referencias residuales. Las limpio, y de paso reescribo §5 con los nombres nuevos:
+
+Aplicado en design, spec y proposal. **40 commits.**
+
+## `Account` inmutable
+
+```python
+def credit(self, entry: Entry) -> Account
+def debit(self, entry: Entry) -> Account
+def debit_for_reversal(self, entry: Entry) -> Account
+```
+
+`PendingApplication` desapareció. Y fijate el resultado: **la solución tiene menos maquinaria que el problema**. Un token frozen, un `commit()`, una fase de aplicación diferida y un test que vigile que nadie commitea fuera de `posting.py` — todo eso se fue, y encima cierra mejor el agujero original.
+
+Tres propiedades que salen gratis:
+
+- **La ventana de mutación parcial no existe.** Si la segunda pata lanza, el sucesor de la primera se descarta y el original nunca se tocó. No hay nada que revertir porque nada se hizo.
+- **El bug que encontraste es inexpresable.** Dos aplicaciones sobre una cuenta dan dos sucesores independientes y te obligan a elegir uno. Eso es un bug **visible** —descartaste un valor— no uno silencioso.
+- **Encadenar es correcto.** `acc.debit(e1).debit(e2)` evalúa la segunda contra el saldo que produjo la primera, que es lo que "aplicar ambas" significa de verdad. Con el token, encadenar era justamente lo que rompía.
+
+## Lo que dejé declarado y no disimulé
+
+**Python no tiene `must_use`.** Descartar la cuenta devuelta es legal y mypy no lo marca. Podría haber escrito que ahora es imposible equivocarse — sería mentira. La mitigación es estructural: sólo el servicio de posteo aplica asientos, y hay un test de arquitectura que lo verifica. Está dicho así en §4.2.
+
+## Naming
+
+Propagué tu `transfer`/`revert` a design, spec y proposal. Tenías razón en el diagnóstico: `post_transfer` nombra **la escritura en una tabla**; `transfer` nombra **lo que le pasa al dinero**.
+
+Un efecto colateral que quiero que valides: el posteo ahora devuelve un `Posting` con la transferencia **y los sucesores de las cuentas**. Con inmutabilidad no hay alternativa — un llamador que sólo recibiera el `Transfer` no tendría de dónde sacar los saldos nuevos para persistir.
+
+Si preferís otra forma de devolverlo (una tupla, o que `Transfer` cargue los sucesores), decime. Y si querés que además achique la lista de parámetros de `transfer` agrupando el plumbing —ids, `requested_by`, `idempotency_key`, `occurred_at`— en un value object, también; lo dejé explícito porque D6 exige que ids y tiempo sean argumentos y no ambiente, pero eso no obliga a que sean siete argumentos sueltos.
+
+---
+
+## Turn 27 — 2026-09-07 03:23:38.432 UTC
+
+### Prompt
+
+```text
+Ese transfer asumo es a nivel caso de uso correcto? de ser así, mucha de esa info debe cargarla el cas de  uso, ej las cuentas, el request al caso de uso lleva lo básico, cantidad, is cuenta origen y destino, llave de idempotencia, el id del ejecutor y no más
+```
+
+<details><summary>Tool calls (2)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## 1\. Module layout/,/^## 2\./p' openspec/changes/account-bala…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+
+</details>
+
+### Response
+
+No, y la distinción importa. `transfer` es un **servicio de dominio**, no un caso de uso:
+
+Confirmado: vive en `domain/posting.py`. La separación queda así:
+
+| | Caso de uso | Servicio de dominio `transfer` |
+|---|---|---|
+| Recibe | el command que describís | agregados ya cargados + ids + tiempo |
+| Hace I/O | sí — lock, lectura, escritura | **nunca** |
+| Genera ids / lee reloj | sí | **nunca** (D6) |
+
+Y acá está lo importante: **la lista larga de parámetros existe precisamente porque es dominio.** D6 prohíbe que el dominio llame a `datetime.now()` o al `IdGenerator` — un dominio que alcanza el reloj es un dominio cuyos tests necesitan fakes para verificar aritmética. Así que esos valores tienen que entrar como argumentos, y quien los provee es exactamente el caso de uso.
+
+Tu command es correcto y está completo:
+
+```
+TransferMoney:
+  amount: Money              # la moneda viaja adentro
+  source_account_id
+  destination_account_id
+  idempotency_key
+  requested_by
+```
+
+Nada más, y en particular **el cliente no manda `transfer_id`**: su handle de deduplicación es la llave de idempotencia (§6). El `transfer_id`, los `entry_ids` y el `occurred_at` los produce el caso de uso.
+
+Lo documento para que la frontera no se pierda:
 
 ---
