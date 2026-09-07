@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 30
+**Turns recorded:** 31
 
 ---
 
@@ -2246,14 +2246,103 @@ Una advertencia sobre la unidad 4 (`Account`, ~430 líneas): es la más grande y
 vamos con apply
 ```
 
-<details><summary>Tool calls (1)</summary>
+<details><summary>Tool calls (2)</summary>
 
 - `Agent` — Implement **Work Units 1, 2 and 3 only** of the account balance domain: `domain/errors.py`, `domain/identifiers.py`, `domain/entry.py`, with…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
 
 </details>
 
 ### Response
 
 Arranco por las unidades 1–3 (errores, identificadores, `Entry`) — unas 390 líneas, justo bajo el presupuesto de revisión, y te deja un punto de corte para mirar el estilo antes de entrar en `Account`, que es la grande.
+
+Implementación en marcha, acotada a las **unidades 1–3**: `errors.py`, `identifiers.py`, `entry.py` y sus tests.
+
+Corté ahí a propósito. Son ~390 líneas —justo bajo el presupuesto— y frenan **antes** de `Account`, que es la unidad más grande y la más cara de rehacer. Si el estilo o el ciclo de tests salen distintos de lo que esperás, prefiero que lo veas sobre 390 líneas y no sobre 800.
+
+Al agente le reenvié TDD estricto de forma explícita, con una exigencia que suele diluirse: **ver el test fallar por el motivo correcto** — la aserción o el símbolo que falta, no un typo ni un import roto. Un test que falla por la razón equivocada y después pasa no probó nada; sólo te hizo sentir que seguiste el proceso.
+
+También le pasé las restricciones que los gates ya imponen —Python 3.14 sin el import del futuro, mypy strict, sufijo `Error` por N818— y dos cosas que aprendimos a golpes en esta sesión: que `pre-commit run --all-files` sólo mira archivos trackeados, y que **`--no-verify` está prohibido**; si un gate falla, se arregla la causa, no se afloja la regla.
+
+Te aviso cuando termine. Lo reviso —código y tests— antes de pasártelo, y ahí decidís si seguimos con `Account` o corregimos rumbo.
+
+---
+
+## Turn 31 — 2026-09-07 04:02:10.717 UTC
+
+### Prompt
+
+```text
+<task-notification>
+<task-id>a42a943613ac66a4d</task-id>
+<tool-use-id>toolu_01FnBNHrw7KTadBGJts2Gjug</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-finances-account-balance/5899ca45-2031-46b9-ada4-dcd2507881d3/tasks/a42a943613ac66a4d.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement domain units 1-3" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Progress saved. Final summary below.
+
+## Status: done (for the assigned scope — Work Units 1-3 only)
+
+**Executive summary**: Implemented and committed Work Units 1-3 of the account-balance domain (`errors.py`, `identifiers.py`, `entry.py`) via strict TDD — 8/8 assigned tasks complete (T1.1, T1.2, T2.1, T2.2, T2.3, T3.1, T3.2, T7.4), all gates green. Stopped deliberately before Work Unit 4 (`Account`) as instructed.
+
+### TDD Cycle Evidence
+| Unit | RED (confirmed) | GREEN | Gates |
+|---|---|---|---|
+| 1 — errors | `ImportError: cannot import name 'errors'` | 16 tests pass | ruff, mypy, pre-commit clean |
+| 2 — identifiers | `ModuleNotFoundError: identifiers` | 9 tests pass | ruff, mypy, pre-commit clean |
+| 3 — entry | `ModuleNotFoundError: entry` | 6 tests pass | ruff, mypy, pre-commit clean |
+
+Full suite: `uv run pytest -q` → 66 passed. `uv run ruff check src tests` → all checks passed. `uv run mypy src` → success, 43 source files.
+
+### Artifacts
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/__init__.py` (new, empty)
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/domain/__init__.py` (new, empty)
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/domain/errors.py` (new)
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/domain/identifiers.py` (new)
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/domain/entry.py` (new)
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/domain/test_errors.py`, `test_identifiers.py`, `test_entry.py` (new)
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/changes/account-balance-domain/tasks.md` (T1.1-T2.3, T3.1-T3.2, T7.4 checked)
+- Engram `sdd/account-balance-domain/apply-progress` (topic_key upserted, id 1376)
+
+Commits (main, no remote): `548f3fc` (errors), `9f2d393` (identifiers), `bc2cd1b` (entry) — each with a `PRD:` trailer, pre-commit run on staged files before each.
+
+### Deviations
+One intentional naming resolution, already anticipated by tasks.md: used spec's `InvalidAccountPurposeError` instead of design §7's stale `AccountPurposeMismatchError`.
+
+### Risk flagged for Work Unit 4 (not acted on now)
+Spec distinguishes `AccountNotOperableError` (debit/credit on non-active account) from `AccountNotClosableError` (close() on non-closable account), but design §4.5's prose only mentions `AccountNotOperableError` for both. Both classes exist in `errors.py` already; whoever picks up Work Unit 4 needs to raise `AccountNotClosableError`, not `AccountNotOperableError`, from `Account.close()` per the spec's own scenario — this is a real spec/design wording gap, named rather than silently resolved.
+
+### Next recommended
+`sdd-apply` again for Work Unit 4 (`Account`) — it is the largest unit and per the tasks.md Review Workload Forecast, the orchestrator's chain/exception decision should be confirmed before starting it (Work Unit 4 alone is ~430 lines, already near/over the 400-line review budget).
+
+**Skill resolution**: none — no `## Skills to load before work` block or skill registry reference was provided in the launch prompt; proceeded on the phase skill (`sdd-apply`) plus the explicit reading list given directly in the task.</result>
+<usage><subagent_tokens>120909</subagent_tokens><tool_uses>59</tool_uses><duration_ms>350998</duration_ms></usage>
+</task-notification>
+```
+
+<details><summary>Tool calls (6)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== tests ==="; uv run pytest -q 2>&1 | tail -3 echo "=== gates ===…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest -q 2>&1 | rg 'passed|failed' echo "=== identifiers.py ===";…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python - <<'PY' from uuid import UUID from modules.account_balance…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n 'AccountPurposeMismatchError' openspec/ || echo "sin residuos del n…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+
+</details>
+
+### Response
+
+Verifico por mi cuenta antes de darlo por bueno:
+
+Código sólido. Verifico la afirmación que sostiene todo el diseño de identificadores, porque si es falsa el resto se cae:
+
+Confirmado: `AccountId(u) == TransferId(u)` → **False**. La afirmación del docstring se sostiene.
+
+Y el gap que reportó es real — además §4.5 quedó con lenguaje de mutación, viejo de antes de la inmutabilidad:
+
+Quedan dos referencias al nombre viejo que el código ya descartó. Las alineo con el spec:
 
 ---
