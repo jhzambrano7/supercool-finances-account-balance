@@ -434,7 +434,7 @@ def revert(
     idempotency_key: IdempotencyKey,
     occurred_at: datetime,
     entry_ids: tuple[EntryId, EntryId],
-) -> Transfer: ...
+) -> Posting: ...
 ```
 
 Identical to `transfer` with three differences:
