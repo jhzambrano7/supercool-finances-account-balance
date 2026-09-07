@@ -139,16 +139,6 @@ class Account:
                      currency: Currency, balance: Money,
                      status: AccountStatus, version: int) -> Self: ...
 
-    # read-only projections
-    @property
-    def account_id(self) -> AccountId: ...
-    @property
-    def balance(self) -> Money: ...
-    @property
-    def status(self) -> AccountStatus: ...
-    @property
-    def version(self) -> int: ...
-
     # the only three ways a balance can move
     def credit(self, entry: Entry) -> Account: ...
     def debit(self, entry: Entry) -> Account: ...
@@ -303,10 +293,27 @@ class AccountStatus(Enum):
 
 ### 4.5 `close()` (PRD §7.2)
 
-Refuses with `AccountNotOperableError` when the account is not `ACTIVE` **or** is a `SYSTEM` account
-(infrastructure does not close), and with `AccountNotEmptyError` when the balance is non-zero. Sets
-`_status = CLOSED` and bumps `_version`. Closure needs no idempotency key: a second attempt finds
-`CLOSED` and is refused (PRD §6.3).
+```python
+def close(self) -> Account: ...
+```
+
+Returns a successor with `status = CLOSED` and `version + 1`; like every other state change, it does
+not mutate the receiver (§4.2).
+
+| Refusal | Error |
+| --- | --- |
+| Balance is non-zero | `AccountNotEmptyError` |
+| Status is not `ACTIVE`, or the account is `SYSTEM`-typed | `AccountNotClosableError` |
+
+The split follows the spec, and follows what the caller can act on: an account with a balance can be
+emptied and closed, so that refusal earns its own type; an already-closed account and a `SYSTEM`
+account cannot be closed at all, and nothing branches differently between them.
+
+An earlier revision of this paragraph named `AccountNotOperableError` for the second case. That is
+the error for a movement refused by status, not for a refused closure, and reusing it would have made
+"this account cannot transact" indistinguishable from "this account cannot be closed".
+
+Closure needs no idempotency key: a second attempt finds `CLOSED` and is refused (PRD §6.3).
 
 ---
 
