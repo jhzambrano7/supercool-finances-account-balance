@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 36
+**Turns recorded:** 37
 
 ---
 
@@ -2652,7 +2652,7 @@ Ahora `Transfer` está corriendo, con nota explícita del rename para que no lo 
 </task-notification>
 ```
 
-<details><summary>Tool calls (8)</summary>
+<details><summary>Tool calls (11)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== escenario del spec ===" rg -n -B3 -A8 'Cross-currency transfer …
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '340,373p' openspec/specs/account-balance/spec.md echo "=== tasks.…
@@ -2662,6 +2662,9 @@ Ahora `Transfer` está corriendo, con nota explícita del rename para que no lo 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== tests completos ==="; uv run pytest -q 2>&1 | tail -5 echo "===…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat tests/unit/account_balance/domain/test_transfer_properties.py
 - `mcp__plugin_engram_engram__mem_search` — sdd/account-balance-domain/apply-progress
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1 -uall
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add openspec/specs/account-balance/spec.md git commit -q -F - <<'MSG'…
 
 </details>
 
@@ -2682,5 +2685,51 @@ Ahora reviso el resto — el módulo `Transfer` completo y los tests, y verifico
 Excelente test: genera hasta 4 patas extra en USD/EUR agregadas al par base balanceado, y verifica **en ambas direcciones** — construye sin error cuando todo neta a cero, y falla con `UnbalancedTransferError` cuando no. Eso prueba la forma general de I1 (la que necesita FX y la reversa de tres patas) antes de que exista quien la use. Correcto.
 
 Ahora resta el hallazgo sobre el `apply-progress` que no encontró como esperaba:
+
+Sin problema: el `topic_key` correcto existe con una sola observación (#1376), y su contenido confirma que sí incluyó la unidad 5 verificando primero que 1–4 estuvieran hechas en disco. El "riesgo" que reportó era que mi propia nota de verificación de la unidad 4 (que yo guardé bajo ese mismo `topic_key` por error de mi parte) se mezcló con el registro de progreso de apply. No perdió nada — Engram lo trata como revisión — pero conviene separar los dos usos del `topic_key` de ahora en más. Anoto y sigo.
+
+Falta commitear la corrección del spec que hice antes del log:
+
+`Transfer` en el repo. **66 commits**, único fallo el rojo esperado (T4.8, se cierra en la unidad 6).
+
+## Lo verifiqué de verdad, no por reporte
+
+Construí un `Transfer` a mano con una pata en USD y otra en EUR — exactamente lo que el escenario del spec describía — y confirmé que lanza `UnbalancedTransferError`, no `CurrencyMismatchError`. El agente tenía razón: no era una excusa para saltarse trabajo.
+
+## El gap y por qué existe
+
+`Transfer` **sólo ve** `entry.amount.currency`. Nunca ve `account.currency`, porque nunca recibe una `Account` — recibe `Entry`s ya construidas. El chequeo que el escenario original pedía — *"la cuenta origen está en USD y la destino en EUR"* — necesita comparar monedas de **cuentas**, y ese dato sólo existe en el servicio de posteo (unidad 6), que sí tiene los objetos `Account` en la mano.
+
+Si le pasás a `Transfer` patas ya armadas en monedas distintas, cada moneda individualmente no neta a cero, y por eso cae en I1 con `UnbalancedTransferError`. Es el error correcto para esa situación — sólo que no es el que el spec pedía, porque el spec estaba describiendo un chequeo que ocurre en otra capa.
+
+Corregí el spec en vez de forzar el test: separé el requisito en dos escenarios. Uno en la frontera real donde el chequeo existe (`transfer(...)` con cuentas de distinta moneda → `CurrencyMismatchError`, sin construir ningún `Entry`). Y otro que deja explícito el comportamiento correcto cuando alguien le da patas mal formadas directamente a `Transfer` — para que dentro de un año nadie espere el error equivocado del método equivocado.
+
+## El resto, verificado y en orden
+
+**P2**, el test de propiedades, es el que más me convenció: agrega hasta 4 patas sintéticas en USD/EUR sobre el par base balanceado y verifica **en las dos direcciones** — construye sin error cuando todo neta a cero, falla cuando no. Es la forma general de I1 puesta a prueba antes de que exista quien la necesite (FX, o la reversa de tres patas de §7.3).
+
+Las otras dos cosas que marcó el agente las revisé y no hacía falta tocar nada: el ciclo TDD de P2 sin fase roja independiente lo documentó con honestidad en vez de fabricar un rojo falso — correcto no simular lo que no pasó. Y la alarma sobre el apply-progress era mía: guardé mi propia nota de verificación bajo el mismo `topic_key` por descuido; Engram lo tomó como revisión, sin pérdida.
+
+Queda la unidad 6, `posting.py` con `transfer` y `revert` — ahí se cierra el rojo de T4.8 y aparece el chequeo de moneda que acabamos de ubicar. ¿Seguimos?
+
+---
+
+## Turn 37 — 2026-09-07 04:40:09.025 UTC
+
+### Prompt
+
+```text
+procede
+```
+
+<details><summary>Tool calls (1)</summary>
+
+- `Agent` — Implement **Work Unit 6 only** — the posting domain service (`domain/posting.py`, functions `transfer` and `revert`) — of the account balanc…
+
+</details>
+
+### Response
+
+Unidad 6: `posting.py` con `transfer` y `revert`. Es la que cierra el rojo de T4.8 y donde vive el chequeo de moneda entre cuentas que acabamos de ubicar.
 
 ---
