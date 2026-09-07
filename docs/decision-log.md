@@ -461,3 +461,12 @@ Formato de cada entrada:
 - **Prompt:** "subelo al PR, y corre una revisión"
 - **Respuesta:** Pusheado `feat/account-opening` (3 commits nuevos: fix de consistencia del ejemplo, doc de convenciones, sync de sesión). Lanzada una tercera revisión fresca, con contexto explícito de las dos rondas previas limpias y de los dos bugs que el propio documento de convenciones dice haber encontrado y corregido (inversión de dependencia dominio→aplicación, logging de una carrera ya manejada) — pidiendo verificarlos contra el código real, no aceptar la afirmación del documento.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 12:57 — Revertir el refactor de _wrap_unexpected, dejar sólo el fix del test
+
+<!-- id: 20260907-125708-a1fe3a40 -->
+- **Qué intentaba:** Cerrar los hallazgos de la tercera revisión del PR #1.
+- **Prompt:** (verificación del hallazgo #5 de la revisión: assert débil en el test de round-trip del DBO, más un pedido explícito del usuario a mitad de turno) "no me gusta ese _wrap_unexpected, déjalo como estaba"
+- **Respuesta:** Verificado el hallazgo real antes de aceptarlo: `Account.__eq__` es por identidad (compara sólo `account_id`, diseño de dominio deliberado y preexistente), así que `assert dbo.as_domain() == account` no probaba nada del resto de los campos. Corregido a asserts por campo individual, confirmado con mutación real (cambié la moneda en `as_domain()`, el test ahora sí falla). El otro hallazgo (duplicación de logging en `add()`) lo había extraído a un helper `_wrap_unexpected` — el usuario no lo quiso, revertido a la forma original duplicada tal cual estaba, manteniendo sólo el fix del test.
+- **151 tests, gates verdes.**
+- **Veredicto:** 🔁 ajustado — rechazó el refactor de deduplicación, aprobó el fix del test
