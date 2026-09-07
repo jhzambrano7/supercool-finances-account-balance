@@ -37,7 +37,20 @@ def test_from_domain_then_as_domain_round_trips_a_freshly_opened_account() -> No
     assert dbo.balance_amount == 0
     assert dbo.status == AccountStatus.ACTIVE.value
     assert dbo.version == 0
-    assert dbo.as_domain() == account
+
+    reconstituted = dbo.as_domain()
+
+    # Not `reconstituted == account`: Account.__eq__ is identity-based
+    # (compares account_id only, by domain design) and would pass even if
+    # as_domain() mismapped purpose, currency, balance or status.
+    assert reconstituted.account_id == account.account_id
+    assert reconstituted.owner_id == account.owner_id
+    assert reconstituted.account_type == account.account_type
+    assert reconstituted.purpose == account.purpose
+    assert reconstituted.currency == account.currency
+    assert reconstituted.balance == account.balance
+    assert reconstituted.status == account.status
+    assert reconstituted.version == account.version
 
 
 def test_as_domain_reconstitutes_a_non_zero_balance_without_re_asserting_it() -> None:
