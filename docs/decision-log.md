@@ -428,3 +428,13 @@ Formato de cada entrada:
 - **Hallazgo real, reproducido antes de corregir:** `NonPositiveAmountError` e `InvalidCurrencyError` (ambos `DomainError`) no estaban en `_UNPROCESSABLE_ERRORS` del route de transfer — a diferencia del propio route de account-opening, que sí incluye `InvalidCurrencyError` en el suyo. Un monto 0 o una moneda en minúsculas devolvían 500 en vez de 422. Reproducido con dos tests de integración nuevos (RED confirmado), corregido el route y la tabla de status HTTP del spec (que tampoco los cubría), reproducido de nuevo confirmando 422.
 - **175 tests, gates verdes.** Lanzada revisión fresca sobre todo el diff antes del PR, con foco en atomicidad, la carrera de idempotencia, el lock determinístico y la asimetría de `SYSTEM`.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 02:31 — Corregir la carrera de idempotencia real que encontró la revisión fresca
+
+<!-- id: 20260907-023126-a1fe3a40 -->
+- **Qué intentaba:** Cerrar los hallazgos de la revisión fresca antes de abrir el PR #2.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** La revisión encontró un bug real de concurrencia, reproducido en vivo 5/5 veces contra Postgres real: cuando dos requests concurrentes comparten idempotency key y el saldo alcanza para una sola aplicación (no dos), el perdedor de la carrera de lock leía el saldo ya debitado por el ganador y `InsufficientFundsError` disparaba **antes** de llegar al insert de idempotencia del que depende la recuperación — 201/422 en vez de 201/201. Reproducido primero a nivel unitario con la infraestructura de fakes existente (RED confirmado), corregido moviendo el insert de la fila de idempotencia al **primer** paso de `_post_new_transfer`, antes de cargar o lockear cualquier cuenta — el constraint único es el único punto real de colisión, nada más puede correr antes de que esa colisión tenga oportunidad de ocurrir. Requirió hacer diferible (`DEFERRABLE INITIALLY DEFERRED`) el FK de `idempotency_records.transfer_id`, ya que ese insert ahora ocurre antes de que exista la fila de `transfers` que referencia. Verificado con un test de integración nuevo contra Postgres real, 5/5 corridas limpias tras el fix.
+- **Segundo hallazgo, mismo patrón que el anterior:** `InvalidIdempotencyKeyError` tampoco estaba mapeado, caía a 500. Reproducido con clave en blanco, corregido igual que `NonPositiveAmountError`/`InvalidCurrencyError`.
+- **178 tests, gates verdes.** Dos commits (`0c4ea93`, `9b0427d`).
+- **Veredicto:** ✅ aprobado
