@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 37
+**Turns recorded:** 38
 
 ---
 
@@ -2722,14 +2722,93 @@ Queda la unidad 6, `posting.py` con `transfer` y `revert` — ahí se cierra el 
 procede
 ```
 
-<details><summary>Tool calls (1)</summary>
+<details><summary>Tool calls (2)</summary>
 
 - `Agent` — Implement **Work Unit 6 only** — the posting domain service (`domain/posting.py`, functions `transfer` and `revert`) — of the account balanc…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
 
 </details>
 
 ### Response
 
 Unidad 6: `posting.py` con `transfer` y `revert`. Es la que cierra el rojo de T4.8 y donde vive el chequeo de moneda entre cuentas que acabamos de ubicar.
+
+Última unidad del dominio en marcha. **67 commits.**
+
+Es la más importante en un sentido: `posting.py` es donde `transfer` y `revert` conectan todo lo construido hasta ahora — `Account` inmutable, `Transfer` con I1 como neteo, y el chequeo de moneda entre cuentas que quedó ubicado al revisar la unidad anterior. También es la que apaga el rojo esperado de T4.8, así que le puse una condición explícita: **si el test necesita que le toquen la aserción para pasar, debe frenar y reportarlo**, no arreglarlo aflojando la prueba.
+
+Te aviso cuando termine y lo verifico igual que las anteriores antes de darlo por cerrado.
+
+---
+
+## Turn 38 — 2026-09-07 04:44:54.049 UTC
+
+### Prompt
+
+```text
+Quiero que revises par de cambios que acabo de hacer en favor del principo "tell don't ask", que quiero hagas regla, actualizando sobre el código quellevas hasta ahora y aplicando en adelante
+```
+
+<details><summary>Tool calls (29)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1 -uall
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git diff -- src/modules/account_balance/domain/account.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== ¿existe convención de estilo del repo? ===" fd -H '^CLAUDE\.md$…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat -n src/modules/account_balance/domain/account.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n 'pytest.raises.*match' tests/unit/account_balance/domain/test_accou…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== posting.py existe ya? ===" ls -la src/modules/account_balance/d…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1 -uall echo "=== último commit ===" git log --on…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('src/modules/account_bal…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n '^class Test' tests/unit/account_balance/domain/test_account.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '1,35p' tests/unit/account_balance/domain/test_account.py echo "..…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('tests/unit/account_bala…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest tests/unit/account_balance/domain/test_account.py tests/uni…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n 'is_closable|def close' src/modules/account_balance/domain/account.…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '216,245p' src/modules/account_balance/domain/account.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('src/modules/account_bal…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest tests/unit/account_balance/domain/test_account.py tests/uni…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest tests/unit/account_balance/domain/test_architecture.py -q -…
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n '\| \[.docs/prd.md' README.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('README.md'); s = p.read…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1 -uall echo "=== staging selectivo ===" git add …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -10
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest -q 2>&1 | tail -5
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit -q -F - <<'MSG' refactor(domain): apply Tell, Don't Ask consis…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^### 5\.2 `revert`/,/^## 6\./p' openspec/changes/account-balance…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '95,150p' src/modules/account_balance/domain/posting.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add openspec/changes/account-balance-domain/design.md git commit -q -…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest -q 2>&1 | tail -3 git log --oneline -6 python3 - <<'PY' p='…
+
+</details>
+
+### Response
+
+Dejame ver qué cambiaste antes de generalizarlo — hay un agente corriendo en `posting.py` en paralelo, así que reviso con cuidado de no pisar su trabajo.
+
+El agente ya avanzó y commiteó `transfer` (unidad 6) y sigue trabajando en `revert`. Confirmado: **no toco `posting.py` ni `test_posting.py`** — sólo `account.py`, sus tests, y el documento de convención nueva.
+
+Ahora agrego tests para la nueva superficie pública y corro sólo lo que me corresponde, sin tocar los archivos del agente:
+
+Ahora corro específicamente estos archivos —no la suite completa, para no interferir con lo que el agente esté escribiendo en `test_posting.py` en este instante—:
+
+Todo verde en lo que me corresponde. Ahora escribo la convención como documento durable, que es la parte central de tu pedido:
+
+Ahora lo enlazo desde el README, para que sea descubrible:
+
+Ahora commiteo, con cuidado de agregar sólo lo que me corresponde — nada de `posting.py` ni `test_posting.py`, que son del agente en curso:
+
+El agente terminó la unidad 6 limpio, y respetó exactamente el aislamiento que le pedí — no tocó nada de lo que yo estaba editando. Termino mi commit y después reviso lo que reportó.
+
+Todo verde con lo del agente ya integrado.
+
+**Todo pasa — el rojo esperado de T4.8 se cerró solo, sin tocar el test.** Commiteo mis cambios:
+
+Ahora reviso el hallazgo que reportó el agente — la firma de `revert` en `design.md` §5.2 que contradice su propia afirmación:
+
+Confirmado: la implementación es `-> Posting`, correcta y consistente con la razón de ser de `Posting` (cuentas inmutables → alguien tiene que llevarse los sucesores). Es el design el que quedó desactualizado. Corrijo:
+
+Ahora el log de decisiones y memoria:
 
 ---
