@@ -111,7 +111,7 @@ distinct concerns — each is independently testable and each maps to a distinct
 
 ### 4a — classification enums, `open()`, `reconstitute()`
 
-- [ ] **T4.1 (test)** — Write `tests/unit/account_balance/domain/test_account.py::TestOpen` and
+- [x] **T4.1 (test)** — Write `tests/unit/account_balance/domain/test_account.py::TestOpen` and
       `TestReconstitute`:
       - Valid `(USER, CHECKING)` pair opens with balance `Money.zero`, status `ACTIVE` (spec "Valid
         pair opens").
@@ -127,7 +127,7 @@ distinct concerns — each is independently testable and each maps to a distinct
         traces to PRD §7.3).
       Satisfies: spec "Account Type and Purpose Form a Validated Pair", "Every New Account Opens at
       Zero Balance"; design §4.1.
-- [ ] **T4.2 (impl)** — Implement `AccountType`, `AccountPurpose` (with `.account_type` mapping),
+- [x] **T4.2 (impl)** — Implement `AccountType`, `AccountPurpose` (with `.account_type` mapping),
       `AccountStatus` enums (string values) and `Account.open()` / `Account.reconstitute()` per design
       §4, §4.1, validating `purpose.account_type is account_type`, `balance.currency == currency`,
       `version >= 0` unconditionally in `__init__`. Satisfies: same as T4.1.
