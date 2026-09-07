@@ -3,8 +3,11 @@ spec "Posting (domain service: transfer, revert)").
 
 `TestTransfer` covers `transfer()`: the ordinary two-leg posting, the guards
 that must refuse before any account is touched, and the atomicity regression
-named in design §9.2. `TestRevert` is added in a later commit once `revert()`
-exists (tasks.md T6.2).
+named in design §9.2. `TestRevert` covers `revert()`: mirroring the original
+without mutating it, the golden PRD §7.3 scenario (which is also the sole
+proof that `debit_for_reversal` — not `debit` — was used, since an ordinary
+`debit` would have raised `InsufficientFundsError` for the same shortfall),
+and the `ReversalMismatchError` internal guard.
 """
 
 from datetime import UTC, datetime
@@ -22,6 +25,7 @@ from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.errors import (
     AccountNotOperableError,
     InsufficientFundsError,
+    ReversalMismatchError,
     SelfTransferError,
 )
 from modules.account_balance.domain.identifiers import (
@@ -31,7 +35,7 @@ from modules.account_balance.domain.identifiers import (
     OwnerId,
     TransferId,
 )
-from modules.account_balance.domain.posting import Posting, transfer
+from modules.account_balance.domain.posting import Posting, revert, transfer
 from modules.shared.domain.errors import CurrencyMismatchError
 from modules.shared.domain.money import Currency, Money
 
@@ -148,3 +152,75 @@ class TestTransfer:
             _post(source=source, destination=destination, amount=Money(50, USD))
 
         assert source.balance == Money(100, USD)
+
+
+def _revert(
+    original: Posting,
+    *,
+    source: Account,
+    destination: Account,
+    occurred_at: datetime | None = None,
+) -> Posting:
+    return revert(
+        original.transfer,
+        transfer_id=TransferId(uuid4()),
+        source=source,
+        destination=destination,
+        requested_by=OwnerId(uuid4()),
+        idempotency_key=IdempotencyKey("reversal-key"),
+        occurred_at=occurred_at or datetime.now(UTC),
+        entry_ids=(EntryId(uuid4()), EntryId(uuid4())),
+    )
+
+
+class TestRevert:
+    def test_reversal_references_the_original_without_touching_it(self) -> None:
+        source = _open_account(balance=Money(100, USD))
+        destination = _open_account(balance=Money.zero(USD))
+        original = _post(source=source, destination=destination, amount=Money(100, USD))
+        debited_source, credited_destination = original.accounts
+
+        reversal = _revert(original, source=credited_destination, destination=debited_source)
+
+        assert reversal.transfer.reverses == original.transfer.transfer_id
+        assert original.transfer.reverses is None
+        assert original.transfer.entries == (
+            original.transfer.entries[0],
+            original.transfer.entries[1],
+        )
+
+    def test_reversal_drives_the_recipient_negative_and_still_succeeds(self) -> None:
+        """The golden test for the amended D1 (design §9.2, PRD §7.3): Ana
+        sends 100 to Bruno, Bruno spends 80, an operator reverses. Bruno ends
+        at -80, Ana is whole, and no error is raised — which is only possible
+        because the reversal debited Bruno via `debit_for_reversal`, not the
+        ordinary `debit` (that would have refused with `InsufficientFundsError`
+        for the same shortfall). The original and the reversal transfers
+        carry four entries between them.
+        """
+        ana = _open_account(balance=Money(100, USD))
+        bruno = _open_account(balance=Money.zero(USD))
+        merchant = _open_account(balance=Money.zero(USD))
+
+        original = _post(source=ana, destination=bruno, amount=Money(100, USD))
+        ana_after_send, bruno_after_receive = original.accounts
+
+        spend = _post(source=bruno_after_receive, destination=merchant, amount=Money(80, USD))
+        bruno_after_spend, _merchant_after_spend = spend.accounts
+
+        reversal = _revert(original, source=bruno_after_spend, destination=ana_after_send)
+
+        bruno_final, ana_final = reversal.accounts
+        assert bruno_final.balance == Money(-80, USD)
+        assert ana_final.balance == Money(100, USD)
+        assert reversal.transfer.reverses == original.transfer.transfer_id
+        assert len(original.transfer.entries) + len(reversal.transfer.entries) == 4
+
+    def test_reversal_mismatch_when_accounts_are_not_the_originals_legs(self) -> None:
+        source = _open_account(balance=Money(100, USD))
+        destination = _open_account(balance=Money.zero(USD))
+        original = _post(source=source, destination=destination, amount=Money(100, USD))
+        unrelated = _open_account(balance=Money.zero(USD))
+
+        with pytest.raises(ReversalMismatchError):
+            _revert(original, source=unrelated, destination=source)

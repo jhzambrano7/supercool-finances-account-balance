@@ -3,7 +3,7 @@ from datetime import datetime
 
 from modules.account_balance.domain.account import Account
 from modules.account_balance.domain.entry import Entry, EntryDirection
-from modules.account_balance.domain.errors import SelfTransferError
+from modules.account_balance.domain.errors import ReversalMismatchError, SelfTransferError
 from modules.account_balance.domain.identifiers import (
     EntryId,
     IdempotencyKey,
@@ -98,3 +98,85 @@ def transfer(
     )
 
     return Posting(transfer=posted, accounts=(debited, credited))
+
+
+def revert(
+    original: Transfer,
+    *,
+    transfer_id: TransferId,
+    source: Account,
+    destination: Account,
+    requested_by: OwnerId,
+    idempotency_key: IdempotencyKey,
+    occurred_at: datetime,
+    entry_ids: tuple[EntryId, EntryId],
+) -> Posting:
+    """Posts a reversal of `original`. Identical to `transfer` with three
+
+    differences (design §5.2):
+
+    1. `amount` is not a parameter -- it is `original.amount`. A partial
+       reversal is just another transfer and does not need a concept (D10).
+    2. Guards `source.account_id == original.destination_account_id` and
+       `destination.account_id == original.source_account_id`, else
+       `ReversalMismatchError` -- the caller loaded the wrong rows. This
+       guard alone is what makes a standalone self-transfer/positivity check
+       unnecessary here: passing it implies `source != destination` (the
+       original could not have been a self-transfer) and a positive amount
+       (inherited from `original`, itself already validated).
+    3. Applies via `source.debit_for_reversal(...)`, not `source.debit(...)`
+       -- the sole call site outside `account.py` itself (design §4.3's
+       architecture test) -- so the reversal succeeds in full even when it
+       drives `source` (the original's destination) below zero (PRD §7.3).
+
+    `original` is never touched: reverting reads its `amount`,
+    `destination_account_id`, `source_account_id` and `transfer_id`, and
+    constructs an entirely new `Transfer` carrying `reverses=original.
+    transfer_id` (I7).
+    """
+    if (
+        source.account_id != original.destination_account_id
+        or destination.account_id != original.source_account_id
+    ):
+        raise ReversalMismatchError(
+            f"revert() accounts do not mirror transfer {original.transfer_id}: "
+            f"expected source={original.destination_account_id}, "
+            f"destination={original.source_account_id}, "
+            f"got source={source.account_id}, destination={destination.account_id}"
+        )
+
+    amount = original.amount
+
+    debit_leg = Entry(
+        entry_id=entry_ids[0],
+        transfer_id=transfer_id,
+        account_id=source.account_id,
+        direction=EntryDirection.DEBIT,
+        amount=amount,
+        occurred_at=occurred_at,
+    )
+    credit_leg = Entry(
+        entry_id=entry_ids[1],
+        transfer_id=transfer_id,
+        account_id=destination.account_id,
+        direction=EntryDirection.CREDIT,
+        amount=amount,
+        occurred_at=occurred_at,
+    )
+
+    debited = source.debit_for_reversal(debit_leg)
+    credited = destination.credit(credit_leg)
+
+    reversal = Transfer(
+        transfer_id=transfer_id,
+        source_account_id=source.account_id,
+        destination_account_id=destination.account_id,
+        amount=amount,
+        requested_by=requested_by,
+        idempotency_key=idempotency_key,
+        occurred_at=occurred_at,
+        entries=(debit_leg, credit_leg),
+        reverses=original.transfer_id,
+    )
+
+    return Posting(transfer=reversal, accounts=(debited, credited))
