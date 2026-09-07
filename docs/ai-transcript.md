@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 27
+**Turns recorded:** 28
 
 ---
 
@@ -2036,10 +2036,11 @@ Si preferís otra forma de devolverlo (una tupla, o que `Transfer` cargue los su
 Ese transfer asumo es a nivel caso de uso correcto? de ser así, mucha de esa info debe cargarla el cas de  uso, ej las cuentas, el request al caso de uso lleva lo básico, cantidad, is cuenta origen y destino, llave de idempotencia, el id del ejecutor y no más
 ```
 
-<details><summary>Tool calls (2)</summary>
+<details><summary>Tool calls (3)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## 1\. Module layout/,/^## 2\./p' openspec/changes/account-bala…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add openspec/ git commit -q -F - <<'MSG' docs(docs): state that trans…
 
 </details>
 
@@ -2071,5 +2072,49 @@ TransferMoney:
 Nada más, y en particular **el cliente no manda `transfer_id`**: su handle de deduplicación es la llave de idempotencia (§6). El `transfer_id`, los `entry_ids` y el `occurred_at` los produce el caso de uso.
 
 Lo documento para que la frontera no se pierda:
+
+Documentado en `design.md` §5.3. **42 commits.**
+
+Quedó la tabla de qué le corresponde a cada capa:
+
+| Responsabilidad | Capa |
+|---|---|
+| Autorización — qué patas chequear (§9.1) | Caso de uso. El dominio provee `assert_owned_by`, **no decide cuándo llamarlo** |
+| Lookup de idempotencia y corto-circuito | Caso de uso |
+| Cargar cuentas y lockear las `USER` en orden de id | Caso de uso / repositorio |
+| `transfer_id`, `entry_ids` | Caso de uso, vía el generador |
+| `occurred_at` | Caso de uso, vía un reloj |
+| Persistir el `Posting` y el registro de idempotencia en una transacción | Caso de uso |
+
+Y me quedo con algo de tu observación, porque tenías razón en el fondo aunque no en la capa: **si `transfer` fuera el caso de uso, esa firma sería un desastre** — un caso de uso que exige que le pasen los agregados ya cargados y los ids ya generados está filtrando su plumbing al llamador. Tu instinto sobre "el request lleva lo básico y no más" es exactamente el criterio correcto para esa capa.
+
+La firma larga sólo se justifica en dominio, y se justifica por una razón concreta: D6 prohíbe estado ambiente. Un dominio que llama a `datetime.now()` necesita fakes en cada test para verificar aritmética. Pagar ocho parámetros en el borde compra tests que son aritmética pura.
+
+Una consecuencia que dejé escrita y conviene tener presente: **el cliente nunca manda `transfer_id`**. Es tentador dejárselo elegir —parece que ayuda a la idempotencia— pero sería una segunda identidad compitiendo con la llave de idempotencia por la misma operación, y ahí empezás a tener que decidir cuál manda cuando difieren.
+
+¿Seguís revisando, o arrancamos a implementar el dominio?
+
+---
+
+## Turn 28 — 2026-09-07 03:26:42.660 UTC
+
+### Prompt
+
+```text
+probemos tu opción, no me termina de cerrar, pero lo podemos corregir luego, me cuesta verlo si no tenemos el código. Vamos con los tasks, levanta una agente en paralelo que lo haga
+```
+
+<details><summary>Tool calls (2)</summary>
+
+- `Agent` — Break the account balance DOMAIN into an implementation task checklist. ## Skills to load before work Read in full first: `/Users/jhz7/.conf…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+
+</details>
+
+### Response
+
+Anotado que no te cierra del todo — es una decisión reversible y con código a la vista se juzga mejor. Lo dejo registrado como pendiente de revisitar, no como cerrado.
+
+Lanzo el agente de tasks:
 
 ---
