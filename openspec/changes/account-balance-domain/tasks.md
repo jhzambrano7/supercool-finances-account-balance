@@ -210,7 +210,7 @@ Commit boundary: 4c is one commit, `PRD:` trailer referencing G5, §7.2.
 
 ### 4d — architecture tests for `Account`
 
-- [ ] **T4.8 (test) — ARCHITECTURE TEST** — Write
+- [x] **T4.8 (test) — ARCHITECTURE TEST** — Write
       `tests/unit/account_balance/domain/test_architecture.py::test_debit_for_reversal_is_referenced_only_in_definition_and_revert`:
       parse every `.py` under `src/` with `ast`, collect every `Attribute`/`Name` node named
       `debit_for_reversal`, and assert the set of `(module, enclosing function/None)` pairs equals
@@ -221,7 +221,7 @@ Commit boundary: 4c is one commit, `PRD:` trailer referencing G5, §7.2.
       `xfail`, since design §4.3 states this must be a plain failing test until the call site exists.
       Satisfies: design §4.3 "Architecture test" (explicit request in task brief); PRD §10.3 ("a test
       asserts no other path can").
-- [ ] **T4.9 (test) — ARCHITECTURE TEST** — Write
+- [x] **T4.9 (test) — ARCHITECTURE TEST** — Write
       `test_architecture.py::test_account_has_no_in_place_mutator`: parse `account.py` with `ast` and
       assert every method whose body reassigns `self.<field>` or calls `object.__setattr__` does not
       exist — every state-changing method must return `Account`. Satisfies: design §9.3 item 2.
