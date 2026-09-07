@@ -68,8 +68,8 @@ rule is unit-testable without constructing an `Account`.
 through a reversal, so the policy is keyed on the *operation* as well as the account:
 
 ```python
-def debit(self, entry: Entry) -> Account: ...              # refuses below zero
-def debit_for_reversal(self, entry: Entry) -> Account: ... # the only path that may cross zero
+def debit(self, entry: Entry) -> Account: ...  # refuses below zero
+def debit_for_reversal(self, entry: Entry) -> Account: ...  # the only path that may cross zero
 ```
 
 They take an `Entry`, not a bare `Money`, so they stay consistent with D5 — posting produces the
@@ -140,8 +140,14 @@ mechanically true instead of aspirational.
 
 ```python
 def transfer(
-    *, transfer_id: TransferId, source: Account, destination: Account, amount: Money,
-    requested_by: OwnerId, idempotency_key: IdempotencyKey, occurred_at: datetime,
+    *,
+    transfer_id: TransferId,
+    source: Account,
+    destination: Account,
+    amount: Money,
+    requested_by: OwnerId,
+    idempotency_key: IdempotencyKey,
+    occurred_at: datetime,
     entry_ids: tuple[EntryId, EntryId],
 ) -> Transfer: ...
 ```
@@ -230,9 +236,17 @@ belongs to that record, not to the ledger.
 ### D10 — Reversal is an ordinary transfer that points at its original, and is not privileged
 
 ```python
-def revert(original: Transfer, *, transfer_id: TransferId, source: Account,
-                  destination: Account, requested_by: OwnerId, idempotency_key: IdempotencyKey,
-                  occurred_at: datetime, entry_ids: tuple[EntryId, EntryId]) -> Transfer: ...
+def revert(
+    original: Transfer,
+    *,
+    transfer_id: TransferId,
+    source: Account,
+    destination: Account,
+    requested_by: OwnerId,
+    idempotency_key: IdempotencyKey,
+    occurred_at: datetime,
+    entry_ids: tuple[EntryId, EntryId],
+) -> Transfer: ...
 ```
 
 Mirror legs, same amount and currency, `reverses=original.id` (I7). The original is never touched. Full

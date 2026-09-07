@@ -40,16 +40,25 @@ future import would downgrade annotations to strings.
 @dataclass(frozen=True, slots=True)
 class EntityId:
     value: UUID
-    def __post_init__(self) -> None: ...      # rejects non-UUID
-    def __str__(self) -> str: return str(self.value)
+
+    def __post_init__(self) -> None: ...  # rejects non-UUID
+    def __str__(self) -> str:
+        return str(self.value)
+
 
 @dataclass(frozen=True, slots=True, order=True)
-class AccountId(EntityId): ...                # order=True for PRD §5 lock ordering
+class AccountId(EntityId): ...  # order=True for PRD §5 lock ordering
+
 
 @dataclass(frozen=True, slots=True)
 class TransferId(EntityId): ...
+
+
 class EntryId(EntityId): ...
+
+
 class OwnerId(EntityId): ...
+
 
 PLATFORM_OWNER_ID: Final = OwnerId(UUID(int=0))
 ```
@@ -78,18 +87,19 @@ class EntryDirection(Enum):
     DEBIT = "DEBIT"
     CREDIT = "CREDIT"
 
+
 @dataclass(frozen=True, slots=True)
 class Entry:
     entry_id: EntryId
     transfer_id: TransferId
     account_id: AccountId
     direction: EntryDirection
-    amount: Money                 # strictly positive (I3)
-    occurred_at: datetime         # timezone-aware
+    amount: Money  # strictly positive (I3)
+    occurred_at: datetime  # timezone-aware
 
     def __post_init__(self) -> None: ...
     @property
-    def signed_amount(self) -> Money: ...   # +amount for CREDIT, -amount for DEBIT
+    def signed_amount(self) -> Money: ...  # +amount for CREDIT, -amount for DEBIT
 ```
 
 `__post_init__` raises `NonPositiveAmountError` unless `amount.is_positive`, and
@@ -129,15 +139,29 @@ class Account:
     version: int
 
     @classmethod
-    def open(cls, *, account_id: AccountId, owner_id: OwnerId,
-             account_type: AccountType, purpose: AccountPurpose,
-             currency: Currency) -> Self: ...
+    def open(
+        cls,
+        *,
+        account_id: AccountId,
+        owner_id: OwnerId,
+        account_type: AccountType,
+        purpose: AccountPurpose,
+        currency: Currency,
+    ) -> Self: ...
 
     @classmethod
-    def reconstitute(cls, *, account_id: AccountId, owner_id: OwnerId,
-                     account_type: AccountType, purpose: AccountPurpose,
-                     currency: Currency, balance: Money,
-                     status: AccountStatus, version: int) -> Self: ...
+    def reconstitute(
+        cls,
+        *,
+        account_id: AccountId,
+        owner_id: OwnerId,
+        account_type: AccountType,
+        purpose: AccountPurpose,
+        currency: Currency,
+        balance: Money,
+        status: AccountStatus,
+        version: int,
+    ) -> Self: ...
 
     # the only three ways a balance can move
     def credit(self, entry: Entry) -> Account: ...
@@ -145,12 +169,12 @@ class Account:
     def debit_for_reversal(self, entry: Entry) -> Account: ...
 
     # guards the use case calls; the *fact*, not the policy
-    def assert_owned_by(self, owner_id: OwnerId) -> None: ...     # AccountOwnershipError
-    def fail_if_not_active(self) -> None: ...                        # AccountNotOperableError
+    def assert_owned_by(self, owner_id: OwnerId) -> None: ...  # AccountOwnershipError
+    def fail_if_not_active(self) -> None: ...  # AccountNotOperableError
     def close(self) -> None: ...
 
-    def __eq__(self, other: object) -> bool: ...   # class + account_id
-    def __hash__(self) -> int: ...                 # hash(account_id)
+    def __eq__(self, other: object) -> bool: ...  # class + account_id
+    def __hash__(self) -> int: ...  # hash(account_id)
 ```
 
 `__eq__` must be typed `(self, other: object) -> bool` under mypy strict, and defining `__eq__`
@@ -218,10 +242,12 @@ Every method shares one private preflight:
 
 ```python
 def _validated_balance(self, entry: Entry, direction: EntryDirection) -> Money:
-    self.fail_if_not_active()                                  # AccountNotOperableError
-    if entry.account_id != self.account_id: raise EntryAccountMismatchError(...)
-    if entry.direction is not direction:    raise EntryDirectionMismatchError(...)
-    return self.balance + entry.signed_amount               # CurrencyMismatchError from Money
+    self.fail_if_not_active()  # AccountNotOperableError
+    if entry.account_id != self.account_id:
+        raise EntryAccountMismatchError(...)
+    if entry.direction is not direction:
+        raise EntryDirectionMismatchError(...)
+    return self.balance + entry.signed_amount  # CurrencyMismatchError from Money
 ```
 
 and the three public methods differ only in which rule they add:
@@ -262,20 +288,31 @@ other path can").
 class OverdraftPolicy(Enum):
     FORBIDDEN = auto()
     UNLIMITED = auto()
+
     def assert_allows(self, resulting_balance: Money, *, account_id: AccountId) -> None: ...
 
+
 class AccountType(Enum):
-    USER = "USER"; SYSTEM = "SYSTEM"
+    USER = "USER"
+    SYSTEM = "SYSTEM"
+
     @property
-    def overdraft_policy(self) -> OverdraftPolicy: ...   # USER→FORBIDDEN, SYSTEM→UNLIMITED
+    def overdraft_policy(self) -> OverdraftPolicy: ...  # USER→FORBIDDEN, SYSTEM→UNLIMITED
+
 
 class AccountPurpose(Enum):
-    CHECKING = "CHECKING"; SAVINGS = "SAVINGS"; FUNDING = "FUNDING"; SETTLEMENT = "SETTLEMENT"
+    CHECKING = "CHECKING"
+    SAVINGS = "SAVINGS"
+    FUNDING = "FUNDING"
+    SETTLEMENT = "SETTLEMENT"
+
     @property
-    def account_type(self) -> AccountType: ...           # each purpose belongs to exactly one type
+    def account_type(self) -> AccountType: ...  # each purpose belongs to exactly one type
+
 
 class AccountStatus(Enum):
-    ACTIVE = "ACTIVE"; CLOSED = "CLOSED"
+    ACTIVE = "ACTIVE"
+    CLOSED = "CLOSED"
 ```
 
 - Persisted enums (`AccountType`, `AccountPurpose`, `AccountStatus`, `EntryDirection`) carry **string
@@ -373,7 +410,7 @@ Named for the behaviour, not for the write. `transfer` described what happens to
 @dataclass(frozen=True, slots=True)
 class Posting:
     transfer: Transfer
-    accounts: tuple[Account, ...]   # the successors, one per account touched
+    accounts: tuple[Account, ...]  # the successors, one per account touched
 
 
 def transfer(
@@ -434,8 +471,8 @@ def revert(
     original: Transfer,
     *,
     transfer_id: TransferId,
-    source: Account,          # the original's DESTINATION — this is the account being clawed back
-    destination: Account,     # the original's SOURCE — the party being made whole
+    source: Account,  # the original's DESTINATION — this is the account being clawed back
+    destination: Account,  # the original's SOURCE — the party being made whole
     requested_by: OwnerId,
     idempotency_key: IdempotencyKey,
     occurred_at: datetime,

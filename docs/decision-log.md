@@ -360,4 +360,187 @@ Formato de cada entrada:
 - **Cerrado:** (1) test nuevo en `test_transfer.py` para el escenario "patas mezcladas alimentadas directo a Transfer"; (2) tres tests nuevos en `test_account.py` cubriendo moneda equivocada en `debit`/`credit`/`debit_for_reversal`, ninguno existía; (3) corregido el escenario de spec de reversa que describía un monto no aceptado por la firma real — reescrito para describir el guard real (identidad de cuenta), con nota explicando por qué el monto nunca podía ser lo que fallara; (4) corregida la tabla de imports de `posting.py` en el design, que omitía `money`/`errors` de shared.
 - **Diferido a propósito, no ignorado:** la evasión del test de arquitectura T7.3 por alias de import (`import datetime as dt`) — el propio reporte confirma que hoy no hay ninguna instancia real en el código; arreglar la robustez del test es trabajo de tooling sobre el propio test, no un hueco del dominio.
 - **137 tests, gates verdes, 3 commits nuevos.**
+- **Veredicto:** ✅ aprobado — pidió seguir con `sdd-archive` sin objeciones al cierre
+
+## 2026-09-07 00:48 — Archivar el cambio de dominio y arrancar la apertura de cuentas
+
+<!-- id: 20260907-004854-a1fe3a40 -->
+- **Qué intentaba:** Cerrar el ciclo SDD del dominio con `sdd-archive`, y arrancar el primer flujo de aplicación (apertura de cuentas) sin ceremonia SDD completa por ser mecánico, dejando: PR en un branch específico sobre un repo privado nuevo en GitHub, y documentación del flujo en `openspec/specs` por uniformidad.
+- **Prompt:** "Ejecuta la etapa de archivar para cerrar el ciclo. Luego, vamos con el primer flujo, la apertura de cuentas […] podría no ser necesario un flujo SDD […] 1. PR de los cambios […] desarrollo en un branch específico y sube los cambios a mi cuenta de github, crea un repo privado con el mismo nombre del directorio raíz […] 2. […] documentar el flujo […] openspec/specs puede funcionar por uniformidad. Si llega a surgir alguna duda […] te detienes y me preguntas, de lo contrario continúa"
+- **Respuesta:** `sdd-archive` corrió en background mientras se investigaba el stack real (FastAPI, SQLAlchemy 2.0, Alembic, psycopg3, dependency-injector ya en `pyproject.toml`; scaffold `_blank` define el layout hexagonal; PRD confirma apertura idempotente por clave natural, no por header). Se escribió `openspec/specs/account-opening/spec.md` (decisiones AO1–AO6, requisitos Given/When/Then) en `feat/account-opening`, se creó el repo privado `jhzambrano7/supercool-finances-account-balance` y se pusheó `main`. Se delegó la implementación completa (caso de uso, repositorio SQL + migración Alembic, ruta FastAPI, DI, docker-compose, tests) a un sub-agente sobre esa spec.
+- **Hallazgo al verificar el archive del sub-agente antes de commitear (no se aceptó tal cual):** afirmaba 131 tests (el conteo real, corrido por mí, es 135) y decía "ready for production" contradiciendo su propia lista de fuera-de-alcance (sin casos de uso, adapters HTTP/SQL ni migraciones). Corregidos ambos antes de commitear, además de mover efectivamente la carpeta del cambio a `openspec/changes/archive/` (el sub-agente había creado el `archive-report.md` pero no había movido los artefactos ni commiteado nada).
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 01:06 — Incidente: colisión de escritura concurrente detectada por el sub-agente de implementación
+
+<!-- id: 20260907-010649-a1fe3a40 -->
+- **Qué intentaba:** (Turno disparado por la finalización del sub-agente de implementación.) Revisar su entrega antes de continuar con el PR.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** El sub-agente reportó que `account_repository.py` fue sobrescrito 3 veces por algo externo durante su trabajo, con un diseño roto y distinto (`FindAccountCriteria`, `AccountNotFoundError` inexistente) y un archivo espurio en `application/gateways/models/find_account_criteria.py`. Investigado antes de continuar: `ListAgents` confirmó una sesión par activa sobre el mismo repo (`supercool-finances-account-balance-4c`, abierta hace 3h, sin worktree aislado — mismo directorio de trabajo). El estado final committeado de `account_repository.py` se verificó correcto (un solo commit lo toca, sin archivo espurio, contenido revisado línea por línea). También aparecieron diffs sin commitear en `design.md`/`proposal.md` archivados — sólo reformateo cosmético de bloques de código (ruff-format-like: saltos de línea, wrap de firmas), sin cambio semántico.
+- **Pendiente de decisión del usuario:** si la sesión par es su propio trabajo en curso y qué hacer con esos diffs cosméticos antes de tocar más archivos compartidos.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 01:14 — Resolver el incidente de colisión y lanzar revisión fresca antes del PR
+
+<!-- id: 20260907-011400-a1fe3a40 -->
+- **Qué intentaba:** Cerrar el incidente de la sesión par y avanzar hacia el PR de la apertura de cuentas.
+- **Prompt:** (respuesta a la pregunta sobre la sesión par vía AskUserQuestion: "Sí, es mía, la cierro")
+- **Respuesta:** Confirmado que la colisión era la propia sesión par del usuario sobre el mismo working directory; la cierra. El estado final de `account_repository.py` ya estaba verificado correcto (un solo commit, sin archivo espurio). El reformateo cosmético en `design.md`/`proposal.md` archivados se commiteó tal cual (sin cambio semántico). Verificado independientemente antes de continuar: 147 tests reales (139 unit + 8 integración contra Postgres real vía testcontainers, confirmados uno por uno con `-v`), `pre-commit run --all-files` en verde. Lanzada una revisión adversarial en contexto fresco sobre todo el diff `main...feat/account-opening`, con foco en el manejo de la carrera de clave natural (AO4), semántica HTTP 201/200 (AO3), que `account_type` no sea aceptable desde el request (AO1), y que el dominio no se haya tocado.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 01:17 — Corregir los dos hallazgos reales de la revisión fresca
+
+<!-- id: 20260907-011755-a1fe3a40 -->
+- **Qué intentaba:** (Turno disparado por la finalización de la revisión fresca.) Cerrar los hallazgos antes de abrir el PR.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** La revisión no encontró bloqueantes en el dominio/aplicación (AO1–AO4 correctos y testeados, dominio intacto), pero sí un bug real y **reproducido**: `alembic/env.py` leía `DATABASE_URL` incondicionalmente y pisaba la URL que `conftest.py` ya había fijado programáticamente para testcontainers — cualquier developer con `DATABASE_URL` exportada localmente (el nombre natural, coincide con la variable de `Settings`) corría las migraciones de los tests de integración contra ese host en vez del Postgres efímero. **Verificado por mí de forma independiente:** reproduje el fallo exportando una URL bogus antes de tocar código, confirmé la falla, apliqué el fix (`config.attributes["sqlalchemy.url"]` en vez de env var, chequeado primero en `env.py`), y reproduje el mismo caso después confirmando que ahora pasa. Corregido también el segundo hallazgo (no bloqueante pero barato): `SqlAccountRepository.add()` atrapaba cualquier `IntegrityError` como conflicto de clave natural; ahora valida el nombre del constraint violado contra `uq_accounts_owner_purpose_currency` antes de relabelearlo, y relanza cualquier otro.
+- **147 tests, gates verdes, tras los fixes.**
+- **Veredicto:** ✅ aprobado
+
+## 2026-09-07 01:24 — Pushear el branch y abrir el PR
+
+- **Qué intentaba:** Cerrar el pedido original: branch específico, repo privado, PR.
+- **Prompt:** (continuación directa del pedido original de este turno, sin nuevo prompt del usuario)
+- **Respuesta:** Pusheado `feat/account-opening` a `jhzambrano7/supercool-finances-account-balance` (privado, ya creado con `main` como base) y abierto el PR #1 contra `main`, con resumen de las dos piezas de trabajo (cierre del archive SDD + slice de apertura de cuentas), las decisiones no obvias (AO1–AO4), lo que encontró y corrigió la revisión fresca antes del PR, y el plan de test con números reales.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 10:06 — Cambiar al branch del PR #1
+
+<!-- id: 20260907-100645-a1fe3a40 -->
+- **Qué intentaba:** Moverse a `feat/account-opening` para trabajar sobre el PR #1.
+- **Prompt:** "muévete al branch del PR 1"
+- **Respuesta:** Verificado `git status` antes del checkout (sólo docs de sesión modificados, sincronizados y commiteados aparte). Cambiado a `feat/account-opening`, limpio y al día con origin.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 10:15 — Recomendar documento versionado sobre skill para convenciones de revisión
+
+<!-- id: 20260907-101551-a1fe3a40 -->
+- **Qué intentaba:** El usuario preguntó si conviene definir skills para las convenciones de revisión que faltan, o si es válido no hacerlo dado que es una prueba.
+- **Prompt:** "Es correcto que no encuentres issues con el PR, no hemos definido convenciones y es justo lo que quiero que hagamos, podríamos definir skills para ello, sin embargo, también es válido no hacerlo dado que se trata de una prueba. Qué método opinas nos conviene?"
+- **Respuesta:** Recomendado un documento versionado (extender `docs/coding-conventions.md` o sumar `docs/review-conventions.md`) en vez de un skill de Claude Code: más barato de escribir/mantener, sirve igual para humano y AI, y ya hay precedente funcionando. Un skill paga su costo con muchos ciclos de revisión repetidos entre sesiones — no el caso acá (3 PRs, prueba acotada); construirlo sería la misma exageración de alcance que venimos evitando en documentos. Ofrecidas 3 convenciones concretas ya emergidas orgánicamente esta sesión (catch acotado por nombre de constraint, reserva de idempotencia antes de cualquier mutación que pueda fallar, tabla de mapeo de errores respaldada por test) para documentar si el usuario confirma.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 11:29 — Definir convenciones de repositorio/adapter antes de decidir skill vs. documento
+
+<!-- id: 20260907-112930-a1fe3a40 -->
+- **Qué intentaba:** Establecer una guía de implementación de adaptadores/repositorios antes de decidir si documentarla como skill o como documento general; va a ajustar código propio como ejemplo antes de decidir.
+- **Prompt:** "antes de decidir lo que quiero es que tengas una guía de implementación de adaptadores en general, nombramientos en repositorios y gestión de filtros, voy a ajustar el código para que tengas un ejemplo […] 1. Repositorio como colección persistente, API find/get/add/update […] 2. Criteria pattern extensible traducido al motor de búsqueda […] 3. DBOs como nomenclatura, con su lógica de mapeo + tests unitarios […] 4. Error de integración wrapper (ej AccountRepositoryError) con logger.exception […] 5. Builder de SQL queries a partir de los criterias"
+- **Respuesta:** Confirmado entendimiento de los 5 puntos, señalando dónde ya violamos cada uno hoy: `find_by_natural_key` es el anti-patrón exacto del punto 1; `_to_domain`/`_to_row` son funciones sueltas sin test unitario propio (punto 3); no hay logging en el repo y un `IntegrityError` no reconocido se re-lanza sin envolver, fuga de tipo de infraestructura cruzando el puerto (punto 4). Sin implementar nada todavía — el usuario va a mostrar un ejemplo de código propio primero. Pregunta abierta planteada: si `get_for_update` (el lock de T6, ya construido en transfer/revert) sigue siendo un método aparte del repositorio o se vuelve un flag/criteria sobre `get`, porque cambia la forma del puerto ya construido en 2 PRs.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 12:14 — Corregir las consecuencias del ejemplo de convenciones de repositorio
+
+<!-- id: 20260907-121451-a1fe3a40 -->
+- **Qué intentaba:** El usuario ajustó código en `feat/account-opening` para ilustrar las 5 convenciones acordadas (colección persistente, criteria pattern, DBOs, wrapper de integración, query builder) y pidió corregir los errores en consecuencia.
+- **Prompt:** "ajusté varias partes del código para ilustrar, corrije los errores que pueden haber en consecuencia"
+- **Respuesta:** Auditado con `mypy`/`ruff`/grep antes de tocar nada: 24 errores de mypy, varios de lint, y un bug arquitectónico real no detectado por las herramientas — `AccountNotFoundError` vivía en `domain/errors.py` pero heredaba de `ResourceNotFoundError` (un `ApplicationError`), forzando a que el dominio importe de la capa de aplicación, invirtiendo la dirección de dependencia hexagonal. Corregido moviéndolo a `application/gateways/account_repository.py`, junto al puerto que lo lanza. También corregido: `ApplicationError`/`ResourceNotFoundError`/`IntegrationError` vivían en `shared/domain/errors.py` (concepto de aplicación en paquete de dominio) — movidos a `shared/application/errors.py` nuevo. `alembic/env.py` seguía importando el `models.py` borrado — hubiera roto **todas** las migraciones, incluido el setup de cada test de integración. `open_account.py`, su test unitario (fake repository) y el test de integración seguían llamando `find_by_natural_key`/`get(account_id)`, métodos que ya no existen en el puerto nuevo. `get()` cambió de "encuentra-o-None" a "encuentra-o-lanza" al quedar colocado en la ABC base — el test que esperaba `None` probaba un comportamiento que ya no existe, reescrito para esperar la excepción, y se agregó un test de `find()` para no perder esa cobertura. Corregido además un ruido de logging: `add()` loggeaba `logger.exception` incluso para la carrera esperada de AO4 (ya manejada), reordenado para que sólo el fallo genuinamente no reconocido se loggee y envuelva. Agregado el test unitario de mapeo del DBO que el punto 3 de las convenciones pide explícitamente (no existía, sólo cobertura indirecta de integración).
+- **Dejado explícito, no resuelto:** las otras dos PRs de la cadena (`transfer`, `revert`) ya tienen su propio `AccountNotFoundError` (Exception plana, constructor con string), distinto del nuevo aquí — reconciliarlos es una decisión para cuando se toquen esas ramas, no algo que corregí unilateralmente ahora.
+- **151 tests (antes 147), gates verdes.** Todo commiteado en `feat/account-opening` pero **no pusheado** — a la espera de que el usuario decida si esto va al PR #1 o sigue siendo sólo el ejemplo para definir la convención.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 12:44 — Aclarar que las convenciones todavía no están documentadas
+
+<!-- id: 20260907-124427-a1fe3a40 -->
+- **Qué intentaba:** El usuario preguntó qué se hizo para tener lineamientos automáticos hacia adelante, dando a entender que asumía que ya existían.
+- **Prompt:** "con esto resuelto, qué hiciste para tener lineamientos y que ya sea automático hacia adelante?"
+- **Respuesta:** Aclarado directamente que no se hizo nada todavía — el turno anterior sólo corrigió código, no se escribió ningún documento ni skill. Reiterada la recomendación de documento versionado sobre skill, y ofrecido escribirlo ahora mismo con las 5 convenciones validadas contra código real más las dos correcciones que salieron en la práctica.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 12:45 — Documentar las convenciones de repositorio/adapter
+
+<!-- id: 20260907-124524-a1fe3a40 -->
+- **Qué intentaba:** Escribir el documento de convenciones acordado, con la salida de emergencia de armar el skill si no sirve.
+- **Prompt:** "procede, si no nos sirve, montamos la skill"
+- **Respuesta:** Extendido `docs/coding-conventions.md` con una sección nueva "Repository & Adapter Conventions": colección persistente (find/get/add, sin find_by_x), Criteria extensible + traductor en el adapter, DBOs con mapping propio + test unitario obligatorio, wrapper de excepciones con logging sólo en lo no reconocido (con el ejemplo real del bug de orden que se corrigió), y la regla de layering por clase base (no por archivo) que explica el bug de dominio importando de aplicación que apareció en la práctica. Incluida una tabla "Applied so far" y el hueco explícito no resuelto (AccountNotFoundError duplicado en transfer/revert).
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 12:47 — Pushear el refactor de repositorio y lanzar revisión
+
+<!-- id: 20260907-124753-a1fe3a40 -->
+- **Qué intentaba:** Subir el refactor + documento de convenciones al PR #1 y correr una tercera revisión sobre el estado actualizado.
+- **Prompt:** "subelo al PR, y corre una revisión"
+- **Respuesta:** Pusheado `feat/account-opening` (3 commits nuevos: fix de consistencia del ejemplo, doc de convenciones, sync de sesión). Lanzada una tercera revisión fresca, con contexto explícito de las dos rondas previas limpias y de los dos bugs que el propio documento de convenciones dice haber encontrado y corregido (inversión de dependencia dominio→aplicación, logging de una carrera ya manejada) — pidiendo verificarlos contra el código real, no aceptar la afirmación del documento.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 12:57 — Revertir el refactor de _wrap_unexpected, dejar sólo el fix del test
+
+<!-- id: 20260907-125708-a1fe3a40 -->
+- **Qué intentaba:** Cerrar los hallazgos de la tercera revisión del PR #1.
+- **Prompt:** (verificación del hallazgo #5 de la revisión: assert débil en el test de round-trip del DBO, más un pedido explícito del usuario a mitad de turno) "no me gusta ese _wrap_unexpected, déjalo como estaba"
+- **Respuesta:** Verificado el hallazgo real antes de aceptarlo: `Account.__eq__` es por identidad (compara sólo `account_id`, diseño de dominio deliberado y preexistente), así que `assert dbo.as_domain() == account` no probaba nada del resto de los campos. Corregido a asserts por campo individual, confirmado con mutación real (cambié la moneda en `as_domain()`, el test ahora sí falla). El otro hallazgo (duplicación de logging en `add()`) lo había extraído a un helper `_wrap_unexpected` — el usuario no lo quiso, revertido a la forma original duplicada tal cual estaba, manteniendo sólo el fix del test.
+- **151 tests, gates verdes.**
+- **Veredicto:** 🔁 ajustado — rechazó el refactor de deduplicación, aprobó el fix del test
+
+## 2026-09-07 13:09 — Mover settings/engine/session_factory a SharedDependencies
+
+<!-- id: 20260907-130924-a1fe3a40 -->
+- **Qué intentaba:** El usuario señaló que `settings`/`engine`/`session_factory`, definidos dentro de `AccountBalanceContainer`, no tienen nada de específico a ese módulo y deberían vivir en `SharedDependencies`.
+- **Prompt:** "todo esto [settings/engine/session_factory en AccountBalanceContainer] En el container de account balance debería estar en shared"
+- **Respuesta:** Verificado antes de mover: `create_engine`/`create_session_factory` ya sólo dependían de `Settings` (que ya vivía en shared) — nada atado a account_balance. Movido `engine.py` al scaffold vacío ya existente en `shared/adapters/outbound/repositories/sql/`, y los tres providers a `SharedDependencies`, compuestos por `AccountBalanceContainer` igual que ya hacía `id_generator`. El test de integración que hacía `container.settings.override(...)` pasó a `SharedDependencies.settings.override(...)`, overrideando en la fuente real. Verificado empíricamente (no sólo argumentado) que la composición comparte un único singleton y no dos: los mismos tests de integración contra Postgres real siguen pasando, probando que el override llega hasta el repositorio real a través de la cadena `AccountBalanceContainer -> SharedDependencies.session_factory`.
+- **Incidente menor:** el primer intento de commit falló en mypy por un `__pycache__`/`.mypy_cache` obsoleto apuntando a la ruta vieja de `engine.py` — no era un bug real, confirmado limpiando caches y re-corriendo en verde.
+- **151 tests, gates verdes.**
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 13:29 — Incidente de edición concurrente: restaurar @override
+
+<!-- id: 20260907-132951-a1fe3a40 -->
+- **Qué intentaba:** Reportar al usuario que su otra sesión seguía editando archivos en este mismo directorio, concurrente con mi trabajo, y que ya se había colado en un commit mío.
+- **Prompt:** "Quitaste el override de los métodos del adapter, por uqé?"
+- **Respuesta:** Confirmado: no fue una decisión mía, se cayó al reescribir `sql_account_repository.py` completo para arreglar las importaciones rotas del ejemplo original. Restaurado `@override` (de `typing`) en `find`/`add`, tal como estaba en el ejemplo original del usuario. Mientras corregía, el archivo volvió a cambiar en disco a mitad de mi edición — confirmé que la otra sesión estaba editando el mismo archivo en tiempo real, y pausé para no seguir pisándonos.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 13:30 — Corregir el orden del logging según instrucción explícita del usuario
+
+<!-- id: 20260907-133055-a1fe3a40 -->
+- **Qué intentaba:** Resolver la ambigüedad sobre el orden de `logger.exception()` en `add()` — yo había asumido que loggear antes del chequeo de constraint era un bug reintroducido por la sesión concurrente.
+- **Prompt:** "El log de la excepción va arriba tal y como está"
+- **Respuesta:** Corregido mi propio malentendido: no era un bug, era una decisión deliberada del usuario que yo había revertido sin preguntar en una ronda anterior. `logger.exception()` va **antes** del chequeo de `_violates_natural_key_constraint`, incondicional para todo `IntegrityError` — el log es una auditoría completa de violaciones de integridad, no un filtro de sólo lo no reconocido; lo que cambia según se reconozca o no es qué se **lanza** después (el error tipado propio vs. el wrapper), no si se loggea. Corregido el código (con comentario que ahora explica el porqué real) y **corregida la sección de convenciones en `docs/coding-conventions.md`**, que documentaba la regla al revés. Reconciliada además toda la historia local: usé `git reset --soft` al último commit realmente pusheado (`d953fa5`) para descartar los commits locales contaminados por la edición concurrente, preservando todo el contenido correcto en el working tree — nada se perdió, sólo se limpió el historial no publicado.
+- **También aceptado**, verificado que funciona: el cambio de `testcontainers.postgres` a `testcontainers.community.postgres` en `conftest.py` (de la misma edición concurrente) — corrige el warning de deprecación que veníamos arrastrando toda la sesión.
+- **151 tests, gates verdes.**
+- **Veredicto:** ✅ aprobado — corrigió mi malentendido sobre el orden del logging
+
+## 2026-09-07 13:37 — Proponer body estructurado para los errores custom
+
+<!-- id: 20260907-133719-a1fe3a40 -->
+- **Qué intentaba:** El usuario notó que la mayoría de los errores custom no tienen body — dependen de un string armado a mano en cada `raise`, sin campos que el invocador pueda leer sin parsear texto.
+- **Prompt:** "Estoy viendo algo de reto en los errores que has creado, no tienen body y en consecuencia no creo aporten valor al invocador, cómo se verían?"
+- **Respuesta:** De acuerdo con la crítica — `IntegrationError` ya lo hace bien (guarda `code`/`cause`/`metadata` como atributos reales), el resto no. Mostrados dos ejemplos concretos (`ResourceNotFoundError`, `AccountNaturalKeyConflictError`) con `__init__` guardando campos tipados como atributos y armando el mensaje una sola vez adentro de la clase, en vez de duplicarlo en cada call site. Todavía no implementado — es una pregunta exploratoria, planteada la decisión de alcance (¿las ~19 clases de error del dominio, o sólo las que llegan a un route/HTTP, dejando los guards internos como están?).
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 13:39 — Crear ResourceAlreadyExistsError y AccountAlreadyExistsError
+
+<!-- id: 20260907-133951-a1fe3a40 -->
+- **Qué intentaba:** Implementar la propuesta anterior sobre errores con body estructurado, empezando por reemplazar `AccountNaturalKeyConflictError`.
+- **Prompt:** "Crea un ResourceAlreadyExistsError simil a ResourceNotFoundError y de él extienede un AccountAlreadyExistError en remplazo de AccountNaturalKeyConflictError, de nuevo no reinventemos la rueda"
+- **Respuesta:** Corregido primero `ResourceNotFoundError` para que realmente guarde `resource_type`/`resource_identifier` como atributos (no sólo en el string), y agregado `ResourceAlreadyExistsError` con la misma forma. `AccountAlreadyExistsError` (nombre corregido a plural correcto, no "AlreadyExist") reemplaza a `AccountNaturalKeyConflictError` en el puerto, el adapter SQL, el caso de uso y ambos test suites — guarda `owner_id`/`purpose`/`currency` como atributos propios además de lo que hereda de `ResourceAlreadyExistsError`. Los tests de integración ahora aseran los campos estructurados directamente, no sólo el tipo de excepción. Documentada la convención nueva en `docs/coding-conventions.md`, acotada a errores que un invocador real inspecciona — no aplicada a guards internos que nadie atrapa por tipo.
+- **151 tests, gates verdes.**
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 13:44 — Pausar commits hasta que el usuario termine de revisar
+
+<!-- id: 20260907-134408-a1fe3a40 -->
+- **Qué intentaba:** El usuario pidió frenar cualquier commit mientras él revisa el estado actual del PR #1.
+- **Prompt:** "no hagas commit hasta que no termine de revisar"
+- **Respuesta:** Reconocido como restricción activa: no se hacen más commits ni push hasta indicación explícita de que terminó la revisión.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 13:52 — Aplicar las 12 observaciones de la revisión del usuario
+
+<!-- id: 20260907-135204-a1fe3a40 -->
+- **Qué intentaba:** Actuar sobre las observaciones que el usuario dejó como reviewer en el PR #1 (vía GitHub review comments) y mejorar convenciones donde correspondiera.
+- **Prompt:** "Revisa el PR, tomé el papel de reviwer y te dejé varias observaciones, además aprovecha para mejorar las convenciones donde corresponda"
+- **Respuesta:** Extraídas las 12 observaciones vía `gh api .../pulls/1/reviews/{id}/comments` (review PENDING, sin comentarios inline vía el endpoint normal). Implementadas todas: (1) sacado el docstring de `AccountBalanceContainer`; (2/4/5) `schemas.py`→`dtos.py`, `OpenAccountRequest`→`OpenAccountRequestDto`, `AccountResponse`→`AccountResponseDto`, con test unitario nuevo para `from_result` (mismo patrón que los DBOs); (3) `Base` movido a `shared/adapters/outbound/repositories/sql/base.py`, reusable para los DBOs de transfer/entries que faltan; (6/7) `http_status` eliminado de `OpenAccountResult` — la capa de aplicación no debe conocer HTTP, ni siquiera como int con comentario; el route decide 200/201 él mismo; (8) `OpenAccountUseCase`→`AccountRegister`, sin sufijo de capa; (9) el `except AccountAlreadyExistsError` en el caso de uso se eliminó — el error se propaga, el cliente reintenta y encuentra la cuenta por el mismo lookup de natural key; (10) el catch-all de `DomainError` en el route pasó de 500 a 400, agregado catch explícito de `AccountAlreadyExistsError`→409.
+- **No cambiado, respondido en cambio:** (11) por qué un fake en vez de mocks por test — la unicidad de clave natural y la carrera de AO4 son estado compartido entre tests; un mock por test terminaría reimplementando ese mismo estado vía `side_effect`, disperso en vez de centralizado, y no falla en mypy si el puerto cambia de firma.
+- **Documentado en `docs/coding-conventions.md`:** 3 reglas nuevas (aplicación no conoce HTTP, sin sufijos de capa, DomainError/ApplicationError → 400 por defecto — marcado explícitamente como no aplicado aún en transfer/revert) y generalizada la sección de DBOs para cubrir también DTOs.
+- **Actualizado `openspec/specs/account-opening/spec.md`:** tabla de tipos, escenario de la carrera (ahora 409 en vez de recovery a 200, con un escenario nuevo separando el retry secuencial del race genuino), tabla de mapeo de errores, estrategia de testing. Las decisiones AO3/AO4 se corrigieron manteniendo el razonamiento anterior visible como superado, no borrado.
+- **153 tests (antes 151), gates verdes.** Agregado un test de integración con concurrencia real (`asyncio.gather`) para el 201/409, corrido 5 veces limpio.
+- **Sin commitear** — a la espera de que el usuario confirme que terminó de revisar.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 14:02 — Commitear y pushear la respuesta a la revisión
+
+<!-- id: 20260907-140248-a1fe3a40 -->
+- **Qué intentaba:** El usuario confirmó que terminó de revisar y pidió subir los cambios.
+- **Prompt:** "sube los cambios"
+- **Respuesta:** Commiteado en dos partes (código + docs) tras limpiar cachés obsoletas de `__pycache__`/`.mypy_cache` que habían confundido un intento de commit intermedio (mismo tipo de falso positivo ya visto antes, no un bug real). 153 tests, gates verdes, confirmado en limpio antes de cada commit.
 - **Veredicto:** ⏳ pendiente
