@@ -146,7 +146,7 @@ class Account:
 
     # guards the use case calls; the *fact*, not the policy
     def assert_owned_by(self, owner_id: OwnerId) -> None: ...     # AccountOwnershipError
-    def assert_operable(self) -> None: ...                        # AccountNotOperableError
+    def fail_if_not_active(self) -> None: ...                        # AccountNotOperableError
     def close(self) -> None: ...
 
     def __eq__(self, other: object) -> bool: ...   # class + account_id
@@ -218,7 +218,7 @@ Every method shares one private preflight:
 
 ```python
 def _validated_balance(self, entry: Entry, direction: EntryDirection) -> Money:
-    self.assert_operable()                                  # AccountNotOperableError
+    self.fail_if_not_active()                                  # AccountNotOperableError
     if entry.account_id != self.account_id: raise EntryAccountMismatchError(...)
     if entry.direction is not direction:    raise EntryDirectionMismatchError(...)
     return self.balance + entry.signed_amount               # CurrencyMismatchError from Money

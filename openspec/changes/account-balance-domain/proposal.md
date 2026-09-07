@@ -286,7 +286,7 @@ correctness wins.
 | I7 | Structural — `revert` produces a new `Transfer`; nothing can mutate an existing one | — |
 | G5 | `Account.assert_owned_by(owner_id)` — the *fact*; the *policy* of when to call it is the use case's (see §7) | `AccountOwnershipError` |
 
-Additional guards: `Account.assert_operable()` (status), `Entry`/`Account` id agreement in
+Additional guards: `Account.fail_if_not_active()` (status), `Entry`/`Account` id agreement in
 `Account.apply()`, and `AccountType`/`AccountPurpose` agreement in `Account.open()` (PRD §4.4).
 
 Two rules cannot live in any aggregate and are carried to the persistence phase as constraints, for

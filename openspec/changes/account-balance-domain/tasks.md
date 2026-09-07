@@ -182,7 +182,7 @@ Commit boundary: 4a is one commit, `PRD:` trailer referencing G1, §4.4.
 - [x] **T4.5 (impl)** — Implement `OverdraftPolicy` enum (`FORBIDDEN`/`UNLIMITED`,
       `assert_allows(resulting_balance, *, account_id)`), `AccountType.overdraft_policy` property,
       `Account._validated_balance`, `credit()`, `debit()`, `debit_for_reversal()`,
-      `assert_operable()`. Each of the three public methods returns a new `Account`; none mutates
+      `fail_if_not_active()`. Each of the three public methods returns a new `Account`; none mutates
       `self`. Satisfies: same as T4.3/T4.4.
 
 Commit boundary: 4b is one commit, `PRD:` trailer referencing I2, I4, G4, §7.3.
