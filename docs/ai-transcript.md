@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 54
+**Turns recorded:** 57
 
 ---
 
@@ -4157,5 +4157,183 @@ Nothing left undone or unverifiable — both the PRD §7.3 worked example and th
 Now launching the fresh review for PR #3.
 
 The revert implementation is in — 196 tests, gates green. I read `RevertTransferUseCase` directly and confirmed the two riskiest parts hold up: the idempotency reservation genuinely happens first (not just claimed in a comment), and the source/destination derivation matches `revert()`'s real contract in the domain layer. A fresh reviewer is now auditing the whole diff, specifically instructed to re-verify the "reserve first" claim by reading code rather than trusting the spec's own description of itself. I'll report back once it lands.
+
+---
+
+## Turn 55 — 2026-09-07 08:02:00.866 UTC
+
+### Prompt
+
+```text
+<task-notification>
+<task-id>a1b818f4476ba2e0b</task-id>
+<tool-use-id>toolu_01MaReBGyhQivdsgQ2UMt5jM</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-finances-account-balance/5899ca45-2031-46b9-ada4-dcd2507881d3/tasks/a1b818f4476ba2e0b.output</output-file>
+<status>completed</status>
+<summary>Agent "Fresh review of revert slice" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Independent Review: `feat/revert` (vs `feat/transfer`)
+
+**Verification method:** read every changed file end-to-end (not summaries), traced the actual call chain in `revert_transfer.py`, cross-checked against `posting.py`'s `revert()` contract, ran `uv run pytest -q` (196 tests, all green, including the real-Postgres concurrency test) and `uv run pre-commit run --all-files` (all hooks passed, including mypy strict) myself.
+
+### 1. Idempotency-first ordering (R3) — VERIFIED, correct
+Read `RevertTransferUseCase._post_new_reversal` (`src/modules/account_balance/application/use_cases/revert_transfer.py:150-218`) line by line: `uow.idempotency.add(...)` is the literal first statement (line 167), executed before `uow.transfers.get(request.transfer_id)` (line 178) and before any account load/lock. Same session/transaction for the whole flow (`SqlTransferUnitOfWork` opens one session per `execute()` attempt, commits/rolls back atomically). This genuinely applies the `0c4ea93` discipline, not just the comment claiming it.
+
+### 2. R4 at-most-one-reversal race — VERIFIED, correct
+- Migration `cf910528c0f8_add_reverses_unique_index.py`: `CREATE UNIQUE INDEX uq_transfers_reverses ON transfers (reverses) WHERE reverses IS NOT NULL` — right table, right column, right partial predicate. `down_revision` chains correctly to `5bf582a92358` → `38ec8c622b3f`.
+- `SqlTransferRepository.add()` (`.../sql/transfer_repository.py:38-54`) narrows its `IntegrityError` catch to `constraint_name == "uq_transfers_reverses"` via `exc.orig.diag.constraint_name`, not a broad catch — mirrors AO4/T5.
+- `tests/integration/account_balance/test_concurrent_reversal_locking.py` uses two genuinely separate DB sessions (each `execute()` call opens its own `async_sessionmaker()` session) driven via `asyncio.gather`, against a real `testcontainers` Postgres — this is real Postgres-level unique-index contention (second inserter blocks until the first commits, then gets the constraint violation), not a sequential illusion. Ran it: passes, asserts `[201, 409]`.
+
+### 3. Reversal-of-a-reversal — VERIFIED, correct
+Index is scoped on `reverses`' *value*, not on whether the row itself is a reversal, so chaining works. Confirmed via unit test `test_reversing_a_reversal_succeeds` and integration test `test_reversing_a_reversal_succeeds` (both pass, both directions of the off-by-one risk checked).
+
+### 4. Source/destination derivation (R2) — VERIFIED, correct
+`posting.revert()` (`domain/posting.py:104-147`) requires `source.account_id == original.destination_account_id` and `destination.account_id == original.source_account_id`. The use case (lines 186-187) does exactly `source = accounts.get(original.destination_account_id)`, `destination = accounts.get(original.source_account_id)`. Matches. Not symmetric-test-data luck — the guard in `revert()` itself would raise `ReversalMismatchError` if this were backwards, and it's never hit.
+
+### 5. PRD §7.3 worked example — VERIFIED, correct
+Both `test_prd_7_3_ana_bruno_worked_example_bruno_ends_up_negative` (unit) and `test_prd_7_3_worked_example_recipient_goes_negative` (integration) reproduce Bruno@20 (100 received, 80 spent) → reversed → Bruno@-80, Ana@100, 4 entries total. Ran the full suite; both pass.
+
+### 6. R1 "no authorization" claim — VERIFIED, true
+`assert_owned_by` does not appear anywhere in `revert_transfer.py` except in its own docstring commentary (grepped the whole `src/` tree — only call sites are in `transfer_money.py`). The limitation is stated plainly in `openspec/specs/revert/spec.md` (R1) and in the commit message for `77ca33e`. No PR is open yet for this branch (`gh pr list --head feat/revert` returns nothing), so there's nothing yet to check for "buried in a PR description" — make sure this disclosure carries into the PR body when it's opened, since the spec text alone won't be visible in the GitHub UI.
+
+### 7. Error mapping — one real gap found
+Code is correct: `_UNPROCESSABLE_ERRORS_REVERT = (InvalidIdempotencyKeyError,)` maps a blank/over-length `Idempotency-Key` to 422 (`transfer_routes.py:122,144-147`), correctly ahead of the generic `except DomainError → 500`. This mirrors the exact bug class the previous two review rounds found on `transfer`.
+- **Gap:** unlike `transfer_route.py`, which has `test_a_blank_idempotency_key_is_unprocessable_not_a_server_error`, **`test_revert_route.py` has no equivalent test**, and no unit test exercises it either (in the unit fakes, `IdempotencyKey` is always pre-validated by the test helper). The fix is real and correctly wired, but currently unverified by any test — worth fixing before merge given this project's own stated convention of not trusting an error-mapping claim without a test.
+- **Nitpick:** `AccountNotFoundError` (raised only in a `# pragma: no cover` defensive branch when the original's accounts don't resolve) is **not** a `DomainError` subclass and is not explicitly caught in `create_reversal`, unlike `create_transfer` which does catch it → 404. Today this is genuinely unreachable (accounts are FK-constrained from `transfers`, no delete endpoint exists), so it's dead code, not a live bug — but if it were ever raised it would bypass the `except DomainError → 500` defensive net entirely and surface as an unhandled exception, which is inconsistent with the sibling endpoint's handling. Low priority.
+
+### 8. Quality gates — VERIFIED live
+`uv run pytest -q`: 196 tests, all passed. `uv run pre-commit run --all-files`: ruff (lint), ruff (format), mypy --strict, and the rest all passed.
+
+### Verdict
+**Nothing blocking.** The one thing I'd fix before merge is the missing regression test for `InvalidIdempotencyKeyError → 422` on the revert route (quick add, mirrors the existing `transfer_route.py` test). The `AccountNotFoundError` inconsistency is a nitpick. Everything else — idempotency-first ordering, the R4 index/constraint/concurrency test, chained-reversal correctness, source/destination direction, and the PRD §7.3 example — I traced through the actual code and ran the actual tests myself; all check out as claimed.</result>
+<usage><subagent_tokens>115968</subagent_tokens><tool_uses>43</tool_uses><duration_ms>305461</duration_ms></usage>
+</task-notification>
+```
+
+<details><summary>Tool calls (13)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '1,60p' tests/integration/account_balance/test_revert_route.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance tail -40 tests/integration/account_balance/test_revert_route.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_revert_route.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -n -A15 "^async def _deposit" tests/integration/account_balance/test…
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_revert_route.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/inbound/api/transfer_routes.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -n "^from modules.account_balance.application.use_cases" src/modules…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '1,30p' src/modules/account_balance/adapters/inbound/api/transfer_…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -5 echo "---" uv run pre-commit run --all-files…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add tests/integration/account_balance/test_revert_route.py src/module…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 03:02 — Cerrar la revis…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance gh pr create --base feat/transfer --head feat/revert --title "Add the tra…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 03:08 — Pushear feat/re…
+
+</details>
+
+### Response
+
+Now let's fix the `AccountNotFoundError` catch consistency nitpick, then run everything.
+
+Already imported. Now let's run the full gate suite.
+
+197 passing, all gates green. Committing and pushing.
+
+Now logging the decision entry, syncing session docs, pushing, and opening PR #3.
+
+All three PRs in the chain are open:
+
+- **[PR #1](https://github.com/jhzambrano7/supercool-finances-account-balance/pull/1)** — account-opening → `main`
+- **[PR #2](https://github.com/jhzambrano7/supercool-finances-account-balance/pull/2)** — transfer/deposit/withdraw → `feat/account-opening`
+- **[PR #3](https://github.com/jhzambrano7/supercool-finances-account-balance/pull/3)** — revert → `feat/transfer`
+
+Each one has its own spec doc (`openspec/specs/{account-opening,transfer,revert}/spec.md`) and went through an independent fresh-context review before being pushed. Two carried real, fixed findings; the third came back clean on the first pass:
+
+- **PR #2** had a genuine concurrency bug: when an idempotency-key retry raced against the winning request and the account balance covered exactly one application, the loser got a wrong `422` instead of replaying the winner's `201`. Reproduced 5/5 against real Postgres, fixed by reserving the idempotency slot before touching any account, reproduced-clean 5/5 after.
+- **PR #3** applied that same fix from the start (verified by the reviewer reading the actual code, not the spec's claim about itself) and came back with only two non-blocking gaps, both closed: a missing regression test, and an inconsistent error catch.
+- **PR #3** also carries one deliberate, stated limitation worth your attention: reversal has no real operator-verification mechanism in v1 — it's just a separate endpoint with no ownership check, since the PRD explicitly defers real operator identity to an auth adapter that's out of scope. It's called out plainly in the PR body, not buried.
+
+197 tests passing on the tip of the chain, all gates green. Ready for you to review each individually — let me know what needs adjusting.
+
+---
+
+## Turn 56 — 2026-09-07 14:49:46.375 UTC
+
+### Prompt
+
+```text
+movámonos al PR 1, quiero que inicies una revisión
+```
+
+<details><summary>Tool calls (2)</summary>
+
+- `Agent` — You are doing an independent, adversarial code review of an open GitHub PR. You have no prior context on this session — read what you need f…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 09:49 — Iniciar segunda…
+
+</details>
+
+### Response
+
+Kicked off a fresh, independent review of PR #1 — explicitly told the reviewer this one had no known bug going in (unlike `transfer` and `revert`, each of which had a real one on their first pass), so it doesn't manufacture findings. I'll report back with what it finds, verified rather than just forwarded.
+
+---
+
+## Turn 57 — 2026-09-07 14:54:04.146 UTC
+
+### Prompt
+
+```text
+<task-notification>
+<task-id>a61fc12db05c70812</task-id>
+<tool-use-id>toolu_01BhckMVXRJGF2gGPos1N567</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-finances-account-balance/5899ca45-2031-46b9-ada4-dcd2507881d3/tasks/a61fc12db05c70812.output</output-file>
+<status>completed</status>
+<summary>Agent "Review PR #1 account-opening slice" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>This pre-existed (not part of the diff — file wasn't in stat list), used correctly as `SharedDependencies.id_generator` provider. Everything checks out. Final review is complete.
+
+## Adversarial Review — PR #1 (`feat/account-opening` → `main`)
+
+**Bottom line: no blocking issues. This PR earns a clean bill of health.** I traced every focus area against the actual code, not the spec's claims, and ran the test/lint suites myself rather than trusting prior reports.
+
+### What I verified (with method)
+
+1. **AO4 race handling — correct.** `SqlAccountRepository.add()` (`src/modules/account_balance/adapters/outbound/repositories/sql/account_repository.py:50-63`) catches `IntegrityError` but immediately narrows via `_violates_natural_key_constraint()`, which checks `exc.orig.diag.constraint_name == "uq_accounts_owner_purpose_currency"` (the actual name from the migration and `models.py`'s `UniqueConstraint`). Any other integrity violation re-raises unnarrowed. `OpenAccountUseCase.execute()` catches only `AccountNaturalKeyConflictError` and re-reads the natural key to return the winner (200), never erroring the loser. Confirmed both by reading the code and by the integration test `test_add_raises_conflict_on_duplicate_natural_key` and unit test `test_a_losing_concurrent_insert_returns_the_winner_not_an_error`.
+2. **AO3 status codes — correct.** `OpenAccountResult.http_status` is a property (`201 if self.created else 200`) driven by whether `add()` actually inserted vs. hit the natural-key branch — not a static value. Verified via unit tests and the integration test asserting first call 201 / retry 200 against real Postgres.
+3. **AO1 — confirmed by tracing, not by the spec's word.** `OpenAccountRequest` (schemas.py) has no `account_type` field; the route hard-codes `AccountType.USER` inside the use case (`open_account.py:59`). There is no path from the request body to a `SYSTEM` account.
+4. **Error-mapping — complete for this endpoint's actual reachable surface.** I traced `Account.open()`'s `__post_init__` (only raises `InvalidAccountPurposeError`) and confirmed the route's `Currency(payload.currency)` call is inside the same try block (raises `InvalidCurrencyError` for malformed codes, e.g. lowercase). Both are in `_UNPROCESSABLE_ERRORS`. Malformed `owner_id` and malformed `purpose` enum values never reach domain code at all — Pydantic's own schema validation (`owner_id: UUID`, `purpose: AccountPurpose`) rejects them with a standard FastAPI 422 before the handler body runs. No gap found — unlike the two later PRs in this chain, there's no `DomainError` reachable from this input that falls through to the generic 500.
+5. **Domain layer — zero diff.** `git diff main...feat/account-opening -- src/modules/account_balance/domain/` is empty.
+6. **Migration/docker-compose — fresh-clone-safe.** `alembic.ini`'s default URL matches `docker-compose.yml`'s creds/db exactly; `env.py` prioritizes a programmatic override (tests) over `DATABASE_URL` over the ini default, so nothing is hardcoded to this session's environment. `docker-compose.yml` has a healthcheck. Ran `uv sync` + full suite from a clean worktree (not this session's pre-provisioned env) to confirm.
+7. **Tests — real, not mocked.** `tests/integration/conftest.py` uses `testcontainers.postgres.PostgresContainer`, runs real Alembic migrations against it, and truncates between tests. The race is exercised at two levels: unit test forces the use case's conflict-handling branch via a fake repository; integration test proves the DB constraint actually fires and is caught end-to-end (sequential double-insert, not a true concurrent-thread race — a reasonable, standard substitute since it exercises the identical code path).
+8. **Ran it myself:** `uv run pytest -q` → 75 passed (from a separate `git worktree`, not the main working tree — no branch was checked out or mutated). `uv run pre-commit run --all-files` → all hooks passed (ruff lint/format, mypy strict, uv.lock check, etc).
+9. **README claims** — checked against code: "Built" claims for account opening, unit + integration tests both passing, match reality. No exaggeration found.
+10. **SDD archive housekeeping** — pure file moves plus one ruff-reformatting diff inside a markdown code snippet (`design.md`); no content change.
+
+### Nitpicks (non-blocking)
+- `tests/integration/conftest.py` triggers a `DeprecationWarning: testcontainers.postgres is deprecated, use testcontainers.community.postgres instead` — harmless today, will need updating eventually.
+- The integration duplicate-insert test is sequential, not a genuine concurrent-request race; the unit test covers the use-case race-handling logic instead. This is a reasonable split of concerns, not a real coverage gap, but worth knowing if someone later wants a true concurrency stress test.
+
+No blocking findings. I'd merge this as-is.</result>
+<usage><subagent_tokens>87501</subagent_tokens><tool_uses>23</tool_uses><duration_ms>185999</duration_ms></usage>
+</task-notification>
+```
+
+<details><summary>Tool calls (2)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "--- domain diff (should be empty) ---" git diff main...feat/account…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 09:54 — Cerrar la segun…
+
+</details>
+
+### Response
+
+**PR #1: no hallazgos bloqueantes.** Verifiqué los tres puntos clave yo mismo antes de aceptarlo (sin depender del reporte):
+
+- **AO4** — el catch de `IntegrityError` en `add()` está acotado al nombre real del constraint (`uq_accounts_owner_purpose_currency`), no un catch amplio.
+- **AO1** — confirmado por código, no por el spec: `account_type` está ausente del schema del request y hardcodeado a `USER` en el caso de uso.
+- **Dominio** — diff genuinamente vacío contra `main`.
+
+La revisión también corrió el suite completo desde un `git worktree` aislado (sin tocar tu árbol de trabajo): 75 tests, gates verdes, confirmado que el mapeo de errores HTTP está completo para lo que este endpoint realmente puede recibir — a diferencia de transfer y revert, acá no apareció ningún `DomainError` cayendo a 500 por descuido.
+
+Dos nitpicks, ninguno bloqueante: un warning de deprecación de `testcontainers.postgres` (cosmético), y el test de integración de la carrera es secuencial en vez de concurrencia real de dos threads — cubierto en cambio por el test unitario, un split razonable, no un hueco.
+
+Queda en vos si mergear tal cual o pedir algún ajuste puntual.
 
 ---
