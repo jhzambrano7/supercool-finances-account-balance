@@ -476,3 +476,11 @@ Formato de cada entrada:
 - **Prompt:** (continuación directa del pedido original de este turno)
 - **Respuesta:** Pusheado `feat/revert` y abierto el PR #3 apuntando a `feat/transfer`. Cadena completa: PR #1 (account-opening, main), PR #2 (transfer, sobre #1), PR #3 (revert, sobre #2) — los tres abiertos, cada uno con su propio bug real encontrado y cerrado por una revisión fresca en contexto independiente antes de abrirse. La limitación de R1 (revert sin verificación real de operador) quedó explícita en el cuerpo del PR, no sólo en el spec.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 09:49 — Iniciar segunda revisión del PR #1 (account-opening)
+
+<!-- id: 20260907-094946-a1fe3a40 -->
+- **Qué intentaba:** El usuario pidió arrancar una revisión del PR #1 antes de decidir mergearlo.
+- **Prompt:** "movámonos al PR 1, quiero que inicies una revisión"
+- **Respuesta:** Lanzada una segunda revisión adversarial en contexto fresco (independiente de la que ya corrió antes de abrir el PR), aclarando explícitamente al sub-agente que no hay un bug conocido pendiente en este PR (a diferencia de transfer y revert, que sí tuvieron uno cada uno en su primera pasada) para que no fabrique hallazgos. Foco: manejo de la carrera de clave natural (AO4), semántica 201/200 (AO3), que `account_type` no sea aceptable desde el request (AO1), y completitud del mapeo de errores HTTP — las tres clases de bug que sí aparecieron en las dos PRs posteriores de esta cadena.
+- **Veredicto:** ⏳ pendiente
