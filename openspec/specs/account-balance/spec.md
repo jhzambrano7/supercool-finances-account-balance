@@ -360,15 +360,30 @@ including direct/repository-reconstituted construction, not only the `transfer` 
 
 #### Requirement: Source and Destination Currencies Must Match
 
-Constructing a transfer between accounts of different currencies MUST be rejected.
+Requesting a transfer between accounts of different currencies MUST be rejected.
 
 *(I4 — v1 rejects cross-currency; a future FX path is a different, explicit domain rule, §8.)*
 
-##### Scenario: Cross-currency transfer rejected
+**Where this is checked.** `Transfer` only ever sees `entry.amount.currency`; it has no visibility
+into an account's own currency, and legs in different currencies simply fail I1's per-currency
+netting (each currency's total is individually nonzero). The comparison this requirement actually
+describes — `source.currency == destination.currency == amount.currency` — needs the `Account`
+objects, and is therefore the posting service's guard (design §5.1, step 1), checked before any
+`Entry` is built.
+
+##### Scenario: Cross-currency transfer is rejected before posting
 
 - GIVEN a source account in `USD` and a destination account in `EUR`
-- WHEN a transfer between them is constructed
-- THEN `CurrencyMismatchError` is raised
+- WHEN `transfer(...)` is called with them
+- THEN `CurrencyMismatchError` is raised and no `Entry` or `Transfer` is constructed
+
+##### Scenario: Mismatched legs fed directly to `Transfer` fail a different, correct way
+
+- GIVEN a debit leg of `100 USD` and a credit leg of `100 EUR`, otherwise well-formed
+- WHEN `Transfer(...)` is constructed directly from them
+- THEN `UnbalancedTransferError` is raised, not `CurrencyMismatchError` — each currency's total is
+  individually nonzero, which is the correct diagnosis for something that skipped the posting
+  service's own check
 
 #### Requirement: A Transfer Is Frozen and Carries No Status
 
