@@ -24,7 +24,7 @@ re-tasked.
 
 No dependencies. Every other module needs these names to exist first.
 
-- [ ] **T1.1 (test)** — Write `tests/unit/account_balance/domain/test_errors.py` asserting: every new
+- [x] **T1.1 (test)** — Write `tests/unit/account_balance/domain/test_errors.py` asserting: every new
       error listed in spec's "Domain Errors" table and design §7 (`InsufficientFundsError`,
       `NonPositiveAmountError`, `SelfTransferError`, `AccountNotOperableError`,
       `AccountOwnershipError`, `UnbalancedTransferError`, `EntryAccountMismatchError`,
@@ -33,7 +33,7 @@ No dependencies. Every other module needs these names to exist first.
       `NaiveTimestampError`, `ReversalMismatchError`) is a subclass of `shared.domain.errors.DomainError`,
       and that `CurrencyMismatchError` is imported from `shared`, never redefined in this module.
       Satisfies: spec "Domain Errors" table (all rows); design §7.
-- [ ] **T1.2 (impl)** — Implement `src/modules/account_balance/domain/errors.py` with exactly those
+- [x] **T1.2 (impl)** — Implement `src/modules/account_balance/domain/errors.py` with exactly those
       classes, `Error` suffix per ruff `N818`, importing `CurrencyMismatchError` from
       `modules.shared.domain.errors` and re-exporting nothing it does not define. Satisfies: same as
       T1.1.
@@ -359,7 +359,7 @@ Depends on all of the above (needs every module to exist to parse them).
 - [ ] **T7.3 (test) — ARCHITECTURE TEST** — `test_architecture.py::test_no_ambient_time_or_id_generation`:
       no `datetime.now`, `datetime.utcnow`, `uuid`, `uuid6`, or `IdGenerator` reference exists under
       `domain/`. Satisfies: design §9.3 item 4; D6.
-- [ ] **T7.4 (impl)** — Add `src/modules/account_balance/__init__.py` and
+- [x] **T7.4 (impl)** — Add `src/modules/account_balance/__init__.py` and
       `src/modules/account_balance/domain/__init__.py` (explicit, empty or re-exporting only what the
       package intends to expose — match the `_blank` scaffold's convention of empty `__init__.py`
       files unless re-export is established as a project pattern elsewhere, which it is not observed
