@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 40
+**Turns recorded:** 41
 
 ---
 
@@ -2939,7 +2939,7 @@ Anotado: `LedgerServices` como agrupador semántico, `transfer`/`revert` como `@
 espera, en otro archivo, además, tomando en cuenta tu base, cómo se ve el LedgerServices?
 ```
 
-<details><summary>Tool calls (12)</summary>
+<details><summary>Tool calls (13)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat src/modules/account_balance/domain/posting.py
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n 'from modules.account_balance.domain.posting import|^from|^import' …
@@ -2953,6 +2953,7 @@ espera, en otro archivo, además, tomando en cuenta tu base, cómo se ve el Ledg
 - `AskUserQuestion`
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1 -uall echo "=== confirmando que HEAD ya tiene t…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git checkout -- src/modules/account_balance/domain/posting.py \ tests/uni…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
 
 </details>
 
@@ -3025,5 +3026,49 @@ Antes de commitear, dos preguntas tuyas por resolver:
 Entendido — volvemos a funciones libres en `posting.py`, sin la clase envolvente. Como nada de esto se commiteó, restauro limpio desde el último commit:
 
 Confirmado: HEAD ya tiene exactamente lo que querés (funciones libres, `Callable` para `entry_ids`). Restauro y borro el archivo nuevo:
+
+Restaurado limpio — árbol vuelto al último commit para todo lo tocado, `LedgerServices` eliminado, 133 tests y gates en verde.
+
+**Estado final:** `transfer`/`revert` quedan como funciones libres en `posting.py`, con `entry_ids: Callable[[], EntryId]` (eso sí quedó commiteado, es un cambio distinto al de la clase envolvente). Nada de la exploración de `LedgerServices` llegó a git, así que no hace falta revertir ningún commit — sólo restauré el working tree.
+
+Estado limpio: **75 commits**, árbol sin cambios pendientes, 133 tests y 11 gates en verde.
+
+Resumen de lo que quedó, comparado con lo que se descartó:
+
+| | Resultado |
+|---|---|
+| `entry_ids` | `Callable[[], EntryId]` — **commiteado** (`fb2e502`) |
+| `transfer`/`revert` | Funciones libres en `posting.py` — **sin cambios respecto al último commit** |
+| `LedgerServices` | Explorado completo, verificado en verde, **descartado sin llegar a git** |
+
+El dominio queda igual que al terminar la unidad 6, más el `entry_ids` como callable. La discusión sobre la estructura no fue tiempo perdido — quedó registrada en el log con las tres razones que se sopesaron (D5 aplicado un escalón arriba, namespace de módulo vs. clase sin estado, y tu argumento de "no hay nada que mockear" en un servicio de dominio), así que si en algún momento del use-case layer aparece una razón de peso para agrupar, ya está pensado.
+
+¿Seguimos con la unidad 7 (tests de arquitectura restantes + scaffolding) para cerrar el dominio, o hay algo más que quieras revisar?
+
+---
+
+## Turn 41 — 2026-09-07 05:12:06.634 UTC
+
+### Prompt
+
+```text
+procede con los tests de arquitectura
+```
+
+<details><summary>Tool calls (3)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## Work Unit 7/,/^## Explicitly not covered/p' openspec/changes…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== ¿ya existen T7.2/T7.3? ===" rg -n 'test_no_upward_imports|test_…
+- `Agent` — Implement the two remaining tasks of **Work Unit 7** — architecture tests — closing out the account balance domain module. This is the last …
+
+</details>
+
+### Response
+
+Reviso qué falta exactamente de la unidad 7 antes de delegar:
+
+T7.1 y T7.4 ya están resueltos (T7.1 se puso verde solo con la unidad 6; T7.4 el scaffolding ya existe). Falta sólo T7.2 y T7.3. Verifico que no existan ya, y hago una pasada rápida manual antes de delegar para no descubrir sorpresas en el sub-agente:
+
+Todo limpio — el orden de imports ya es estrictamente descendente y no hay llamadas ambientes reales, sólo menciones en docstrings. Delego T7.2 y T7.3:
 
 ---
