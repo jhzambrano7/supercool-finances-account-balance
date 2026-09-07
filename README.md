@@ -28,9 +28,10 @@ The design is written down; the implementation is partial. This section says whe
 | `Money` / `Currency` value objects | **Built**, 35 unit tests |
 | Id generation (UUIDv7) | **Built** |
 | Toolchain: Python 3.14 + uv, ruff, mypy strict, pre-commit, commit-msg gate | **Built and enforcing** |
-| `Account`, `Transfer`, `Entry` aggregates | **Designed, not written** |
-| Use cases, HTTP API, PostgreSQL adapters, migrations | **Designed at the contract level, not written** |
-| Containers, IaC | **Planned** — approach described [below](#running-it-and-deploying-it), not yet committed |
+| `Account`, `Transfer`, `Entry` aggregates | **Built** — see `openspec/specs/account-balance/spec.md` |
+| Account opening: `OpenAccountUseCase`, `POST /accounts`, `SqlAccountRepository`, the `accounts` migration | **Built** — see `openspec/specs/account-opening/spec.md`. Unit tests (fake repository) and integration tests (real PostgreSQL via `testcontainers`) both pass locally |
+| Transfers, deposits, withdrawals, reversal, close account | **Designed, not written** — future slices on top of the same domain |
+| Containers for the service itself, IaC | **Planned** — approach described [below](#running-it-and-deploying-it), not yet committed. `docker-compose.yml` (PostgreSQL only) is built |
 
 ---
 
