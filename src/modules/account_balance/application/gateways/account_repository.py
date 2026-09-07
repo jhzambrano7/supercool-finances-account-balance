@@ -4,20 +4,14 @@ from typing import Any
 from modules.account_balance.application.gateways.models.find_accounts_criteria import (
     FindAccountCriteria,
 )
-from modules.account_balance.domain.account import Account
-from modules.shared.application.errors import IntegrationError, ResourceNotFoundError
-
-
-class AccountNaturalKeyConflictError(Exception):
-    """Raised by an adapter when `add()` loses the natural-key race (AO4).
-
-    Deliberately not a `DomainError`: whether `(owner_id, purpose, currency)`
-    is already taken is a fact about *other rows*, which is the kind of
-    question the account-balance domain spec explicitly says cannot be
-    answered by any single `Account` instance (see its "Constraints Enforced
-    Outside the Domain" table). This is a persistence-adapter concern, raised
-    by whichever `AccountRepository` implementation backs a real database.
-    """
+from modules.account_balance.domain.account import Account, AccountPurpose
+from modules.account_balance.domain.identifiers import OwnerId
+from modules.shared.application.errors import (
+    IntegrationError,
+    ResourceAlreadyExistsError,
+    ResourceNotFoundError,
+)
+from modules.shared.domain.money import Currency
 
 
 class AccountNotFoundError(ResourceNotFoundError):
@@ -30,7 +24,33 @@ class AccountNotFoundError(ResourceNotFoundError):
     """
 
     def __init__(self, criteria: FindAccountCriteria) -> None:
+        self.criteria = criteria
         super().__init__(resource_type="account", resource_identifier=str(criteria))
+
+
+class AccountAlreadyExistsError(ResourceAlreadyExistsError):
+    """Raised by an adapter when `add()` loses the natural-key race (AO4).
+
+    Deliberately not a `DomainError`: whether `(owner_id, purpose, currency)`
+    is already taken is a fact about *other rows*, which is the kind of
+    question the account-balance domain spec explicitly says cannot be
+    answered by any single `Account` instance (see its "Constraints Enforced
+    Outside the Domain" table). This is a persistence-adapter concern, raised
+    by whichever `AccountRepository` implementation backs a real database.
+
+    `owner_id`/`purpose`/`currency` are kept as their own attributes, not
+    only folded into `resource_identifier`'s string -- the same reasoning
+    `ResourceAlreadyExistsError` itself is built on.
+    """
+
+    def __init__(self, *, owner_id: OwnerId, purpose: AccountPurpose, currency: Currency) -> None:
+        self.owner_id = owner_id
+        self.purpose = purpose
+        self.currency = currency
+        super().__init__(
+            resource_type="account",
+            resource_identifier=f"(owner={owner_id}, purpose={purpose.value}, currency={currency})",
+        )
 
 
 class AccountRepositoryError(IntegrationError):
@@ -71,6 +91,6 @@ class AccountRepository(ABC):
     async def add(self, account: Account) -> None:
         """Persists a newly-opened account.
 
-        Raises `AccountNaturalKeyConflictError` if `(owner_id, purpose,
-        currency)` already exists -- the losing side of the AO4 race.
+        Raises `AccountAlreadyExistsError` if `(owner_id, purpose, currency)`
+        already exists -- the losing side of the AO4 race.
         """

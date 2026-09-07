@@ -11,7 +11,7 @@ from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repo
     SqlAccountRepository,
 )
 from modules.account_balance.application.gateways.account_repository import (
-    AccountNaturalKeyConflictError,
+    AccountAlreadyExistsError,
     AccountNotFoundError,
 )
 from modules.account_balance.application.gateways.models.find_accounts_criteria import (
@@ -88,8 +88,16 @@ async def test_add_raises_conflict_on_duplicate_natural_key(
     second = _open_user_account(owner_id=owner_id)
 
     await repository.add(first)
-    with pytest.raises(AccountNaturalKeyConflictError):
+    with pytest.raises(AccountAlreadyExistsError) as exc_info:
         await repository.add(second)
+
+    # Structured fields, not just a message string a caller would have to
+    # parse -- the point of AccountAlreadyExistsError over a bare Exception.
+    error = exc_info.value
+    assert error.owner_id == owner_id
+    assert error.purpose is AccountPurpose.CHECKING
+    assert error.currency == USD
+    assert error.resource_type == "account"
 
 
 async def test_find_by_account_id_round_trips(session_factory: Callable[[], AsyncSession]) -> None:
@@ -132,6 +140,10 @@ async def test_get_raises_not_found_when_absent(
     "not found" from a `None` check at every call site.
     """
     repository = _repository(session_factory)
+    criteria = FindAccountByAccountId(AccountId(uuid4()))
 
-    with pytest.raises(AccountNotFoundError):
-        await repository.get(criteria=FindAccountByAccountId(AccountId(uuid4())))
+    with pytest.raises(AccountNotFoundError) as exc_info:
+        await repository.get(criteria=criteria)
+
+    assert exc_info.value.criteria == criteria
+    assert exc_info.value.resource_type == "account"

@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 
 from modules.account_balance.application.gateways.account_repository import (
-    AccountNaturalKeyConflictError,
+    AccountAlreadyExistsError,
     AccountRepository,
 )
 from modules.account_balance.application.gateways.models.find_accounts_criteria import (
@@ -56,9 +56,13 @@ class _FakeAccountRepository(AccountRepository):
         if self.force_conflict_once:
             self.force_conflict_once = False
             self.by_natural_key[key] = account
-            raise AccountNaturalKeyConflictError("natural key already exists")
+            raise AccountAlreadyExistsError(
+                owner_id=account.owner_id, purpose=account.purpose, currency=account.currency
+            )
         if key in self.by_natural_key:
-            raise AccountNaturalKeyConflictError("natural key already exists")
+            raise AccountAlreadyExistsError(
+                owner_id=account.owner_id, purpose=account.purpose, currency=account.currency
+            )
         self.by_natural_key[key] = account
 
 

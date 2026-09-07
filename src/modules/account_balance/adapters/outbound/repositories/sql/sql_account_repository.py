@@ -10,7 +10,7 @@ from modules.account_balance.adapters.outbound.repositories.sql.queries.account_
     find_account_criteria_to_sql_query,
 )
 from modules.account_balance.application.gateways.account_repository import (
-    AccountNaturalKeyConflictError,
+    AccountAlreadyExistsError,
     AccountRepository,
     AccountRepositoryError,
 )
@@ -61,9 +61,10 @@ class SqlAccountRepository(AccountRepository):
             # rather than only the ones this adapter fails to explain.
             self._logger.exception("integrity error adding account %s", account.account_id)
             if _violates_natural_key_constraint(exc):
-                raise AccountNaturalKeyConflictError(
-                    f"account already exists for natural key (owner={account.owner_id}, "
-                    f"purpose={account.purpose.value}, currency={account.currency})"
+                raise AccountAlreadyExistsError(
+                    owner_id=account.owner_id,
+                    purpose=account.purpose,
+                    currency=account.currency,
                 ) from exc
             raise AccountRepositoryError(
                 operation="add", cause=exc, metadata={"account_id": str(account.account_id.value)}

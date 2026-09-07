@@ -151,7 +151,7 @@ the adapter.
 except IntegrityError as exc:
     self._logger.exception(...)                    # logged either way — the audit trail
     if _violates_natural_key_constraint(exc):
-        raise AccountNaturalKeyConflictError(...) from exc  # recognized — its own typed error
+        raise AccountAlreadyExistsError(...) from exc  # recognized — its own typed error
     raise AccountRepositoryError(operation="add", cause=exc, metadata=...) from exc  # not — wrapped
 ```
 
@@ -169,6 +169,40 @@ an `Account`). Getting this backwards was a real bug found while applying this c
 the domain layer to import a criteria type from application, inverting the dependency direction
 Ports & Adapters exists to keep one-way.
 
+### An error's fields are attributes, not only words inside its message string
+
+**Rule:** a custom error that a caller might reasonably need to inspect (a route's error handler, a
+test, a retry policy) stores its identifying fields as real attributes in `__init__`, then builds the
+human-readable message from those same fields — never the other way around (a pre-formatted string
+handed in at the raise site, with nothing else on the instance). A bare `class Foo(Exception): pass`
+raised as `raise Foo(f"...")` gives a caller only `str(exc)` to work with, which means parsing text to
+recover a fact the raiser already had as a typed value.
+
+```python
+# Before — the caller gets a string, and has to parse it back into a fact
+class AccountAlreadyExistsError(Exception):
+    """Raised when `add()` loses the natural-key race (AO4)."""
+# raised as: raise AccountAlreadyExistsError(f"account already exists for natural key (owner={owner_id}, ...)")
+```
+
+```python
+# After — the caller reads exc.owner_id directly; the message is still there for logs/`str(exc)`
+class AccountAlreadyExistsError(ResourceAlreadyExistsError):
+    def __init__(self, *, owner_id: OwnerId, purpose: AccountPurpose, currency: Currency) -> None:
+        self.owner_id = owner_id
+        self.purpose = purpose
+        self.currency = currency
+        super().__init__(resource_type="account", resource_identifier=f"(owner={owner_id}, ...)")
+```
+
+`ResourceNotFoundError`/`ResourceAlreadyExistsError` (`shared/application/errors.py`) are the shared
+shape behind this: both store `resource_type`/`resource_identifier` themselves and build their own
+message, so a module-specific error (`AccountNotFoundError`, `AccountAlreadyExistsError`) only adds
+the fields specific to *that* resource, never re-implements the message-building. Not every error
+needs this — an internal guard nothing outside the domain ever catches by type (e.g.
+`EntryDirectionMismatchError`) gains nothing from structured fields nobody reads; reserve the extra
+`__init__` for errors a real caller inspects.
+
 ### Applied so far
 
 | Type | Convention | Where |
@@ -176,7 +210,8 @@ Ports & Adapters exists to keep one-way.
 | `AccountRepository` | collection-like (`find`/`get`/`add`), no `find_by_x` methods | `application/gateways/account_repository.py` |
 | `FindAccountCriteria` | extensible Criteria, one dataclass per lookup shape | `application/gateways/models/find_accounts_criteria.py` |
 | `AccountDbo` | DBO naming, `from_domain`/`as_domain` colocated + unit-tested | `adapters/outbound/repositories/sql/dbos/models.py` |
-| `AccountRepositoryError` | `IntegrationError` wrapper, logged only when unrecognized | `adapters/outbound/repositories/sql/sql_account_repository.py` |
+| `AccountRepositoryError` | `IntegrationError` wrapper, logged unconditionally, wrapped only when unrecognized | `adapters/outbound/repositories/sql/sql_account_repository.py` |
+| `AccountNotFoundError` / `AccountAlreadyExistsError` | structured body (see below), not a bare message string | `application/gateways/account_repository.py` |
 
 **Known gap, not yet reconciled:** `application/use_cases/transfer_money.py` and `revert_transfer.py`
 (the `transfer` and `revert` slices, later PRs in this repo's history) each define their own

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from modules.account_balance.application.gateways.account_repository import (
-    AccountNaturalKeyConflictError,
+    AccountAlreadyExistsError,
     AccountRepository,
 )
 from modules.account_balance.application.gateways.models.find_accounts_criteria import (
@@ -66,7 +66,7 @@ class OpenAccountUseCase:
 
         try:
             await self._repository.add(account)
-        except AccountNaturalKeyConflictError:
+        except AccountAlreadyExistsError:
             # AO4: the insert lost the race. The winner already committed,
             # so re-reading the natural key returns it rather than erroring.
             winner = await self._repository.find(criteria=natural_key)
