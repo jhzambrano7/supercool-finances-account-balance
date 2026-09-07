@@ -469,3 +469,10 @@ Formato de cada entrada:
 - **Respuesta:** La revisión confirmó, línea por línea y corriendo los tests ella misma, todo lo verificado en el turno anterior: reserva de idempotencia primero, índice único parcial correcto, catch acotado por nombre de constraint, dirección origen/destino correcta contra el contrato real de `revert()`, ejemplo PRD §7.3 reproducido, ausencia real de chequeo de dueño (R1). Dos hallazgos menores, ninguno bloqueante: (1) el mapeo de `InvalidIdempotencyKeyError` a 422 ya era correcto pero no tenía test — agregado, siguiendo el mismo patrón que `transfer`; (2) `AccountNotFoundError` no se atrapaba explícitamente en el endpoint de reversión (código muerto hoy, pero inconsistente con el endpoint hermano) — corregido por paridad.
 - **197 tests, gates verdes.** Abierto el PR #3 (`feat/revert` → `feat/transfer`), tercer y último eslabón de la cadena, con la limitación de R1 explícita en el cuerpo del PR.
 - **Veredicto:** ✅ aprobado
+
+## 2026-09-07 03:08 — Pushear feat/revert y abrir el PR #3, cadena completa
+
+- **Qué intentaba:** Cerrar el tercer y último eslabón de la cadena pedida este turno.
+- **Prompt:** (continuación directa del pedido original de este turno)
+- **Respuesta:** Pusheado `feat/revert` y abierto el PR #3 apuntando a `feat/transfer`. Cadena completa: PR #1 (account-opening, main), PR #2 (transfer, sobre #1), PR #3 (revert, sobre #2) — los tres abiertos, cada uno con su propio bug real encontrado y cerrado por una revisión fresca en contexto independiente antes de abrirse. La limitación de R1 (revert sin verificación real de operador) quedó explícita en el cuerpo del PR, no sólo en el spec.
+- **Veredicto:** ⏳ pendiente

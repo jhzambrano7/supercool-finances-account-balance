@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 52
+**Turns recorded:** 54
 
 ---
 
@@ -3011,7 +3011,6 @@ class Posting:
     coordinating two `Account` aggregates that are not fields of this
     type, which is a service's job, not a constructor's.
     """
-
     transfer: Transfer
     accounts: tuple[Account, ...]
 ```
@@ -3960,5 +3959,203 @@ The transfer implementation is in, and I've independently verified the hard part
 **What I found and fixed:** a real bug, reproduced before touching code — `NonPositiveAmountError` and `InvalidCurrencyError` (a zero amount, a malformed currency code) were falling through to `500` instead of `422`, inconsistent with account-opening's own route which already handled this correctly. Fixed, re-verified, and the spec's error table corrected to match.
 
 175 tests passing, gates green. A fresh reviewer with no context on this work is now auditing the whole diff, focused on the concurrency-critical pieces (the idempotency race, lock ordering, atomicity) — I'll report back once it lands, fix anything real, then push and open PR #2 against `feat/account-opening`.
+
+---
+
+## Turn 53 — 2026-09-07 07:31:26.279 UTC
+
+### Prompt
+
+```text
+<task-notification>
+<task-id>affa882f7df1c8890</task-id>
+<tool-use-id>toolu_018fmM2ScG4y1drGKQ7BEbBW</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-finances-account-balance/5899ca45-2031-46b9-ada4-dcd2507881d3/tasks/affa882f7df1c8890.output</output-file>
+<status>completed</status>
+<summary>Agent "Fresh review of transfer slice" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Independent adversarial review — `feat/transfer` (vs `feat/account-opening`)
+
+All gates pass as reported: `uv run pytest -q` (198 tests: unit + integration against real testcontainers Postgres), `uv run ruff check .`, `uv run mypy --strict src` — all green, verified by running them myself, not trusting the transcript.
+
+### 1. BLOCKING — T5 idempotency-race guarantee is broken when the retried debit exhausts the balance
+
+`src/modules/account_balance/application/use_cases/transfer_money.py`, `_post_new_transfer` (lines ~156–198): the order is `domain_posting.transfer()` (which can raise `InsufficientFundsError` via `Account.debit()`) → `uow.transfers.add()` → `uow.accounts.update()` → `uow.idempotency.add()` (the only step whose failure `execute()` catches, via `except IdempotencyRecordConflictError`).
+
+When two concurrent requests share the same idempotency key **and** the debited account's balance is exactly enough for one application but not two, the loser blocks on `get_for_update` behind the winner's row lock, wakes up with the correctly-refreshed (I verified this empirically — see below) post-winner balance, and re-attempts the *same* debit against the now-reduced balance. `Account.debit()` raises `InsufficientFundsError` **before** the code ever reaches the idempotency-insert step that the race-recovery logic depends on. `InsufficientFundsError` isn't caught by `except IdempotencyRecordConflictError`, so it propagates to the route and maps to `422` — instead of the spec's own promised outcome: "exactly one posts... the other's unique-violation is caught and it returns the same 201 result as the winner, not an error" (openspec/specs/transfer/spec.md, T5 scenario).
+
+I reproduced this live 5/5 times against real Postgres (fund an account with 500, fire two concurrent `POST /transfers` withdrawing 500 with the same `Idempotency-Key`): consistent `201, 422` split, not `201, 201`. I also disproved my first hypothesis (SQLAlchemy identity-map staleness across `get()`→`get_for_update()` in the same session) with a targeted, explicitly-synchronized repro — `get_for_update()` does correctly return fresh post-lock data, so that mechanism is sound; the bug is purely the ordering of the domain check vs. the idempotency write.
+
+The existing unit test for T5 (`tests/unit/account_balance/application/test_transfer_money_use_case.py::test_two_concurrent_requests_with_the_same_key_never_both_apply`) doesn't catch this because its fake `get_for_update` reads from `_database.accounts`, which the test never decrements to simulate the winner's already-applied debit — so the fake can't exercise this interaction. No integration test exercises same-key + balance-exhaustion either.
+
+Fix direction: re-check `find_by_key` for the winner's record (under a fresh transaction, as the current recovery path already does) *before* re-running `domain_posting.transfer()` on the retry path — or restructure so the idempotency insert/reservation happens before the domain-level mutation is attempted a second time.
+
+### 2. Worth fixing — `InvalidIdempotencyKeyError` falls through to 500, same class of bug as the already-fixed one
+
+`src/modules/account_balance/adapters/inbound/api/transfer_routes.py`: `IdempotencyKey(idempotency_key)` is constructed inside the `try` block, but `InvalidIdempotencyKeyError` (raised by `IdempotencyKey.__post_init__` in `domain/identifiers.py` for a blank/whitespace-only key or one over 255 chars — both ordinary client mistakes) is not in `_UNPROCESSABLE_ERRORS`, `_FORBIDDEN_ERRORS`, or any explicit `except`. It's a `DomainError`, so it falls to the generic `except DomainError` → 500.
+
+Reproduced live: `Idempotency-Key: "   "` and a 300-char key both return `500 {"detail":"unexpected domain error"}` instead of `422`. This is exactly the bug class commit `5635aec` fixed for `NonPositiveAmountError`/`InvalidCurrencyError`, just not caught for this third constructor call. The spec's error-mapping table doesn't list it either.
+
+### 3. Verified correct (not just read — exercised)
+
+- **Atomicity (Focus 1):** `SqlTransferRepository.add()` and `SqlIdempotencyRepository.add()` only `flush()`; only `SqlTransferUnitOfWork.__aexit__` commits/rolls back. `SqlAccountRepository.add()` does call `session.commit()` internally, but it's only reachable through `open_account_use_case`'s own `session_factory` wiring (a real `async_sessionmaker`, one session per call) — never through `_KeptOpenSession`'s shared-session path used by transfers. No cross-contamination in `dependencies.py`.
+- **Locking (Focus 3):** the concurrent-debit integration test (`test_concurrent_transfer_locking.py`) genuinely exercises two real DB connections/locks — I confirmed this isn't a sequential-execution illusion via an explicitly-synchronized repro of my own, and the existing suite passes reliably against real Postgres.
+- **`get_for_update` freshness:** confirmed by direct experiment that a session which already read a row unlocked, then later locks it after a concurrent commit, correctly gets the fresh post-commit value (no SQLAlchemy identity-map staleness bug).
+- **T7 SYSTEM asymmetry:** sign convention in `_system_balance`'s SQL `case` matches `Entry.signed_amount` exactly (CREDIT positive, DEBIT negative); `balance_amount` is never read/written for SYSTEM accounts on this path.
+- **T1 authorization:** `_assert_authorized` matches PRD §9.1's four-movement table exactly (re-derived independently, not from the code's own comments).
+- **T2:** missing/malformed `X-Caller-Id` → 401 before any DB work; `requested_by` comes only from the resolved header dependency, never from the body.
+- **T8 seed migration:** single `upgrade()`, alembic-tracked — not re-run twice in normal operation; not a real risk.
+
+### Nitpicks
+- `models.py`'s comment "`account_id` is indexed implicitly by the FK" is factually wrong (Postgres does not auto-index FK referencing columns) — harmless since the migration does add `ix_entries_account_id` explicitly, but the comment should be corrected.
+- Implementation orders idempotency-check before authorize/load, while both the PRD (§5) and spec.md's own "New Types" table state authorize → idempotency check. No observable behavior difference today (the idempotency check is read-only on that path), but it's a spec/implementation drift worth a one-line note or reorder.
+
+Nothing else reached blocking severity. Findings #1 and #2 should be fixed before merge given this is the money-movement critical path and the project's own stated bar ("verify, don't trust a report") — #1 in particular is the kind of bug that's easy to miss by reading and only shows up under real concurrency, which is exactly what happened here on the first (unsynchronized) attempt.</result>
+<usage><subagent_tokens>174633</subagent_tokens><tool_uses>56</tool_uses><duration_ms>674124</duration_ms></usage>
+</task-notification>
+```
+
+<details><summary>Tool calls (40)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat alembic/versions/5bf582a92358_create_transfer_tables.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_concurrent_transfer_locking.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/application/test_transfer_money_use_case.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/alembic/versions/5bf582a92358_create_transfer_tables.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/application/test_transfer_money_use_case.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest tests/unit/account_balance/application/test_transfer_money_…
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/application/use_cases/transfer_money.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest tests/unit/account_balance/application/test_transfer_money_…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -10
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_concurrent_transfer_locking.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance for i in 1 2 3 4 5; do uv run pytest tests/integration/account_balance/te…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance for i in 1 2 3 4 5; do uv run pytest tests/integration/account_balance/te…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -n "InvalidIdempotencyKeyError" src/modules/account_balance/domain/e…
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_transfer_route.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest tests/integration/account_balance/test_transfer_route.py -k…
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/inbound/api/transfer_routes.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -n -B2 -A2 "indexed implicitly" src/modules/account_balance/adapters…
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/models.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/models.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -n "T3 — Idempotency is a durable row" openspec/specs/transfer/spec.…
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/specs/transfer/spec.md
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/specs/transfer/spec.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -5 echo "---" uv run pre-commit run --all-files…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sd 'test_a_losing_concurrent_request_replays_even_when_its_own_retry_woul…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -3 echo "---" uv run pre-commit run --all-files…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run ruff check . 2>&1 | tail -20 git diff --stat
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sd 'test_a_losing_concurrent_request_with_the_same_key_replays_the_winner…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -3 echo "---" uv run pre-commit run --all-files…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add alembic/versions/5bf582a92358_create_transfer_tables.py \ src/mod…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 02:31 — Corregir la car…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git push -u origin feat/transfer 2>&1
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance gh pr create --base feat/account-opening --head feat/transfer --title "Ad…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 02:40 — Pushear feat/tr…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -n "CheckConstraint\|balance_amount" alembic/versions/38ec8c622b3f_c…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git checkout -b feat/revert mkdir -p openspec/specs/revert
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/specs/revert/spec.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add openspec/specs/revert/spec.md uv run pre-commit run --files opens…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit -q -m "$(cat <<'EOF' docs(docs): add the revert spec Documents…
+- `Agent` — You are implementing the transfer-reversal vertical slice in a Python 3.14 / uv / FastAPI / SQLAlchemy 2.0 / Alembic / psycopg3 / dependency…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 02:50 — Especificar rev…
+
+</details>
+
+### Response
+
+Now let's add the unit regression test and confirm RED before applying the code fix.
+
+Reproduced at the unit level, exactly matching the reviewer's live repro. Now applying the fix to `TransferMoneyUseCase`.
+
+5/5 clean against real Postgres, matching the reviewer's own reproduction standard. Now the second fix: `InvalidIdempotencyKeyError` falling through to 500.
+
+Confirmed. Fixing the route's error mapping.
+
+Now running the full gate suite to confirm everything holds together.
+
+Good, ruff clean now. Let's run the full gate suite once more to confirm everything's green together.
+
+Now the final full check.
+
+178 passing, all gates green. Committing everything now.
+
+Now pushing the branch and opening PR #2 against `feat/account-opening`.
+
+Now delegating the revert implementation.
+
+**PR #2 opened** (`feat/transfer` → `feat/account-opening`): [github.com/.../pull/2](https://github.com/jhzambrano7/supercool-finances-account-balance/pull/2). It bundles one genuinely serious fix — a real, reproduced concurrency bug where a losing idempotency-race request could get a spurious `422` instead of replaying the winner's `201` when the account balance covered exactly one application of the transfer. Reproduced 5/5 against real Postgres before and after the fix.
+
+**PR #3 (`revert`) is underway**: spec written (`openspec/specs/revert/spec.md`, decisions R1–R8), branch created off `feat/transfer`, implementation running in the background — briefed explicitly on the T5 lesson from PR #2 so it doesn't reintroduce the same bug class. One decision worth flagging: R1 makes reversal's "operator-only" authorization a stated, real limitation — v1 has no mechanism to verify a caller is actually an operator, just a separate endpoint with no ownership check, since the PRD itself defers that to a real auth adapter that's out of scope here.
+
+I'll report back once the implementation and its fresh review land.
+
+---
+
+## Turn 54 — 2026-09-07 07:55:10.837 UTC
+
+### Prompt
+
+```text
+<task-notification>
+<task-id>acc4940972323efc7</task-id>
+<tool-use-id>toolu_01WA8fpqXDanU7BMQBTvD6mw</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-finances-account-balance/5899ca45-2031-46b9-ada4-dcd2507881d3/tasks/acc4940972323efc7.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement revert use case slice" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Report
+
+Built the transfer-reversal vertical slice on `feat/revert` (2 commits: `77ca33e`, `2223800`).
+
+**Files created:**
+- `src/modules/account_balance/application/use_cases/revert_transfer.py` — `RevertTransfer`, `RevertTransferUseCase`, `TransferNotFoundError`, `TransferAlreadyReversedError`
+- `alembic/versions/cf910528c0f8_add_reverses_unique_index.py` — partial unique index `uq_transfers_reverses` on `transfers(reverses) WHERE reverses IS NOT NULL`
+- `tests/unit/account_balance/application/test_revert_transfer_use_case.py` (9 tests)
+- `tests/integration/account_balance/test_revert_route.py` (9 tests) and `test_concurrent_reversal_locking.py` (1 test, real two-connection race)
+
+**Files modified:**
+- `application/gateways/transfer_repository.py` — added `TransferAlreadyReversedConflictError`
+- `adapters/outbound/repositories/sql/transfer_repository.py` — `add()` now narrows its `IntegrityError` catch to `uq_transfers_reverses` by name (mirrors AO4/T5), raising the new conflict error
+- `adapters/inbound/api/transfer_routes.py` — added `POST /transfers/{transfer_id}/reversals`
+- `adapters/config/dependencies.py` — wired `revert_transfer_use_case`
+
+**Deviations from the brief, both deliberate — flagged for your review:**
+1. Touched `SqlTransferRepository` (task said this shouldn't be needed). R4 explicitly requires catching the constraint *by name*, the same way `AO4`/`T5` do — that narrowing has to live at the adapter boundary where the constraint name is known, not as a broad `IntegrityError` catch leaking into the use case. Kept it minimal: one `try/except` plus one helper function, same shape as the two existing precedents.
+2. Mapped `InvalidIdempotencyKeyError` → 422 on the reversal route, even though spec.md's own R8 text lists it as "unreachable by construction (R1, R2, R5)". None of those three decisions touch idempotency-key *validity* — the key is still built from the client-supplied `Idempotency-Key` header, exactly like `transfer`'s own route, so a blank/over-length key reaches `IdempotencyKey.__post_init__` the same way. Left unmapped it would 500 by default, reproducing the exact bug class `transfer`'s own error table already found and fixed once. Documented inline with full reasoning.
+
+**Design choices not fully pinned down by spec:**
+- Idempotency key arrives via the `Idempotency-Key` header (not body), matching `transfer`'s own convention as the brief allowed.
+- `RevertTransferUseCase._lock_user_accounts` duplicates `TransferMoneyUseCase`'s ~15-line locking loop rather than extracting a shared helper — chose not to touch `transfer_money.py` (already reviewed/tested on the prior PR in this chain) for a small, already-well-tested private method.
+- Reused `AccountNotFoundError` and `IdempotencyConflictError` from `transfer_money.py` directly (imported, not redeclared) since they're the same fact/type.
+
+**Gate results (real numbers):**
+- `uv run pytest`: **196 passed**, 0 failed (includes the new 9 unit + 10 integration tests, the latter against real testcontainers Postgres)
+- `uv run pre-commit run --all-files`: all hooks **passed**, including `mypy --strict`
+
+Nothing left undone or unverifiable — both the PRD §7.3 worked example and the real concurrent double-reversal race are exercised as actual tests, not docstring claims.</result>
+<usage><subagent_tokens>232924</subagent_tokens><tool_uses>93</tool_uses><duration_ms>800880</duration_ms></usage>
+</task-notification>
+```
+
+<details><summary>Tool calls (9)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --short echo "--- branch ---"; git branch --show-current echo …
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/application/use_cases/revert_transfer.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/transfer_repo…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -n -A5 "_violates_reverses_constraint" src/modules/account_balance/a…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '1,120p' src/modules/account_balance/adapters/inbound/api/transfer…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '120,180p' src/modules/account_balance/adapters/inbound/api/transf…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -3 echo "---" uv run pre-commit run --all-files…
+- `Agent` — You are doing an independent, adversarial code review of a diff about to become a GitHub PR. You have no prior context on this session — rea…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 02:55 — Verificar rever…
+
+</details>
+
+### Response
+
+196 confirmed, matching the report. Let me read the use case directly.
+
+Now launching the fresh review for PR #3.
+
+The revert implementation is in — 196 tests, gates green. I read `RevertTransferUseCase` directly and confirmed the two riskiest parts hold up: the idempotency reservation genuinely happens first (not just claimed in a comment), and the source/destination derivation matches `revert()`'s real contract in the domain layer. A fresh reviewer is now auditing the whole diff, specifically instructed to re-verify the "reserve first" claim by reading code rather than trusting the spec's own description of itself. I'll report back once it lands.
 
 ---
