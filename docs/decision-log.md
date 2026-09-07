@@ -411,3 +411,11 @@ Formato de cada entrada:
 - **Prompt:** "muévete al branch del PR 1"
 - **Respuesta:** Verificado `git status` antes del checkout (sólo docs de sesión modificados, sincronizados y commiteados aparte). Cambiado a `feat/account-opening`, limpio y al día con origin.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 10:15 — Recomendar documento versionado sobre skill para convenciones de revisión
+
+<!-- id: 20260907-101551-a1fe3a40 -->
+- **Qué intentaba:** El usuario preguntó si conviene definir skills para las convenciones de revisión que faltan, o si es válido no hacerlo dado que es una prueba.
+- **Prompt:** "Es correcto que no encuentres issues con el PR, no hemos definido convenciones y es justo lo que quiero que hagamos, podríamos definir skills para ello, sin embargo, también es válido no hacerlo dado que se trata de una prueba. Qué método opinas nos conviene?"
+- **Respuesta:** Recomendado un documento versionado (extender `docs/coding-conventions.md` o sumar `docs/review-conventions.md`) en vez de un skill de Claude Code: más barato de escribir/mantener, sirve igual para humano y AI, y ya hay precedente funcionando. Un skill paga su costo con muchos ciclos de revisión repetidos entre sesiones — no el caso acá (3 PRs, prueba acotada); construirlo sería la misma exageración de alcance que venimos evitando en documentos. Ofrecidas 3 convenciones concretas ya emergidas orgánicamente esta sesión (catch acotado por nombre de constraint, reserva de idempotencia antes de cualquier mutación que pueda fallar, tabla de mapeo de errores respaldada por test) para documentar si el usuario confirma.
+- **Veredicto:** ⏳ pendiente
