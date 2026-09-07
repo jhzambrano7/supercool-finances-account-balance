@@ -396,3 +396,10 @@ Formato de cada entrada:
 - **Respuesta:** La revisión no encontró bloqueantes en el dominio/aplicación (AO1–AO4 correctos y testeados, dominio intacto), pero sí un bug real y **reproducido**: `alembic/env.py` leía `DATABASE_URL` incondicionalmente y pisaba la URL que `conftest.py` ya había fijado programáticamente para testcontainers — cualquier developer con `DATABASE_URL` exportada localmente (el nombre natural, coincide con la variable de `Settings`) corría las migraciones de los tests de integración contra ese host en vez del Postgres efímero. **Verificado por mí de forma independiente:** reproduje el fallo exportando una URL bogus antes de tocar código, confirmé la falla, apliqué el fix (`config.attributes["sqlalchemy.url"]` en vez de env var, chequeado primero en `env.py`), y reproduje el mismo caso después confirmando que ahora pasa. Corregido también el segundo hallazgo (no bloqueante pero barato): `SqlAccountRepository.add()` atrapaba cualquier `IntegrityError` como conflicto de clave natural; ahora valida el nombre del constraint violado contra `uq_accounts_owner_purpose_currency` antes de relabelearlo, y relanza cualquier otro.
 - **147 tests, gates verdes, tras los fixes.**
 - **Veredicto:** ✅ aprobado
+
+## 2026-09-07 01:24 — Pushear el branch y abrir el PR
+
+- **Qué intentaba:** Cerrar el pedido original: branch específico, repo privado, PR.
+- **Prompt:** (continuación directa del pedido original de este turno, sin nuevo prompt del usuario)
+- **Respuesta:** Pusheado `feat/account-opening` a `jhzambrano7/supercool-finances-account-balance` (privado, ya creado con `main` como base) y abierto el PR #1 contra `main`, con resumen de las dos piezas de trabajo (cierre del archive SDD + slice de apertura de cuentas), las decisiones no obvias (AO1–AO4), lo que encontró y corrigió la revisión fresca antes del PR, y el plan de test con números reales.
+- **Veredicto:** ⏳ pendiente

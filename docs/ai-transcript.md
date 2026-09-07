@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 49
+**Turns recorded:** 50
 
 ---
 
@@ -3724,5 +3724,83 @@ This needs a stop-and-investigate before I touch anything else — the agent rep
 All gates green, independently confirmed. Now the fresh adversarial review before pushing/opening the PR.
 
 The concurrent-session incident is resolved — you're closing that other session, and I independently confirmed the final committed state is correct (147 tests, 139 unit + 8 real-Postgres integration, all gates green). A fresh reviewer with no prior context on this work is now auditing the whole `feat/account-opening` diff before I push and open the PR — focused on the natural-key race handling, HTTP status semantics, and that the domain layer wasn't touched. I'll report back once that lands.
+
+---
+
+## Turn 50 — 2026-09-07 06:17:55.339 UTC
+
+### Prompt
+
+```text
+<task-notification>
+<task-id>a4dddc16b23b90798</task-id>
+<output-file>/private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-finances-account-balance/5899ca45-2031-46b9-ada4-dcd2507881d3/tasks/a4dddc16b23b90798.output</output-file>
+<status>completed</status>
+<summary>Agent "Fresh review of account-opening slice" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Confirmed independently — reproduced the bug live: with `DATABASE_URL` exported (the exact env var name `Settings` itself binds to), the integration test's Alembic migration tried to connect to that bogus host instead of the testcontainers Postgres the test fixture had just configured, and failed with a connection error. This elevates that finding from "theoretical" to "reproduced."
+
+## Updated combined findings
+
+A second independent pass (via the `code-review` skill) caught things I missed on the infra/wiring side. I verified the two most consequential ones myself. Combined, ranked:
+
+**1. (worth fixing, reproduced) `alembic/env.py:29-30` — `DATABASE_URL` env var silently overrides an explicitly-set migration target.**
+`conftest.py`'s `_run_migrations()` sets `config.set_main_option("sqlalchemy.url", &lt;testcontainers URL&gt;)` then calls `command.upgrade()`, which runs `env.py`. But `env.py` unconditionally checks `os.environ.get("DATABASE_URL")` and overwrites the URL if set — and `DATABASE_URL` is the *exact* env var name `Settings.database_url` binds to (confirmed: `pydantic-settings` maps it case-insensitively with no prefix). I reproduced this: with `DATABASE_URL` exported to a bogus host, the integration test's migration attempted to connect to that host instead of the testcontainers instance and failed with a psycopg `OperationalError`. Any developer who exports `DATABASE_URL` locally (the natural way to point the app at a real Postgres, per the README's own env-var convention) gets integration tests that either fail confusingly or, worse, silently run migrations against their real dev database instead of the ephemeral test one.
+
+**2. (worth fixing) `SqlAccountRepository.add()` — bare `IntegrityError` catch, not constraint-specific.** (Both reviews found this independently.) `account_repository.py:53-58` maps *any* `IntegrityError` to `AccountNaturalKeyConflictError`. Currently safe only because the table has exactly two constraints (PK, the natural-key unique). The moment a third constraint is added, an unrelated violation would be silently mislabeled as a natural-key conflict, and the use case's recovery path would either return a wrong "winner" or hit its defensive `raise`.
+
+**3. (worth fixing / nitpick, unverified in depth but plausible) `dependency_injector` `container.wire()` re-patches process-global `@inject` markers.** `app.py:20-21` — `create_app()` calls `container.wire(modules=[...])` against the module-level `router`/`open_account`, which are singletons created at import. Each `create_app()` call (module-level `app`, plus one per integration test via the `app` fixture) re-wires those same global markers to whatever container was created last. This doesn't currently manifest as a test failure because tests run sequentially and each fixture wires-then-immediately-uses its own container, but it means concurrent app instances (parallel test execution, multiple `create_app()` calls in one process) don't actually have independent DI graphs despite looking like they do. Worth a comment or a fix (e.g. `unwire()` in teardown) before this bites a `pytest-xdist` run or a second app instance in production.
+
+**4. (nitpick) Integration test's `app` fixture never disposes the DI-created `AsyncEngine`.** `test_open_account_route.py:18-23` — teardown only calls `container.settings.reset_override()`; the `engine` Singleton resolved during the test is never `.dispose()`d, which can leak pooled connections against the shared testcontainers Postgres as the suite grows (didn't cause a failure in my run, but is the kind of thing that shows up as flakiness later).
+
+**5. (nitpick) `get_settings()` in `settings.py:22-24` is dead code**, confirmed independently by both reviews. The DI container builds `Settings()` directly; nothing calls `get_settings()`. If something later does reach for it, it'd get an `lru_cache`d value independent of any `container.settings.override(...)` used in tests — a subtle config-drift trap, though currently unused so inert.
+
+## What did NOT hold up / stays as before
+Everything from my first pass stands: AO1–AO4 correctly implemented and tested (including the reproduced-real-DB race path), AO3 status codes correct and tested, domain layer genuinely untouched, error mapping correct, no secrets, README claims verifiable, archive housekeeping is cosmetic-only. No blocking issues in the application/domain code itself — the two "worth fixing" items that newly surfaced are both in the infrastructure/wiring layer (Alembic env, DI wiring), not in the business logic the spec is actually contractually strict about.
+
+**Overall: still no blocking findings for merge, but finding #1 (`DATABASE_URL` collision) is real, reproduced, and cheap to fix — I'd fix it before merge rather than defer it**, since it will actively confuse the next developer who follows the README's own env-var convention while running the test suite.</result>
+<usage><subagent_tokens>98790</subagent_tokens><tool_uses>39</tool_uses><duration_ms>463412</duration_ms></usage>
+</task-notification>
+```
+
+<details><summary>Tool calls (23)</summary>
+
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/alembic/env.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/account_repos…
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/adapters/config/settings.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/conftest.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance fd . alembic/versions -t f -x cat {}
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/alembic/env.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/conftest.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/account_repos…
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/account_repos…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== reproduce-then-confirm-fixed: DATABASE_URL collision ===" DATAB…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -3 echo "---" uv run pre-commit run --all-files…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add alembic/env.py tests/integration/account_balance/conftest.py git …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit -q -m "$(cat <<'EOF' fix(db): stop DATABASE_URL from shadowing…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit -q -m "$(cat <<'EOF' fix(db): stop DATABASE_URL from shadowing…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --short git diff --stat src/modules/account_balance/adapters/o…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git show --stat HEAD | head -20
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git show --stat HEAD | tail -10
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit --amend -q -m "$(cat <<'EOF' fix(sql): fix two AO4 gaps a fres…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --short uv run pytest 2>&1 | tail -3
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 01:17 — Corregir los do…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git push -u origin feat/account-opening 2>&1
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance gh pr create --title "Close domain SDD archive; add account-opening slice…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 01:24 — Pushear el bran…
+
+</details>
+
+### Response
+
+Now the constraint-specific fix for finding #2:
+
+Now let's run the full gate suite (including integration tests against real Postgres) to confirm both fixes actually work, plus verify the reproduced bug is gone.
+
+All green, still 147 passing. Committing the two fixes and pushing.
+
+Good, one accurate commit now covers both fixes. Let me sync the session docs (which regenerated again) and do a final gate check before pushing.
+
+Now pushing the branch and opening the PR.
 
 ---
