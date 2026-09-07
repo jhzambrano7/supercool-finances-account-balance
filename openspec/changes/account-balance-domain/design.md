@@ -483,6 +483,11 @@ The use-case layer is designed separately. This section exists only so the domai
 as what it is — a pure function over aggregates — rather than as a service that should be fetching
 its own data.
 
+> **Open, to revisit once the code exists.** The user accepted this split provisionally and said it
+> does not fully convince them yet. It is cheap to change: the domain service is a pure function, so
+> moving work across this line does not touch the invariants. Revisit after the first use case is
+> written, when the boundary can be judged against real call sites rather than a signature.
+
 ---
 
 ## 6. Invariant enforcement map
