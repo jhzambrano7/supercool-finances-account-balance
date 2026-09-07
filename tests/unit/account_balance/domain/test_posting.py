@@ -87,7 +87,7 @@ def _post(
         requested_by=OwnerId(uuid4()),
         idempotency_key=IdempotencyKey("posting-key"),
         occurred_at=occurred_at or datetime.now(UTC),
-        entry_ids=(EntryId(uuid4()), EntryId(uuid4())),
+        entry_ids=lambda: EntryId(uuid4()),
     )
 
 
@@ -169,7 +169,7 @@ def _revert(
         requested_by=OwnerId(uuid4()),
         idempotency_key=IdempotencyKey("reversal-key"),
         occurred_at=occurred_at or datetime.now(UTC),
-        entry_ids=(EntryId(uuid4()), EntryId(uuid4())),
+        entry_ids=lambda: EntryId(uuid4()),
     )
 
 

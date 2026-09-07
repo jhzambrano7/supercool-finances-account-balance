@@ -79,7 +79,7 @@ class TestPropertyP1ConservationAcrossTransfer:
             requested_by=OwnerId(uuid4()),
             idempotency_key=IdempotencyKey("prop-key"),
             occurred_at=datetime.now(UTC),
-            entry_ids=(EntryId(uuid4()), EntryId(uuid4())),
+            entry_ids=lambda: EntryId(uuid4()),
         )
 
         after = sum(account.balance.amount for account in posting.accounts)

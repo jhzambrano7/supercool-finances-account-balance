@@ -385,7 +385,7 @@ def transfer(
     requested_by: OwnerId,
     idempotency_key: IdempotencyKey,
     occurred_at: datetime,
-    entry_ids: tuple[EntryId, EntryId],
+    entry_ids: Callable[[], EntryId],
 ) -> Posting: ...
 ```
 
@@ -393,14 +393,20 @@ It returns a `Posting` rather than a bare `Transfer` because the accounts are no
 successors are results, and a caller that only received the `Transfer` would have nothing to persist
 the new balances from.
 
+`entry_ids` is a zero-argument callable, called once per leg — not the fixed `tuple[EntryId, EntryId]`
+proposal D6 first specified. The caller hands over the capability to mint one id (in practice the
+shared `IdGenerator`'s bound method) rather than a pre-counted, pre-ordered result, so it no longer
+needs to know how many legs this specific operation produces or which index is which — see proposal
+D6 for the full account of what changed and why.
+
 Sequence, and the order is still the whole point:
 
 ```
 1. guard      source.account_id != destination.account_id      -> SelfTransferError
               amount.is_positive                               -> NonPositiveAmountError
               source.currency == destination.currency == amount.currency (I4)
-2. build      debit_leg  = Entry(entry_ids[0], ..., source.account_id,      DEBIT,  amount, occurred_at)
-              credit_leg = Entry(entry_ids[1], ..., destination.account_id, CREDIT, amount, occurred_at)
+2. build      debit_leg  = Entry(entry_ids(), ..., source.account_id,      DEBIT,  amount, occurred_at)
+              credit_leg = Entry(entry_ids(), ..., destination.account_id, CREDIT, amount, occurred_at)
 3. apply      debited  = source.debit(debit_leg)              <- I2 fires here
               credited = destination.credit(credit_leg)
 4. construct  transfer = Transfer(..., entries=(debit_leg, credit_leg))   <- I1 fires here
@@ -433,7 +439,7 @@ def revert(
     requested_by: OwnerId,
     idempotency_key: IdempotencyKey,
     occurred_at: datetime,
-    entry_ids: tuple[EntryId, EntryId],
+    entry_ids: Callable[[], EntryId],
 ) -> Posting: ...
 ```
 

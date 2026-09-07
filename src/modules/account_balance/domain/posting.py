@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -38,7 +39,7 @@ def transfer(
     requested_by: OwnerId,
     idempotency_key: IdempotencyKey,
     occurred_at: datetime,
-    entry_ids: tuple[EntryId, EntryId],
+    entry_ids: Callable[[], EntryId],
 ) -> Posting:
     """Posts an ordinary transfer: two balanced legs, applied atomically in-process.
 
@@ -67,7 +68,7 @@ def transfer(
         )
 
     debit_leg = Entry(
-        entry_id=entry_ids[0],
+        entry_id=entry_ids(),
         transfer_id=transfer_id,
         account_id=source.account_id,
         direction=EntryDirection.DEBIT,
@@ -75,7 +76,7 @@ def transfer(
         occurred_at=occurred_at,
     )
     credit_leg = Entry(
-        entry_id=entry_ids[1],
+        entry_id=entry_ids(),
         transfer_id=transfer_id,
         account_id=destination.account_id,
         direction=EntryDirection.CREDIT,
@@ -109,7 +110,7 @@ def revert(
     requested_by: OwnerId,
     idempotency_key: IdempotencyKey,
     occurred_at: datetime,
-    entry_ids: tuple[EntryId, EntryId],
+    entry_ids: Callable[[], EntryId],
 ) -> Posting:
     """Posts a reversal of `original`. Identical to `transfer` with three
 
@@ -148,7 +149,7 @@ def revert(
     amount = original.amount
 
     debit_leg = Entry(
-        entry_id=entry_ids[0],
+        entry_id=entry_ids(),
         transfer_id=transfer_id,
         account_id=source.account_id,
         direction=EntryDirection.DEBIT,
@@ -156,7 +157,7 @@ def revert(
         occurred_at=occurred_at,
     )
     credit_leg = Entry(
-        entry_id=entry_ids[1],
+        entry_id=entry_ids(),
         transfer_id=transfer_id,
         account_id=destination.account_id,
         direction=EntryDirection.CREDIT,

@@ -175,6 +175,17 @@ inside the domain.
   will be a *different* function with its own leg count and its own tuple; a `Sequence` with a runtime
   length check would trade a compile-time guarantee for a generality we do not need yet.
 
+  **Superseded on 2026-09-06.** The parameter is now `Callable[[], EntryId]`, called once per leg. The
+  option actually taken was neither of the two weighed above: not a fixed tuple, and not a `Sequence`
+  with a runtime length check. A callable asks the caller for a *capability* ("mint one id") rather
+  than a *pre-computed, pre-ordered result* ("here are exactly two, in this order"), so the caller no
+  longer needs to know how many legs an operation produces or which index is which — knowledge that
+  belongs to the function being called, not to whoever is calling it. The tuple made the caller's
+  *count* of ids type-checked; nothing ever made the callee's *use* of that count type-checked (a
+  buggy `transfer()` could already have ignored `entry_ids[1]` and reused `entry_ids[0]` twice), so the
+  guarantee it bought was narrower than it looked. D6 still holds without qualification: a callable
+  handed in as an argument is not ambient state — the domain still generates nothing itself.
+
 ### D7 — Identifiers are frozen dataclasses over `UUID`, not bare `UUID` and not `NewType`
 
 A shared `EntityId` base with `value: UUID`; `AccountId` additionally `order=True`.
