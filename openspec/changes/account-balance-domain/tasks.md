@@ -347,16 +347,16 @@ referencing I7, G4, §7.1, §7.3.
 
 Depends on all of the above (needs every module to exist to parse them).
 
-- [ ] **T7.1 (test) — ARCHITECTURE TEST** — Complete
+- [x] **T7.1 (test) — ARCHITECTURE TEST** — Complete
       `test_architecture.py::test_debit_for_reversal_is_referenced_only_in_definition_and_revert`
       (started in T4.8): now that `posting.py::revert` exists, assert the full set matches exactly —
       this is the point where T4.8 goes from an expected-red guard to green. Satisfies: design §4.3,
       §9.3 item 1; PRD §10.3.
-- [ ] **T7.2 (test) — ARCHITECTURE TEST** — `test_architecture.py::test_no_upward_imports`: no module
+- [x] **T7.2 (test) — ARCHITECTURE TEST** — `test_architecture.py::test_no_upward_imports`: no module
       under `account_balance/domain/` imports `application`, `adapters`, or a sibling module listed
       later in design §1's import-direction table (i.e., `errors.py` must not import `identifiers.py`,
       `identifiers.py` must not import `entry.py`, etc.). Satisfies: design §9.3 item 3; D6.
-- [ ] **T7.3 (test) — ARCHITECTURE TEST** — `test_architecture.py::test_no_ambient_time_or_id_generation`:
+- [x] **T7.3 (test) — ARCHITECTURE TEST** — `test_architecture.py::test_no_ambient_time_or_id_generation`:
       no `datetime.now`, `datetime.utcnow`, `uuid`, `uuid6`, or `IdGenerator` reference exists under
       `domain/`. Satisfies: design §9.3 item 4; D6.
 - [x] **T7.4 (impl)** — Add `src/modules/account_balance/__init__.py` and
