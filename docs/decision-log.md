@@ -460,3 +460,12 @@ Formato de cada entrada:
 - **Prompt:** — (notificación de tarea en background)
 - **Respuesta:** 196 tests confirmados. Leí `RevertTransferUseCase` completo antes de aceptar el reporte: la reserva de idempotencia efectivamente ocurre primero, antes de cargar el original o tocar cuentas — no sólo lo dice el comentario, lo hace el código. Verificado también R2 (origen=destino del original, destino=origen del original, coincide con el contrato real de `revert()` en posting.py) y R4 (el catch en `SqlTransferRepository.add()` está acotado por nombre al índice parcial, mismo patrón que AO4/T5; la migración crea el índice único parcial correctamente sobre `reverses IS NOT NULL`). Gates verdes. Lanzada revisión fresca con foco explícito en re-verificar la afirmación de "reserva primero" línea por línea en vez de confiar en el comentario, y en la dirección origen/destino de la reversa.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 03:02 — Cerrar la revisión fresca de revert y abrir el PR #3
+
+<!-- id: 20260907-030200-a1fe3a40 -->
+- **Qué intentaba:** Cerrar los dos hallazgos de la revisión fresca (nada bloqueante) y abrir el PR #3.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** La revisión confirmó, línea por línea y corriendo los tests ella misma, todo lo verificado en el turno anterior: reserva de idempotencia primero, índice único parcial correcto, catch acotado por nombre de constraint, dirección origen/destino correcta contra el contrato real de `revert()`, ejemplo PRD §7.3 reproducido, ausencia real de chequeo de dueño (R1). Dos hallazgos menores, ninguno bloqueante: (1) el mapeo de `InvalidIdempotencyKeyError` a 422 ya era correcto pero no tenía test — agregado, siguiendo el mismo patrón que `transfer`; (2) `AccountNotFoundError` no se atrapaba explícitamente en el endpoint de reversión (código muerto hoy, pero inconsistente con el endpoint hermano) — corregido por paridad.
+- **197 tests, gates verdes.** Abierto el PR #3 (`feat/revert` → `feat/transfer`), tercer y último eslabón de la cadena, con la limitación de R1 explícita en el cuerpo del PR.
+- **Veredicto:** ✅ aprobado
