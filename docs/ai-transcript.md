@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 28
+**Turns recorded:** 29
 
 ---
 
@@ -2104,10 +2104,11 @@ Una consecuencia que dejé escrita y conviene tener presente: **el cliente nunca
 probemos tu opción, no me termina de cerrar, pero lo podemos corregir luego, me cuesta verlo si no tenemos el código. Vamos con los tasks, levanta una agente en paralelo que lo haga
 ```
 
-<details><summary>Tool calls (2)</summary>
+<details><summary>Tool calls (3)</summary>
 
 - `Agent` — Break the account balance DOMAIN into an implementation task checklist. ## Skills to load before work Read in full first: `/Users/jhz7/.conf…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
 
 </details>
 
@@ -2116,5 +2117,85 @@ probemos tu opción, no me termina de cerrar, pero lo podemos corregir luego, me
 Anotado que no te cierra del todo — es una decisión reversible y con código a la vista se juzga mejor. Lo dejo registrado como pendiente de revisitar, no como cerrado.
 
 Lanzo el agente de tasks:
+
+Tasks corriendo en background. **44 commits.**
+
+Antes de lanzarlo dejé escrito en `design.md` §5.3 que la separación queda **aceptada de forma provisional** — con la razón textual: se acepta para avanzar, no porque haya convencido. Lo hago porque una decisión aceptada "por ahora" que no se marca se convierte en decisión firme por inercia, y seis meses después nadie recuerda que estaba en duda.
+
+Y dejé también por qué cambiarla sigue siendo barato: **el servicio de dominio es una función pura**, así que mover trabajo a través de esa línea no toca ninguna invariante. Es refactor de firma, no de reglas.
+
+Tu instinto de no juzgarlo sin código me parece correcto, dicho sea de paso. Una frontera de capas se evalúa contra call sites reales — cuando el primer caso de uso exista y veas qué termina cargando, va a ser obvio si sobra o falta de un lado.
+
+El agente está armando la lista con **TDD estricto**: los tests preceden a la implementación, tarea por tarea, siguiendo el orden de imports del design (errors → identifiers → entry → account → transfer → posting). Le pedí además que agrupe en unidades commiteables y que cierre con un **Review Workload Forecast**, para decidir si esto entra en un PR o hay que encadenarlos antes de escribir la primera línea.
+
+Te aviso cuando llegue y lo reviso antes de pasártelo.
+
+---
+
+## Turn 29 — 2026-09-07 03:29:47.512 UTC
+
+### Prompt
+
+```text
+<task-notification>
+<task-id>af54e52643ef667f9</task-id>
+<tool-use-id>toolu_018GSvcGDZbpDzFQHc4YL114</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-finances-account-balance/5899ca45-2031-46b9-ada4-dcd2507881d3/tasks/af54e52643ef667f9.output</output-file>
+<status>completed</status>
+<summary>Agent "Domain implementation tasks" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Result
+
+**status**: done
+
+**executive_summary**: Produced a 7-work-unit, ~35-task TDD checklist for the account-balance domain layer (errors → identifiers → entry → account → transfer → posting → architecture tests), every unit test-first, with 4 property-based tasks and 2 architecture tests called out explicitly; no code written.
+
+**artifacts**:
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/changes/account-balance-domain/tasks.md`
+- Engram topic_key `sdd/account-balance-domain/tasks` (project: `supercool-finances-account-balance`)
+
+**next_recommended**: sdd-apply
+
+**risks**:
+- Work Unit 4 (`Account`) is inherently the largest cohesive unit (~430 lines including tests) and cannot be split further without breaking the aggregate's own internal grouping (open/reconstitute, the three balance-moving methods, closure) — a `size:exception` vs. further-split decision is needed before apply.
+- Everything is strictly sequential — the downward import order (design §1) means zero cross-work-unit parallelism; only test/impl pairs within a unit are ordered, and TDD makes even those sequential.
+- The `debit_for_reversal` architecture test is intentionally split across two tasks (T4.8 red, T7.1 green) — flagged so it isn't mistaken for a bug if `sdd-apply` finds it failing partway through.
+- Several guards (`EntryDirectionMismatchError`, `MalformedTransferError`, `NaiveTimestampError`, `ReversalMismatchError`) exist only in design's tables, not the spec's Given/When/Then scenarios — tasks cite design directly rather than inventing spec requirement headings; worth the user's awareness in case they want the spec amended to include them.
+- G2 (concurrency) cannot be demonstrated by any task in this list — explicitly deferred to an out-of-scope persistence-phase integration test.
+
+**Review Workload Forecast**: ~1,500 changed lines total, ~3.5x over the 400-line budget as a single PR. Chained PRs recommended (6 PRs following commit boundaries). Decision needed before apply: whether to accept `size:exception` for the Account PR or split it further into 4a/4b/(4c+4d) sub-PRs.
+
+**skill_resolution**: paths-injected (cognitive-doc-design SKILL.md was read in full before writing).</result>
+<usage><subagent_tokens>89340</subagent_tokens><tool_uses>15</tool_uses><duration_ms>149825</duration_ms></usage>
+</task-notification>
+```
+
+<details><summary>Tool calls (4)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== hay remoto / flujo de PRs? ===" git remote -v || echo " sin rem…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/specs/account-…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== unidades de trabajo y forecast ===" rg -n '^## |^### Work Unit|…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add openspec/ git commit -q -F - <<'MSG' docs(docs): add the domain t…
+
+</details>
+
+### Response
+
+Tasks listo. Antes de decidir cómo entregarlo, verifico dos cosas — el forecast y un hueco que reporta en el spec:
+
+Dos hallazgos:
+
+**No hay remoto configurado.** No existe flujo de PRs en este repo, así que la recomendación de "6 PRs encadenados" no aplica tal cual — encadenar PRs contra nada es teatro. La granularidad real acá son las **7 unidades de trabajo commiteables** que ya trae la lista, y eso resuelve el problema de revisión que el forecast señala. No te hago perder un turno preguntando entre opciones que no existen todavía; si más adelante publicás a GitHub, las unidades ya están cortadas para volverse PRs.
+
+**El hueco del spec es real y me importa más:**
+
+```
+EntryDirectionMismatchError → spec:0  design:2
+MalformedTransferError      → spec:0  design:2
+NaiveTimestampError         → spec:0  design:3
+ReversalMismatchError       → spec:0  design:2
+```
+
+El design enforcea cuatro guards que el spec no menciona. Y como el spec quedó como **documentación permanente y fuente de lo que debe ser cierto**, eso significa que hay tests por escribir que ningún requisito respalda. Lo cierro:
 
 ---
