@@ -307,7 +307,7 @@ persistence guarantee, no UPDATE/DELETE path, is out of scope here.)*
 
 `Transfer.__post_init__` MUST guard that, for every currency present among its entries, the sum of
 `signed_amount` in that currency is `Money.zero(currency)`. This MUST hold for any construction path,
-including direct/repository-reconstituted construction, not only the `post_transfer` factory.
+including direct/repository-reconstituted construction, not only the `transfer` factory.
 
 *(I1 — stated in the general, per-currency form so it survives the future multi-currency extension,
 §8, unchanged.)*
@@ -395,11 +395,11 @@ makes a reversal attributable.)*
 
 ---
 
-### Posting (domain service)
+### Posting (domain service: `transfer`, `revert`)
 
 #### Requirement: Posting a Transfer Produces Balanced Entries and Applies Them Atomically in the Domain
 
-`post_transfer(...)` MUST validate I3/I4/I5, construct the two legs (`DEBIT` on source, `CREDIT` on
+`transfer(...)` MUST validate I3/I4/I5, construct the two legs (`DEBIT` on source, `CREDIT` on
 destination), apply each to its `Account` via `Account.apply()`, and return the resulting `Transfer`.
 There MUST be no domain code path that produces an `Entry` without the corresponding balance change,
 or vice versa.
@@ -409,19 +409,19 @@ or vice versa.
 ##### Scenario: Posting a valid transfer moves both balances and records both legs
 
 - GIVEN a `USER` source with balance `200 USD` and a `USER` destination with balance `0 USD`
-- WHEN `post_transfer(amount=Money(50, USD), ...)` is called
+- WHEN `transfer(amount=Money(50, USD), ...)` is called
 - THEN the source balance becomes `150 USD`, the destination becomes `50 USD`, and the returned
   `Transfer` has exactly two entries whose signed amounts net to zero
 
 ##### Scenario: A refused debit aborts the whole posting
 
 - GIVEN a `USER` source with balance `10 USD`
-- WHEN `post_transfer(amount=Money(50, USD), ...)` is called
+- WHEN `transfer(amount=Money(50, USD), ...)` is called
 - THEN `InsufficientFundsError` is raised and neither account's balance changes
 
 #### Requirement: A Reversal Is an Ordinary Transfer That References Its Original
 
-`post_reversal(original, ...)` MUST produce mirror legs of the original transfer's amount and
+`revert(original, ...)` MUST produce mirror legs of the original transfer's amount and
 currency, set `reverses=original.id`, and MUST NOT mutate the original `Transfer` in any way.
 
 *(I7 — corrections happen by compensating entry, never by mutation; §7.1 — the resulting transfer
@@ -430,7 +430,7 @@ carries `requested_by` set to the authorizing operator.)*
 ##### Scenario: Reversal references the original without touching it
 
 - GIVEN an already-posted `Transfer` with id `T1`
-- WHEN `post_reversal(original=T1, ...)` is called
+- WHEN `revert(original=T1, ...)` is called
 - THEN a new `Transfer` is returned with `reverses=T1`, and `T1`'s fields are unchanged
 
 #### Requirement: A Reversal Always Posts in Full, Even Into Negative Territory
@@ -446,7 +446,7 @@ than being refused or absorbed elsewhere.)*
 
 - GIVEN Ana sends `100 USD` to Bruno (Bruno's balance is now `100 USD`)
 - AND Bruno spends `80 USD` (Bruno's balance is now `20 USD`)
-- WHEN an operator calls `post_reversal` on the original transfer
+- WHEN an operator calls `revert` on the original transfer
 - THEN Bruno is debited `100 USD` via `debit_for_reversal`, his balance becomes `-80 USD`
 - AND Ana is credited `100 USD`
 - AND no error is raised

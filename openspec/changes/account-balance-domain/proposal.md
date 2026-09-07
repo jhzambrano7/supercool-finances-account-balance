@@ -40,7 +40,7 @@ where a domain decision constrains them (§7).
 | `AccountId`, `TransferId`, `EntryId`, `OwnerId` | Value objects over `UUID` | `domain/identifiers.py` |
 | `AccountType`, `AccountPurpose`, `AccountStatus`, `EntryDirection`, `OverdraftPolicy` | Enums (with behaviour) | with their owner |
 | `IdempotencyKey` | Value object | `domain/identifiers.py` |
-| `post_transfer`, `post_reversal` | Domain service (module-level functions) | `domain/posting.py` |
+| `transfer`, `revert` | Domain service (module-level functions) | `domain/posting.py` |
 
 `Money` and `Currency` are reused from `shared` unchanged.
 
@@ -68,14 +68,19 @@ rule is unit-testable without constructing an `Account`.
 through a reversal, so the policy is keyed on the *operation* as well as the account:
 
 ```python
-def debit(self, entry: Entry) -> PendingApplication: ...              # refuses below zero
-def debit_for_reversal(self, entry: Entry) -> PendingApplication: ... # the only path that may cross
+def debit(self, entry: Entry) -> Account: ...              # refuses below zero
+def debit_for_reversal(self, entry: Entry) -> Account: ... # the only path that may cross zero
 ```
 
-These take an `Entry`, not a bare `Money`, so they stay consistent with D5 — posting produces the
-entries and moves the balances together. An earlier revision of this paragraph wrote
-`debit(self, amount: Money)`, which contradicted D5 and could not have been implemented as written.
-`design.md` settles the exact shape, including why these validate and return rather than mutate.
+They take an `Entry`, not a bare `Money`, so they stay consistent with D5 — posting produces the
+entries and moves the balances together. An earlier revision wrote `debit(self, amount: Money) -> None`,
+which contradicted D5 and could not have been implemented as written.
+
+**`Account` is immutable, so these return its successor rather than mutating it.** An intermediate
+design returned a `PendingApplication` token committed later; it was withdrawn because two
+preparations against one account both read the same starting balance and the later commit silently
+overwrote the earlier — money created with no exception raised. `design.md` §4.2 carries the worked
+example and the reasoning.
 
 Two named methods rather than `debit(..., allow_overdraft=True)`: a boolean argument can be passed
 from anywhere, while a second method is reachable only by naming it, and `grep debit_for_reversal` is
@@ -134,7 +139,7 @@ mechanically true instead of aspirational.
 ### D5 — `Transfer` owns its entries and is frozen; posting is a domain service, not a classmethod
 
 ```python
-def post_transfer(
+def transfer(
     *, transfer_id: TransferId, source: Account, destination: Account, amount: Money,
     requested_by: OwnerId, idempotency_key: IdempotencyKey, occurred_at: datetime,
     entry_ids: tuple[EntryId, EntryId],
@@ -214,7 +219,7 @@ belongs to that record, not to the ledger.
 ### D10 — Reversal is an ordinary transfer that points at its original, and is not privileged
 
 ```python
-def post_reversal(original: Transfer, *, transfer_id: TransferId, source: Account,
+def revert(original: Transfer, *, transfer_id: TransferId, source: Account,
                   destination: Account, requested_by: OwnerId, idempotency_key: IdempotencyKey,
                   occurred_at: datetime, entry_ids: tuple[EntryId, EntryId]) -> Transfer: ...
 ```
@@ -228,7 +233,7 @@ recipient has already spent the funds. Q3 was then resolved the other way (PRD �
 **always posts in full**, and the recipient's balance goes negative. The debt then sits on the account
 that owes it and clears itself on that account's next deposit.
 
-I2 is not punched through, because the exception is a *path* and not a flag: `post_reversal` reaches
+I2 is not punched through, because the exception is a *path* and not a flag: `revert` reaches
 `Account.debit_for_reversal()`, and no other caller does. Every customer-initiated movement still goes
 through `Account.debit()`, which refuses below zero. There is no `InsufficientFundsError` path for a
 reversal.
@@ -258,7 +263,7 @@ ledger, not in the table with a delete policy.
 | Boundary | Rule |
 | --- | --- |
 | `Account` | Root. Owns `balance`, `status`, `version`. References `owner_id` by id. |
-| `Transfer` | Root. Owns its `Entry` legs (created only by `post_transfer` / `post_reversal`). References accounts by `AccountId`, never by object, once constructed. |
+| `Transfer` | Root. Owns its `Entry` legs (created only by `transfer` / `revert`). References accounts by `AccountId`, never by object, once constructed. |
 | `Entry` | Never a root. No repository of its own for writes; the account movement history is a **read model** over entries, not aggregate traversal. |
 
 **Deliberate deviation:** one transaction mutates two `Account` aggregates and creates one `Transfer`.
@@ -275,10 +280,10 @@ correctness wins.
 | I1 | `Transfer.__post_init__` — per-currency signed sum is zero (D4) | `UnbalancedTransferError` |
 | I2 | `Account.debit()` → `OverdraftPolicy.assert_allows(resulting)`. `Account.debit_for_reversal()` is the sole path that may cross zero (D1, PRD §7.3) | `InsufficientFundsError` |
 | I3 | `Transfer.__post_init__` (`amount.is_positive`) and `Entry.__post_init__` | `NonPositiveAmountError` |
-| I4 | `post_transfer` (source/destination/amount currencies) + `Account.debit`/`credit` (leg vs account currency) | `CurrencyMismatchError` *(shared)* |
+| I4 | `transfer` (source/destination/amount currencies) + `Account.debit`/`credit` (leg vs account currency) | `CurrencyMismatchError` *(shared)* |
 | I5 | `Transfer.__post_init__` (source ≠ destination) | `SelfTransferError` |
 | I6 | Structural — `Entry` is `frozen=True, slots=True`; `Transfer.entries` is a `tuple`. No mutator exists. Persistence is the second line (PRD §4.5) | — |
-| I7 | Structural — `post_reversal` produces a new `Transfer`; nothing can mutate an existing one | — |
+| I7 | Structural — `revert` produces a new `Transfer`; nothing can mutate an existing one | — |
 | G5 | `Account.assert_owned_by(owner_id)` — the *fact*; the *policy* of when to call it is the use case's (see §7) | `AccountOwnershipError` |
 
 Additional guards: `Account.assert_operable()` (status), `Entry`/`Account` id agreement in
@@ -351,7 +356,7 @@ made here; one reverses Q3.
 | Change | Effect on this proposal |
 | --- | --- |
 | **`SYSTEM` accounts are never locked and their balance is not materialized** (PRD §5.3) | No change to the domain model — but `OverdraftPolicy` for `SYSTEM` is now the *only* thing distinguishing them at the domain level, and the persistence phase must not add a balance column it maintains for them. D1 holds |
-| **A `USER` balance may go negative, but only through reversal** (PRD §7.3, G4, I2) | **Reverses Q3.** The `SYSTEM` receivable is gone. `Account` needs a second, named debit path — `debit_for_reversal()` — reachable only from `post_reversal`. This is D1's `OverdraftPolicy` doing exactly the job it was introduced for: the policy is now keyed on the *operation*, not only on the account type. D4 (per-currency netting) still holds and is still right, but the three-leg reversal that justified it no longer occurs |
+| **A `USER` balance may go negative, but only through reversal** (PRD §7.3, G4, I2) | **Reverses Q3.** The `SYSTEM` receivable is gone. `Account` needs a second, named debit path — `debit_for_reversal()` — reachable only from `revert`. This is D1's `OverdraftPolicy` doing exactly the job it was introduced for: the policy is now keyed on the *operation*, not only on the account type. D4 (per-currency netting) still holds and is still right, but the three-leg reversal that justified it no longer occurs |
 | **Idempotency keys only for money movements** (PRD §6.3) | `Transfer.idempotency_key` stays required (D12). No lifecycle operation carries one: opening is guarded by the `(owner, purpose, currency)` constraint, closure by requiring `ACTIVE`. Both are safety from data, which cannot expire |
 | **An owner may hold several accounts in the same currency, one per `purpose`** (PRD §4.2, §4.4) | Adds `AccountPurpose` to the model — a second, independent axis from `AccountType`. `USER` takes `CHECKING`/`SAVINGS`, `SYSTEM` takes `FUNDING`/`SETTLEMENT`, and the pair is validated on `Account.open()`. `(owner, purpose, currency)` becomes a natural key, which is what lets account opening drop its idempotency key entirely |
 | **Observability signals** (PRD §11) | Confirms D11: `Entry` stores no `balance_after`. Balance drift is detected by reconciliation against `SUM(entries)`, which a stored `balance_after` would have made circular — it would agree with itself while both were wrong |
@@ -394,7 +399,7 @@ None. `shared`'s `Money`/`Currency` are consumed unchanged.
 | Risk | Likelihood | Mitigation |
 | --- | --- | --- |
 | Sign convention (D2) applied inconsistently in a later adapter | Med | One derivation point (`Entry.signed_amount`); property test asserting a round-trip transfer leaves the pair's total unchanged |
-| `post_transfer` mutating its `Account` arguments surprises a caller | Med | Named domain service rather than a classmethod (D5); `Transfer.__post_init__` guarantees balance regardless |
+| `transfer` mutating its `Account` arguments surprises a caller | Med | Named domain service rather than a classmethod (D5); `Transfer.__post_init__` guarantees balance regardless |
 | `OverdraftPolicy` judged over-engineered for two cases | Low | It is an enum with one method; the fallback (a property on `AccountType`) is a mechanical downgrade |
 | I1 generalized form is untested until FX exists | Low | Property-test the netting rule with synthetic multi-currency leg sets now (PRD §10.1) |
 | Q1 unresolved blocks the deposit use case | High if unanswered | Flagged as a decision, not assumed |

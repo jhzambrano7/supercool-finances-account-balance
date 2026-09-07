@@ -21,9 +21,9 @@ Import direction is strictly downward — no module imports one below it, so the
 | `domain/errors.py` | the domain error taxonomy (§7) | `shared.domain.errors` |
 | `domain/identifiers.py` | `EntityId`, `AccountId`, `TransferId`, `EntryId`, `OwnerId`, `IdempotencyKey`, `PLATFORM_OWNER_ID` | `errors` |
 | `domain/entry.py` | `EntryDirection`, `Entry` | `identifiers`, `errors`, `shared.domain.money` |
-| `domain/account.py` | `AccountType`, `AccountPurpose`, `AccountStatus`, `OverdraftPolicy`, `PendingApplication`, `Account` | `entry`, `identifiers`, `errors`, `money` |
+| `domain/account.py` | `AccountType`, `AccountPurpose`, `AccountStatus`, `OverdraftPolicy`, `Account` | `entry`, `identifiers`, `errors`, `money` |
 | `domain/transfer.py` | `Transfer` | `entry`, `identifiers`, `errors`, `money` |
-| `domain/posting.py` | `post_transfer`, `post_reversal` | `account`, `transfer`, `entry`, `identifiers`, `errors` |
+| `domain/posting.py` | `transfer`, `revert` | `account`, `transfer`, `entry`, `identifiers`, `errors` |
 
 Plus `src/modules/account_balance/__init__.py` and `domain/__init__.py` (the project uses explicit
 `__init__.py` everywhere — no namespace packages). Tests mirror the layout under
@@ -106,21 +106,27 @@ constructor keywords identical to field names.
 
 ---
 
-## 4. `Account` — an entity, not a dataclass
+## 4. `Account` — an immutable entity
 
-`Account` is written as an explicit class with `__slots__`, **not** a dataclass, for one reason that
-matters: a dataclass generates value equality, and two loads of the same account with different
-balances are the *same account*. Entity equality is by id.
+`Account` is **frozen**: every behaviour that changes it returns a new instance rather than mutating
+the receiver. It is a frozen dataclass with `eq=False`, because the generated equality would be by
+value and two loads of the same account with different balances are the *same account*. Identity is
+by `AccountId`; state is not part of it.
+
+Immutability is what closes the partial-application problem (§4.2), and it does so by construction
+rather than by protocol.
 
 ```python
+@dataclass(frozen=True, slots=True, eq=False)
 class Account:
-    __slots__ = ("_account_id", "_owner_id", "_account_type", "_purpose",
-                 "_currency", "_balance", "_status", "_version")
-
-    def __init__(self, *, account_id: AccountId, owner_id: OwnerId,
-                 account_type: AccountType, purpose: AccountPurpose,
-                 currency: Currency, balance: Money,
-                 status: AccountStatus, version: int) -> None: ...
+    account_id: AccountId
+    owner_id: OwnerId
+    account_type: AccountType
+    purpose: AccountPurpose
+    currency: Currency
+    balance: Money
+    status: AccountStatus
+    version: int
 
     @classmethod
     def open(cls, *, account_id: AccountId, owner_id: OwnerId,
@@ -144,9 +150,9 @@ class Account:
     def version(self) -> int: ...
 
     # the only three ways a balance can move
-    def credit(self, entry: Entry) -> PendingApplication: ...
-    def debit(self, entry: Entry) -> PendingApplication: ...
-    def debit_for_reversal(self, entry: Entry) -> PendingApplication: ...
+    def credit(self, entry: Entry) -> Account: ...
+    def debit(self, entry: Entry) -> Account: ...
+    def debit_for_reversal(self, entry: Entry) -> Account: ...
 
     # guards the use case calls; the *fact*, not the policy
     def assert_owned_by(self, owner_id: OwnerId) -> None: ...     # AccountOwnershipError
@@ -177,29 +183,55 @@ are the ergonomic path, not the guarantee.
 one negative (PRD §7.3), so a repository that refused to load it would make the debt unrecoverable.
 It must likewise accept `CLOSED`. This is the one asymmetry that is easy to add by reflex and wrong.
 
-### 4.2 Applying an entry — validate everything, then mutate nothing that can fail
-
-The review of 2026-09-05 flagged that mutating `source` and then `destination` leaves the first object
-changed if the second raises. The fix is that the account methods **do not mutate**. They validate and
-return a committed-nothing token:
+### 4.2 Applying an entry returns a new account
 
 ```python
-@dataclass(frozen=True, slots=True)
-class PendingApplication:
-    account: Account
-    entry: Entry
-    resulting_balance: Money
-    def commit(self) -> None: ...   # assignment only — cannot raise
+def credit(self, entry: Entry) -> Account: ...
+def debit(self, entry: Entry) -> Account: ...
+def debit_for_reversal(self, entry: Entry) -> Account: ...
 ```
+
+Each validates, then returns a replacement carrying the new balance and `version + 1`. The receiver is
+never touched.
+
+**Why this replaces the earlier design.** A previous revision had these return a frozen
+`PendingApplication` holding the account and the resulting balance, committed later. That closed the
+partial-mutation window but opened a worse hole: two preparations against the same account both read
+the same starting balance.
+
+```python
+acc = Account(balance=100 USD)
+p1 = acc.debit(entry_60)   # resulting_balance = 40, passes I2
+p2 = acc.debit(entry_60)   # resulting_balance = 40, passes I2 — it read the same 100
+p1.commit()                # balance = 40
+p2.commit()                # balance = 40, having paid out 120 from 100
+```
+
+Money created, no exception, no trace. Removing the account from the token would not have fixed it:
+the token carried an **absolute** result computed from a snapshot, so whoever applied it last still
+overwrote the other.
+
+Returning a new instance removes the failure rather than detecting it:
+
+- If the second leg raises, the first result is simply discarded and no account was ever modified.
+  There is nothing to roll back, so the partial-mutation window is gone without a token.
+- Two applications against one account cannot both take effect. `acc.debit(e1)` and `acc.debit(e2)`
+  produce two independent successors and you must choose one — a visible bug, not a silent one.
+- Chaining is correct: `acc.debit(e1).debit(e2)` evaluates the second against the balance the first
+  produced, which is what "apply both" actually means.
+
+**What Python cannot do here.** There is no `must_use`: discarding the returned account is legal and
+mypy will not flag it. The mitigation is structural — only the posting service applies entries, and
+the architecture test in §4.3 asserts it — not a claim that misuse is impossible.
 
 Every method shares one private preflight:
 
 ```python
-def _prepare(self, entry: Entry, direction: EntryDirection) -> Money:
-    self.assert_operable()                                   # AccountNotOperableError
-    if entry.account_id != self._account_id: raise EntryAccountMismatchError(...)
-    if entry.direction is not direction:     raise EntryDirectionMismatchError(...)
-    return self._balance + entry.signed_amount               # CurrencyMismatchError from Money
+def _validated_balance(self, entry: Entry, direction: EntryDirection) -> Money:
+    self.assert_operable()                                  # AccountNotOperableError
+    if entry.account_id != self.account_id: raise EntryAccountMismatchError(...)
+    if entry.direction is not direction:    raise EntryDirectionMismatchError(...)
+    return self.balance + entry.signed_amount               # CurrencyMismatchError from Money
 ```
 
 and the three public methods differ only in which rule they add:
@@ -207,15 +239,17 @@ and the three public methods differ only in which rule they add:
 | Method | Direction required | Overdraft check |
 | --- | --- | --- |
 | `credit` | `CREDIT` | none — a credit cannot violate I2 |
-| `debit` | `DEBIT` | `self._account_type.overdraft_policy.assert_allows(resulting, account_id=...)` |
+| `debit` | `DEBIT` | `self.account_type.overdraft_policy.assert_allows(resulting, account_id=...)` |
 | `debit_for_reversal` | `DEBIT` | **none** — the sole path permitted to cross zero |
-
-`commit()` sets `_balance` and increments `_version`. It touches nothing else and has no failure mode,
-which is what lets `post_transfer` commit two legs with no partial-mutation window (§5).
 
 Currency agreement between the leg and the account (I4) falls out of `Money.__add__`, which already
 raises the shared `CurrencyMismatchError`. There is no second currency check, because a second check
 is a second thing that can disagree.
+
+**One application per account per posting.** The posting service groups the legs by account and nets
+them before applying, so each account is succeeded exactly once (§5). With immutability this is no
+longer required for safety — chaining would also be correct — but it keeps the number of intermediate
+instances equal to the number of accounts, and it is the same grouping D4 already needs for I1.
 
 ### 4.3 The `debit` / `debit_for_reversal` split (D1 as amended)
 
@@ -226,11 +260,11 @@ anywhere, a second method must be *named*. That makes the audit mechanical, and 
 > **Architecture test**: parse every `.py` under `src/` with `ast`, collect every
 > `Attribute`/`Name` node called `debit_for_reversal`, and assert the set of (module, enclosing
 > function) pairs is exactly `{("account_balance/domain/account.py", <definition>),
-> ("account_balance/domain/posting.py", "post_reversal")}`.
+> ("account_balance/domain/posting.py", "revert")}`.
 
-The same test asserts `PendingApplication.commit` is called only inside `posting.py`. Python cannot
-make either unreachable — stating otherwise would be a lie — so the enforcement is a failing test on
-the next call site, which is exactly what PRD §10.3 asks for ("a test asserts no other path can").
+Python cannot make it unreachable — stating otherwise would be a lie — so the enforcement is a
+failing test on the next call site, which is exactly what PRD §10.3 asks for ("a test asserts no
+other path can").
 
 ### 4.4 Policy and classification enums
 
@@ -323,10 +357,19 @@ two legs) this degenerates exactly to `sum(debits) == sum(credits)`; the general
 the four-leg FX posting, and it is checked at *construction*, so no `Transfer` — hand-built or
 repository-reconstituted — can exist unbalanced.
 
-### 5.1 `post_transfer`
+### 5.1 `transfer`
+
+Named for the behaviour, not for the write. `transfer` described what happens to a table;
+`transfer` describes what happens to the money.
 
 ```python
-def post_transfer(
+@dataclass(frozen=True, slots=True)
+class Posting:
+    transfer: Transfer
+    accounts: tuple[Account, ...]   # the successors, one per account touched
+
+
+def transfer(
     *,
     transfer_id: TransferId,
     source: Account,
@@ -336,10 +379,14 @@ def post_transfer(
     idempotency_key: IdempotencyKey,
     occurred_at: datetime,
     entry_ids: tuple[EntryId, EntryId],
-) -> Transfer: ...
+) -> Posting: ...
 ```
 
-Sequence, and the order is the whole point:
+It returns a `Posting` rather than a bare `Transfer` because the accounts are now immutable: their
+successors are results, and a caller that only received the `Transfer` would have nothing to persist
+the new balances from.
+
+Sequence, and the order is still the whole point:
 
 ```
 1. guard      source.account_id != destination.account_id      -> SelfTransferError
@@ -347,21 +394,30 @@ Sequence, and the order is the whole point:
               source.currency == destination.currency == amount.currency (I4)
 2. build      debit_leg  = Entry(entry_ids[0], ..., source.account_id,      DEBIT,  amount, occurred_at)
               credit_leg = Entry(entry_ids[1], ..., destination.account_id, CREDIT, amount, occurred_at)
-3. prepare    pending = (source.debit(debit_leg), destination.credit(credit_leg))   <- I2 fires here
-4. construct  transfer = Transfer(..., entries=(debit_leg, credit_leg))             <- I1 fires here
-5. commit     for application in pending: application.commit()
-6. return     transfer
+3. apply      debited  = source.debit(debit_leg)              <- I2 fires here
+              credited = destination.credit(credit_leg)
+4. construct  transfer = Transfer(..., entries=(debit_leg, credit_leg))   <- I1 fires here
+5. return     Posting(transfer, (debited, credited))
 ```
+
+If step 3 or 4 raises, `debited` is discarded and `source` is exactly as it was. Nothing is undone
+because nothing was done — that is what immutability buys, and it is why no commit phase and no
+pending token are needed.
+
+**Legs are grouped and netted per account before being applied.** In v1 each account appears once, so
+the grouping is a no-op; it exists because D4 states I1 as per-currency netting, and a posting where
+one account holds several legs must succeed that account once rather than chaining and hoping the
+order was right.
 
 Steps 1–4 are pure: every rule that can refuse the operation has refused before step 5, and step 5
 cannot fail. So the two things that must never disagree — the entries and the balances — are produced
 by one function, and there is no window in which one exists without the other. That is D5, made
 atomic in-process rather than merely co-located.
 
-### 5.2 `post_reversal`
+### 5.2 `revert`
 
 ```python
-def post_reversal(
+def revert(
     original: Transfer,
     *,
     transfer_id: TransferId,
@@ -374,7 +430,7 @@ def post_reversal(
 ) -> Transfer: ...
 ```
 
-Identical to `post_transfer` with three differences:
+Identical to `transfer` with three differences:
 
 1. `amount` is not a parameter — it is `original.amount`. A partial reversal is just another transfer
    and does not need a concept (D10).
@@ -396,10 +452,10 @@ reversal per transfer" is a question about other rows and is carried to persiste
 | I1 | `Transfer.__post_init__`, per-currency netting | `UnbalancedTransferError` |
 | I2 | `Account.debit` → `OverdraftPolicy.assert_allows`; `debit_for_reversal` is the sole crossing path | `InsufficientFundsError` |
 | I3 | `Entry.__post_init__` and `Transfer.__post_init__` | `NonPositiveAmountError` |
-| I4 | `post_transfer` (source/destination/amount) and `Money.__add__` inside `Account._prepare` (leg vs account) | `CurrencyMismatchError` *(shared)* |
-| I5 | `post_transfer` and `Transfer.__post_init__` | `SelfTransferError` |
+| I4 | `transfer` (source/destination/amount) and `Money.__add__` inside `Account._prepare` (leg vs account) | `CurrencyMismatchError` *(shared)* |
+| I5 | `transfer` and `Transfer.__post_init__` | `SelfTransferError` |
 | I6 | Structural — `Entry` is `frozen=True, slots=True`; `entries` is a tuple; no mutator exists. In-process only (§8) | — |
-| I7 | Structural — `post_reversal` returns a new `Transfer`; nothing mutates an existing one | — |
+| I7 | Structural — `revert` returns a new `Transfer`; nothing mutates an existing one | — |
 | G5 | `Account.assert_owned_by` — the fact; *which legs to check* is use-case policy | `AccountOwnershipError` |
 
 ---
@@ -425,7 +481,7 @@ redefined. Class is a domain fact — whose fault is it — not an HTTP concern.
 | `EntryDirectionMismatchError` † | Internal | a `CREDIT` leg reached `debit`, or the reverse |
 | `MalformedTransferError` † | Internal | fewer than two legs, a leg belonging to another transfer, or source/destination not represented in the legs |
 | `NaiveTimestampError` † | Internal | a naive `datetime` reached the domain |
-| `ReversalMismatchError` † | Internal | the accounts passed to `post_reversal` are not the original's legs |
+| `ReversalMismatchError` † | Internal | the accounts passed to `revert` are not the original's legs |
 
 † not in the proposal's §7 table — added here because the design introduced the guard. Every one is a
 guard the proposal implies but does not name.
@@ -460,9 +516,9 @@ task.** Without it these become table-driven example tests, which is a real loss
 
 | # | Property | Why property-based |
 | --- | --- | --- |
-| P1 | For any two accounts and any amount the source can cover, `post_transfer` leaves `source.balance + destination.balance` unchanged | Conservation is the D2 sign convention; a flipped sign fails immediately |
+| P1 | For any two accounts and any amount the source can cover, `transfer` leaves `source.balance + destination.balance` unchanged | Conservation is the D2 sign convention; a flipped sign fails immediately |
 | P2 | For any generated set of legs, `Transfer` construction succeeds **iff** every currency nets to zero — including synthetic four-leg two-currency sets | Tests I1 in the general form now, before FX exists (proposal §12) |
-| P3 | For any sequence of `post_transfer` calls over a pool of accounts, every `USER` balance stays ≥ 0 and the sum over all accounts is zero | I2 totality across paths, not one call |
+| P3 | For any sequence of `transfer` calls over a pool of accounts, every `USER` balance stays ≥ 0 and the sum over all accounts is zero | I2 totality across paths, not one call |
 | P4 | After any generated sequence, each account's balance equals the sum of `signed_amount` over every entry naming it | The domain-level analogue of PRD §10.2 reconciliation, with zero infrastructure |
 
 ### 9.2 Example-based
@@ -473,9 +529,9 @@ cases where a specific scenario is the specification:
 - **PRD §7.3, verbatim**: Ana transfers 100 to Bruno, Bruno spends 80, an operator reverses. Assert
   Bruno's balance is `-80`, Ana is whole, four entries exist across two transfers, and the reversal
   carries `reverses`. This is the golden test for the amended D1.
-- **`debit` still refuses**: the same shortfall through `post_transfer` raises `InsufficientFundsError`.
+- **`debit` still refuses**: the same shortfall through `transfer` raises `InsufficientFundsError`.
   The two tests together *are* I2.
-- **Atomicity**: `post_transfer` into a `CLOSED` destination raises and leaves `source.balance`
+- **Atomicity**: `transfer` into a `CLOSED` destination raises and leaves `source.balance`
   **unchanged** — the §4.2 fix, and it fails if anyone reintroduces mutate-then-validate.
 - **Reconstitution**: `reconstitute` accepts a negative `USER` balance and a `CLOSED` status;
   `open` always produces zero, `ACTIVE`, version `0`, for `SYSTEM` accounts too.
@@ -484,8 +540,8 @@ cases where a specific scenario is the specification:
 
 ### 9.3 Architecture tests (AST over `src/`, no infrastructure)
 
-1. `debit_for_reversal` is referenced only in `account.py` (definition) and in `post_reversal`.
-2. `PendingApplication.commit` is called only in `posting.py`.
+1. `debit_for_reversal` is referenced only in `account.py` (definition) and in `revert`.
+2. `Account` carries no method that mutates in place — every state-changing method returns `Account`.
 3. No module under `account_balance/domain/` imports `application`, `adapters`, or any sibling module
    above it in the §1 table.
 4. No `datetime.now`, `datetime.utcnow`, `uuid`, `uuid6` or `IdGenerator` reference exists under
@@ -515,7 +571,7 @@ Stated plainly, because each is a place the proposal as written cannot be implem
 
 | Proposal text | Problem | Resolution |
 | --- | --- | --- |
-| D1 amended: `def debit(self, amount: Money) -> None` | Takes `Money`, not an `Entry`, and mutates directly — contradicts D5 (a balance cannot move without an entry) and reintroduces the partial-mutation window | Entry-taking, returning `PendingApplication` (§4.2). Method names from PRD §7.3 are preserved exactly, because the grep audit depends on them |
+| D1 amended: `def debit(self, amount: Money) -> None` | Takes `Money`, not an `Entry`, and mutates in place — contradicts D5 (a balance cannot move without an entry) and leaves a partial-mutation window | Entry-taking, returning a new `Account` (§4.2). Method names from PRD §7.3 preserved exactly, because the grep audit depends on them |
 | D10 body: "the reversal is refused with `InsufficientFundsError`" | Reversed by PRD §7.3 and the proposal's own §8b. Stale text | Reversal posts in full via `debit_for_reversal`; the recipient goes negative |
 | §9 Q3 row: "absorb the shortfall into a `SYSTEM` receivable" | Same reversal; the row was not updated when §8b landed | §8b is authoritative. **The proposal should be corrected** so a future reader is not led by a resolved-looking table |
 | D2: "`Account.apply(entry)` dispatches on direction" | Dispatching on direction to pick a sign creates a *second* place a sign is chosen, defeating D2's own purpose | `Account` adds `entry.signed_amount`; direction selects the *rule* (`credit`/`debit`), never the sign |
