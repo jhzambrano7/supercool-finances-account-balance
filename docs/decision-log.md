@@ -445,3 +445,10 @@ Formato de cada entrada:
 - **Prompt:** (continuación directa del pedido de este turno)
 - **Respuesta:** Pusheado `feat/transfer` y abierto el PR #2 apuntando a `feat/account-opening` (no a main, per feature-branch-chain), con el bug de concurrencia real y su fix documentados en el cuerpo del PR. `revert` (PR #3) arranca sobre `feat/transfer` a continuación.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 02:50 — Especificar revert y lanzar su implementación
+
+- **Qué intentaba:** Cerrar el tercer eslabón de la cadena: documentar y lanzar la implementación de la reversión (PR #3).
+- **Prompt:** (continuación directa del pedido de este turno)
+- **Respuesta:** `openspec/specs/revert/spec.md`: decisiones R1–R8. La más importante: R1 declara explícitamente que "operador-autorizado" en v1 es sólo "un endpoint separado sin chequeo de dueño" — una limitación real y declarada, no un mecanismo de verificación de operador inventado (el PRD mismo delega esa pregunta al adaptador de autenticación real, fuera de alcance). R2 deriva origen/destino de la transferencia original en vez de aceptarlos del cliente, eliminando una clase entera de error posible. R3 aplica por adelantado la lección que costó un bug real en transfer: la reserva de idempotencia debe ser la primera escritura, antes de tocar cualquier cuenta — documentado explícitamente citando el commit del fix (`0c4ea93`) en el brief de implementación. R4 es el índice único parcial sobre `transfers.reverses` que design.md ya había especificado pero nunca se había construido. Lanzada la implementación en background sobre `feat/revert`, con instrucción explícita de reusar toda la maquinaria de `transfer` (unit of work, repositorios, mecanismo de idempotencia) sin duplicarla.
+- **Veredicto:** ⏳ pendiente
