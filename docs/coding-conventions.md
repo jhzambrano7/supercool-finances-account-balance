@@ -125,15 +125,21 @@ This keeps the application layer free of SQL (Ports & Adapters) while still lett
 express an arbitrary lookup — the criteria is domain-shaped, the translation is adapter-shaped, and
 neither leaks into the other.
 
-### DBOs: the naming for persisted rows, and where their mapping logic lives
+### DBOs and DTOs: the naming for boundary shapes, and where their mapping logic lives
 
-**Rule:** a SQLAlchemy-mapped class is named `<Thing>Dbo`, lives in `adapters/.../dbos/`, and owns its
-own translation to and from the domain type as `from_domain`/`as_domain` — not as free functions
-sitting beside the class in the repository module. Its mapping logic gets its own unit test, not only
-indirect coverage through an integration test against a real database (`tests/unit/.../test_dbos.py`
-— covering, at minimum, a round trip and reconstituting a row the domain would refuse to *construct*
-fresh, e.g. a negative balance, to confirm the mapping uses `reconstitute()` and never re-asserts an
-invariant the domain only enforces on the write path).
+**Rule:** applies at both boundaries the domain never sees across. Outbound (persistence): a
+SQLAlchemy-mapped class is named `<Thing>Dbo`, lives in `adapters/.../dbos/`, and owns its own
+translation to and from the domain type as `from_domain`/`as_domain`. Inbound (HTTP): a pydantic
+request/response model is named `<Thing>Dto`, lives in `adapters/inbound/api/`, and owns its own
+translation *from* the application layer as a `from_result`-shaped classmethod (never the domain
+directly — a DTO maps from a use case's result, the same boundary a route already respects). Neither
+uses free functions sitting beside the class to do this — the mapping is the class's own behavior.
+Either kind's mapping logic gets its own unit test, not only indirect coverage through an integration
+test against a real database or a real HTTP call (`tests/unit/.../test_dbos.py`,
+`tests/unit/.../test_dtos.py` — covering, at minimum, a full round trip; a DBO additionally covers
+reconstituting a row the domain would refuse to *construct* fresh, e.g. a negative balance, to confirm
+the mapping uses `reconstitute()` and never re-asserts an invariant the domain only enforces on the
+write path).
 
 ### Log every exception the adapter catches; wrap only the ones you didn't expect
 
@@ -203,6 +209,58 @@ needs this — an internal guard nothing outside the domain ever catches by type
 `EntryDirectionMismatchError`) gains nothing from structured fields nobody reads; reserve the extra
 `__init__` for errors a real caller inspects.
 
+### The application layer does not know HTTP exists
+
+**Rule:** an application-layer result (a use case's return type) states facts, never a transport-level
+interpretation of them — no status codes, no header names, no framework types. Deciding what a fact
+*means* to a particular inbound adapter (e.g. "`created=True` means HTTP 201") is that adapter's job,
+done at the boundary, not asked of the result. This is stricter than it sounds: even a plain `int`
+alongside a comment disclaiming any framework dependency still encodes an HTTP-specific number inside
+the application layer — the encoding is the leak, not the type it's stored as. If a second inbound
+adapter (a CLI, a message consumer) ever calls the same use case, it must not have to interpret an
+HTTP status code to know what happened.
+
+```python
+# Before — the use case's own result decides an HTTP-specific number
+@dataclass(frozen=True, slots=True)
+class OpenAccountResult:
+    account: Account
+    created: bool
+    @property
+    def http_status(self) -> int:
+        return 201 if self.created else 200
+```
+
+```python
+# After — the result states a fact; the inbound adapter interprets it
+@dataclass(frozen=True, slots=True)
+class OpenAccountResult:
+    account: Account
+    created: bool
+
+# in the route:
+response.status_code = status.HTTP_201_CREATED if result.created else status.HTTP_200_OK
+```
+
+### No layer-signaling suffixes
+
+**Rule:** a class name says what it does, not which layer it lives in — the module path already says
+that. `UseCase`, `Service`, `Manager`, `Handler` used as a generic suffix are the class-naming
+equivalent of Hungarian notation: `AccountRegister` (an application service) reads as well as
+`AccountRegisterUseCase` and the suffix has to be typed, read and kept in sync with nothing in
+exchange. Prefer a name built from the domain verb the type actually performs.
+
+### Domain and application errors default to `400`, not `500`, at the HTTP boundary
+
+**Rule:** a `DomainError` (or `ApplicationError`) reaching an inbound adapter's defensive catch-all is
+a business-rule violation over the request or the system's current state — the caller's fault (or at
+least the caller's to know about), not evidence the service itself is broken. Default that catch-all
+to `400 Bad Request`, not `500`. A specific error the endpoint already names explicitly (e.g. a
+resource-conflict error mapped to `409`) still takes priority over the catch-all; this only changes
+what an *unnamed* one defaults to. **Not yet applied everywhere**: `transfer`'s and `revert`'s routes
+(earlier PRs in this repo) still default to `500` for this same catch-all — reconcile the next time
+either is touched, rather than silently diverging further.
+
 ### Applied so far
 
 | Type | Convention | Where |
@@ -212,6 +270,10 @@ needs this — an internal guard nothing outside the domain ever catches by type
 | `AccountDbo` | DBO naming, `from_domain`/`as_domain` colocated + unit-tested | `adapters/outbound/repositories/sql/dbos/models.py` |
 | `AccountRepositoryError` | `IntegrationError` wrapper, logged unconditionally, wrapped only when unrecognized | `adapters/outbound/repositories/sql/sql_account_repository.py` |
 | `AccountNotFoundError` / `AccountAlreadyExistsError` | structured body (see below), not a bare message string | `application/gateways/account_repository.py` |
+| `Base` (SQLAlchemy declarative) | one shared base, not one per module | `shared/adapters/outbound/repositories/sql/base.py` |
+| `AccountResponseDto` / `OpenAccountRequestDto` | DTO naming, `from_result` colocated + unit-tested | `adapters/inbound/api/dtos.py` |
+| `OpenAccountResult` | no `http_status`, no HTTP concept at all — the route decides | `application/use_cases/account_register.py` |
+| `AccountRegister` | no `UseCase` suffix | `application/use_cases/account_register.py` |
 
 **Known gap, not yet reconciled:** `application/use_cases/transfer_money.py` and `revert_transfer.py`
 (the `transfer` and `revert` slices, later PRs in this repo's history) each define their own
