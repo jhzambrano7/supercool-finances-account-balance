@@ -2,9 +2,13 @@ from fastapi import FastAPI
 
 from modules.account_balance.adapters.config.dependencies import AccountBalanceContainer
 from modules.account_balance.adapters.inbound.api.routes import router as account_balance_router
+from modules.account_balance.adapters.inbound.api.transfer_routes import (
+    router as transfer_router,
+)
 
 _WIRED_MODULES = [
     "modules.account_balance.adapters.inbound.api.routes",
+    "modules.account_balance.adapters.inbound.api.transfer_routes",
 ]
 
 
@@ -25,6 +29,7 @@ def create_app() -> FastAPI:
     # against a real database before the app is exercised.
     app.container = account_balance_container  # type: ignore[attr-defined]
     app.include_router(account_balance_router)
+    app.include_router(transfer_router)
     return app
 
 
