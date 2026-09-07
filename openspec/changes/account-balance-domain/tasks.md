@@ -52,21 +52,21 @@ referencing I2/I3/I5/G5/§4.4/§6.3/§7.2.
 
 Depends on Work Unit 1 (errors).
 
-- [ ] **T2.1 (test)** — Write `tests/unit/account_balance/domain/test_identifiers.py` covering the
+- [x] **T2.1 (test)** — Write `tests/unit/account_balance/domain/test_identifiers.py` covering the
       example-based cases design §9.2 names explicitly: `AccountId(u) != TransferId(u)` for the same
       UUID (spec "Different identifier types never compare equal"), and two distinct `AccountId`
       values are totally ordered (`<`/`>` consistent on repeated comparison — spec "Two account ids
       are orderable"). Also assert `EntityId.__post_init__` rejects a non-`UUID` value, and that
       `PLATFORM_OWNER_ID` is the nil UUID. Satisfies: spec "Typed Identifiers Are Not Interchangeable",
       "Account Identifiers Support Deterministic Ordering"; design §2.
-- [ ] **T2.2 (test)** — Add `IdempotencyKey` cases to the same file: rejects empty string, rejects a
+- [x] **T2.2 (test)** — Add `IdempotencyKey` cases to the same file: rejects empty string, rejects a
       whitespace-only string, rejects a string over 255 characters (after stripping), accepts
       exactly 255 characters, strips surrounding whitespace. Satisfies: spec `IdempotencyKey` row in
       "Resolved after the first draft"; design §2 last bullet. This has no dedicated spec scenario —
       the 255-character bound is documented only in the "Resolved after the first draft" section, not
       as a Given/When/Then requirement, so this task cites that section rather than inventing a
       requirement heading that does not exist in the spec.
-- [ ] **T2.3 (impl)** — Implement `src/modules/account_balance/domain/identifiers.py`: `EntityId`
+- [x] **T2.3 (impl)** — Implement `src/modules/account_balance/domain/identifiers.py`: `EntityId`
       base, `AccountId` (`order=True`), `TransferId`, `EntryId`, `OwnerId`, `IdempotencyKey`,
       `PLATFORM_OWNER_ID`. All frozen, all `slots=True`. Satisfies: same as T2.1/T2.2.
 
