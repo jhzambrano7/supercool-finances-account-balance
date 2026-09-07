@@ -445,3 +445,11 @@ Formato de cada entrada:
 - **Prompt:** "con esto resuelto, qué hiciste para tener lineamientos y que ya sea automático hacia adelante?"
 - **Respuesta:** Aclarado directamente que no se hizo nada todavía — el turno anterior sólo corrigió código, no se escribió ningún documento ni skill. Reiterada la recomendación de documento versionado sobre skill, y ofrecido escribirlo ahora mismo con las 5 convenciones validadas contra código real más las dos correcciones que salieron en la práctica.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 12:45 — Documentar las convenciones de repositorio/adapter
+
+<!-- id: 20260907-124524-a1fe3a40 -->
+- **Qué intentaba:** Escribir el documento de convenciones acordado, con la salida de emergencia de armar el skill si no sirve.
+- **Prompt:** "procede, si no nos sirve, montamos la skill"
+- **Respuesta:** Extendido `docs/coding-conventions.md` con una sección nueva "Repository & Adapter Conventions": colección persistente (find/get/add, sin find_by_x), Criteria extensible + traductor en el adapter, DBOs con mapping propio + test unitario obligatorio, wrapper de excepciones con logging sólo en lo no reconocido (con el ejemplo real del bug de orden que se corrigió), y la regla de layering por clase base (no por archivo) que explica el bug de dominio importando de aplicación que apareció en la práctica. Incluida una tabla "Applied so far" y el hueco explícito no resuelto (AccountNotFoundError duplicado en transfer/revert).
+- **Veredicto:** ⏳ pendiente
