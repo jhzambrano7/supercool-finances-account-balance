@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from logging import Logger
+from typing import override
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +35,7 @@ class SqlAccountRepository(AccountRepository):
         self._logger = logger
         self._session_factory = session_factory
 
+    @override
     async def find(self, *, criteria: FindAccountCriteria) -> Account | None:
         try:
             async with self._session_factory() as session:
@@ -45,6 +47,7 @@ class SqlAccountRepository(AccountRepository):
                 operation="find", cause=exc, metadata={"criteria": repr(criteria)}
             ) from exc
 
+    @override
     async def add(self, account: Account) -> None:
         dbo = AccountDbo.from_domain(account)
         try:
@@ -52,16 +55,16 @@ class SqlAccountRepository(AccountRepository):
                 session.add(dbo)
                 await session.commit()
         except IntegrityError as exc:
+            # Logged unconditionally -- every IntegrityError this adapter
+            # sees is recorded, including the recognized AO4 conflict below,
+            # so the log is a complete audit trail of integrity violations
+            # rather than only the ones this adapter fails to explain.
+            self._logger.exception("integrity error adding account %s", account.account_id)
             if _violates_natural_key_constraint(exc):
-                # Expected, handled by the use case (AO4) -- not a failure
-                # this adapter should log as unexpected or wrap.
                 raise AccountNaturalKeyConflictError(
                     f"account already exists for natural key (owner={account.owner_id}, "
                     f"purpose={account.purpose.value}, currency={account.currency})"
                 ) from exc
-            self._logger.exception(
-                "unexpected integrity error adding account %s", account.account_id
-            )
             raise AccountRepositoryError(
                 operation="add", cause=exc, metadata={"account_id": str(account.account_id.value)}
             ) from exc

@@ -135,26 +135,25 @@ indirect coverage through an integration test against a real database (`tests/un
 fresh, e.g. a negative balance, to confirm the mapping uses `reconstitute()` and never re-asserts an
 invariant the domain only enforces on the write path).
 
-### Wrap third-party exceptions at the port boundary — but only the ones you didn't expect
+### Log every exception the adapter catches; wrap only the ones you didn't expect
 
-**Rule:** an adapter method that can fail in a *recognized* way (a unique-constraint violation the
-use case already knows how to recover from) raises its own typed error for that case, unchanged. Only
-a failure the adapter does **not** recognize gets `logger.exception(...)`'d and wrapped in an
-`<Thing>RepositoryError` (an `IntegrationError`) before crossing the port — so the application and
-domain layers never depend on which library sits behind the adapter, and an operator's logs are not
-full of "exceptions" for conditions the system already handles correctly.
+**Rule:** `logger.exception(...)` fires unconditionally for every exception an adapter method catches
+— including a *recognized* one (a unique-constraint violation the use case already knows how to
+recover from), not only the unrecognized ones. The log is a complete audit trail of every integrity
+violation this adapter sees, not a filtered stream of only what surprised it. What differs by
+recognition is not whether it is logged, but what gets **raised** afterward: a recognized failure
+still raises its own typed error, unchanged, for the use case to handle; only a failure the adapter
+does **not** recognize gets wrapped in an `<Thing>RepositoryError` (an `IntegrationError`) before
+crossing the port, so the application and domain layers never depend on which library sits behind
+the adapter.
 
 ```python
 except IntegrityError as exc:
+    self._logger.exception(...)                    # logged either way — the audit trail
     if _violates_natural_key_constraint(exc):
-        raise AccountNaturalKeyConflictError(...) from exc  # expected, handled upstream — no log
-    self._logger.exception(...)                              # genuinely unexpected — log, then wrap
-    raise AccountRepositoryError(operation="add", cause=exc, metadata=...) from exc
+        raise AccountNaturalKeyConflictError(...) from exc  # recognized — its own typed error
+    raise AccountRepositoryError(operation="add", cause=exc, metadata=...) from exc  # not — wrapped
 ```
-
-Getting the order backwards (log-then-check, instead of check-then-log-only-on-the-unrecognized-path)
-was a real bug found while applying this convention: it turned a normal, already-handled concurrency
-race into a logged "exception" on every occurrence.
 
 ### Where each error type lives is decided by its base class, not by which file raises it
 

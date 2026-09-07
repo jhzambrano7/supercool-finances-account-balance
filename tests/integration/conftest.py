@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from testcontainers.postgres import PostgresContainer
+from testcontainers.community.postgres import PostgresContainer
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
