@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 29
+**Turns recorded:** 30
 
 ---
 
@@ -2170,12 +2170,13 @@ Te aviso cuando llegue y lo reviso antes de pasártelo.
 </task-notification>
 ```
 
-<details><summary>Tool calls (4)</summary>
+<details><summary>Tool calls (5)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== hay remoto / flujo de PRs? ===" git remote -v || echo " sin rem…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/specs/account-…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== unidades de trabajo y forecast ===" rg -n '^## |^### Work Unit|…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add openspec/ git commit -q -F - <<'MSG' docs(docs): add the domain t…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
 
 </details>
 
@@ -2197,5 +2198,62 @@ ReversalMismatchError       → spec:0  design:2
 ```
 
 El design enforcea cuatro guards que el spec no menciona. Y como el spec quedó como **documentación permanente y fuente de lo que debe ser cierto**, eso significa que hay tests por escribir que ningún requisito respalda. Lo cierro:
+
+Tasks listo. **46 commits.**
+
+## La lista
+
+7 unidades de trabajo, 28 tareas, todas test-first, en el orden de imports del design:
+
+```
+errors → identifiers → entry → account → transfer → posting → tests de arquitectura
+```
+
+Separa las tareas de **propiedades** de las de **ejemplos** (4 property-based), incluye los tests de arquitectura, y —esto me gustó— lista explícitamente **lo que ningún test unitario de dominio puede demostrar**: G2, la concurrencia. En vez de dejarla implícitamente cubierta, la declara diferida a un test de integración fuera de alcance. Es la diferencia entre una lista honesta y una que te deja creyendo que terminaste.
+
+## La entrega
+
+El forecast estima ~1.500 líneas y recomienda 6 PRs encadenados. **Verifiqué que el repo no tiene remotos**, así que no hay flujo de PRs — encadenar PRs contra nada es ceremonia sin revisor. La granularidad real son las 7 unidades commiteables, que ya atacan el problema que el forecast señala. Si después publicás a GitHub, los cortes ya están hechos y se vuelven PRs sin trabajo extra.
+
+Lo decidí sin preguntarte porque las opciones del guard no aplicaban al estado real del repositorio.
+
+## Lo que encontró y corregí
+
+El design enforcea **cuatro guards que el spec no mencionaba**:
+
+```
+EntryDirectionMismatchError → spec:0  design:2
+MalformedTransferError      → spec:0  design:2
+NaiveTimestampError         → spec:0  design:3
+ReversalMismatchError       → spec:0  design:2
+```
+
+Como el spec quedó como documentación permanente de lo que debe ser cierto, eso significaba **tests por escribir sin ningún requisito detrás**. Los agregué con escenarios, en una sección de guards internos que aclara que no son reglas que un cliente pueda disparar, sino defensas contra un llamador de este servicio armando algo incoherente.
+
+El del timestamp lo justifiqué más allá de la prolijidad, porque vale: el rastro de asientos **es** el registro de auditoría, y un ledger ordenado por timestamps ambiguos no se puede reconciliar cruzando un cambio de horario. "14:30" no es una hora hasta que sabés dónde.
+
+Una advertencia sobre la unidad 4 (`Account`, ~430 líneas): es la más grande y no se puede partir más sin romper la cohesión del agregado. La lista ya la subdivide en 4a/4b/4c/4d como commits separados, que es la respuesta correcta.
+
+¿Arrancamos con `apply`? Con TDD estricto, la unidad 1 son los errores de dominio — chico, y sirve para validar que el ciclo rojo-verde funciona antes de entrar en `Account`.
+
+---
+
+## Turn 30 — 2026-09-07 03:55:36.868 UTC
+
+### Prompt
+
+```text
+vamos con apply
+```
+
+<details><summary>Tool calls (1)</summary>
+
+- `Agent` — Implement **Work Units 1, 2 and 3 only** of the account balance domain: `domain/errors.py`, `domain/identifiers.py`, `domain/entry.py`, with…
+
+</details>
+
+### Response
+
+Arranco por las unidades 1–3 (errores, identificadores, `Entry`) — unas 390 líneas, justo bajo el presupuesto de revisión, y te deja un punto de corte para mirar el estilo antes de entrar en `Account`, que es la grande.
 
 ---
