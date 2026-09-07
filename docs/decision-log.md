@@ -341,4 +341,12 @@ Formato de cada entrada:
 - **Prompt:** — (notificación de tarea en background)
 - **Respuesta:** Verificado de forma independiente: 131 tests, 11 gates en verde, commit `75e7448`. El agente marcó un judgment call para revisar: `PLATFORM_OWNER_ID = OwnerId(UUID(int=0))` en `identifiers.py` es un `ast.Call` real pero el visitor de T7.3 no lo marca, porque su regex sólo atrapa nombres tipo `uuid4`/`uuid7` (funciones **generadoras**), no `UUID` (el constructor de tipo). **Verificado empíricamente**: `UUID(int=0) == UUID(int=0)` da `True`; `uuid4() == uuid4()` da `False`. D6 prohíbe que el dominio dependa de algo que cambia entre llamadas (reloj, aleatoriedad) porque eso obligaría a fakes en los tests; `UUID(int=0)` es una constante literal determinística, análoga a `Money.zero(currency)`, no una fuente de no-determinismo. Excluirla es correcto, no una laguna del regex. También verificado que el orden de imports de T7.2 está declarado explícito (siguiendo §1) pero con guardia: el test falla ruidosamente si aparece un módulo de dominio nuevo sin agregar a la lista, en vez de dejarlo pasar sin auditar.
 - **Cierra el dominio completo:** 6 archivos (`errors`, `identifiers`, `entry`, `account`, `transfer`, `posting`), 131 tests, unidades 1–7 terminadas.
+- **Veredicto:** ✅ aprobado
+
+## 2026-09-07 00:20 — Correr sdd-verify sobre el dominio completo
+
+<!-- id: 20260907-002009-a1fe3a40 -->
+- **Qué intentaba:** Cierre formal del dominio: verificar contra spec, design y tasks.
+- **Prompt:** "corre la verificación"
+- **Respuesta:** Lanzado `sdd-verify`, instruido a **ejecutar** en vez de inferir: correr la suite y los gates él mismo, y para I1/I2 hacer un chequeo de mutación real (debilitar el guard, confirmar que un test lo agarra, revertir) en vez de confiar en que un test con el nombre correcto hace lo correcto. Se le marcaron dos deltas de diseño ya decididos (instancias nuevas en vez de `PendingApplication`; `entry_ids` como callable) para que no los relitigue como hallazgos. Verificación de sólo lectura: no debe tocar `src/`/`tests/`, y si necesita mutar algo temporalmente para probar un guard de arquitectura, debe restaurarlo exacto antes de terminar.
 - **Veredicto:** ⏳ pendiente

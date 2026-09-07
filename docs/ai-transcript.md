@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 42
+**Turns recorded:** 43
 
 ---
 
@@ -3121,13 +3121,14 @@ Con esto cierra el módulo de dominio completo — unidades 1 a 7. Te aviso cuan
 </task-notification>
 ```
 
-<details><summary>Tool calls (5)</summary>
+<details><summary>Tool calls (6)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest -q 2>&1 | tail -5 echo "=== gates ==="; uv run pre-commit r…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/_AmbientCallVisitor/,/^def test_no_ambient/p' tests/unit/account…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n '_ID_GENERATING_UUID_CALL' tests/unit/account_balance/domain/test_a…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python -c " from uuid import UUID print('UUID(int=0) llamado dos v…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== ¿el test cubre el orden de imports derivado de §1, no hardcodea…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
 
 </details>
 
@@ -3145,5 +3146,57 @@ uuid4() == uuid4()          → False  (ambiente, distinta cada vez)
 ```
 
 `D6` prohíbe que el dominio **genere** tiempo o identidad — o sea, que dependa de algo externo que cambia entre llamadas (reloj, aleatoriedad del SO), lo cual obligaría a usar fakes en los tests para poder verificar aritmética. `UUID(int=0)` no tiene esa propiedad: es una constante literal, igual a `Money.zero(currency)` — un constructor con un valor fijo, no una fuente de no-determinismo. Excluirla del test es correcto, no una laguna.
+
+Bien resuelto: el orden está declarado como lista explícita (que sigue §1), pero además el test **falla ruidosamente** si aparece un módulo nuevo que nadie agregó a la lista — en vez de dejarlo pasar en silencio sin auditar. Es la forma correcta de "derivar del design" sin magia de introspección de archivos.
+
+El dominio completo está cerrado: **6 archivos, 131 tests, 76 commits, gates verdes.**
+
+**El módulo de dominio está terminado.** 6 archivos, 131 tests, 78 commits, todos los gates en verde.
+
+```
+errors → identifiers → entry → account → transfer → posting
+```
+
+## Sobre el judgment call que marcó — verificado y correcto
+
+`PLATFORM_OWNER_ID = OwnerId(UUID(int=0))` es técnicamente una llamada (`ast.Call`), pero el test que prohíbe generación ambiente de IDs no la marca. Lo comprobé en vivo en vez de aceptar la explicación:
+
+```
+UUID(int=0) == UUID(int=0)  → True
+uuid4() == uuid4()          → False
+```
+
+Esa es exactamente la línea que D6 traza: prohíbe que el dominio dependa de algo que **cambia entre llamadas** — reloj, aleatoriedad del sistema — porque eso te obliga a usar fakes en los tests para poder verificar aritmética. `UUID(int=0)` es una constante fija, tan inocua como `Money.zero(currency)`. Excluirla del test no es una laguna, es la distinción correcta.
+
+## Lo demás, resuelto sin sorpresas
+
+El orden de imports de T7.2 quedó declarado explícito (`errors, identifiers, entry, account, transfer, posting`) pero con guardia: si aparece un séptimo módulo de dominio y nadie lo agrega a esa lista, el test **falla ruidosamente** en vez de dejarlo pasar sin auditar. Es la forma correcta de no depender de introspección mágica de archivos sin perder la protección.
+
+Y la ambigüedad que anticipé al delegarlo —distinguir llamadas reales de menciones en docstrings— resultó no ser ambigua en la práctica: el AST separa naturalmente los literales de string de los nodos `Call`/`Attribute`/`Name`. El agente lo confirmó con un script sintético de violaciones antes de darlo por bueno.
+
+---
+
+Con esto, el dominio de `account_balance` está completo y verificado. Queda pendiente correr `sdd-verify` contra spec y design como cierre formal, o seguir directo con la capa de casos de uso — que es donde vas a poder juzgar con código real la duda que dejaste abierta sobre la frontera dominio/caso de uso. ¿Cómo seguimos?
+
+---
+
+## Turn 43 — 2026-09-07 05:20:09.690 UTC
+
+### Prompt
+
+```text
+corre la verificación
+```
+
+<details><summary>Tool calls (2)</summary>
+
+- `Agent` — Verify the account balance DOMAIN implementation (Work Units 1–7, now complete) against its spec, design, and tasks. Write a verify report. …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
+
+</details>
+
+### Response
+
+*(No response was produced for this prompt — the turn was interrupted or the prompt was re-submitted.)*
 
 ---
