@@ -349,4 +349,15 @@ Formato de cada entrada:
 - **Qué intentaba:** Cierre formal del dominio: verificar contra spec, design y tasks.
 - **Prompt:** "corre la verificación"
 - **Respuesta:** Lanzado `sdd-verify`, instruido a **ejecutar** en vez de inferir: correr la suite y los gates él mismo, y para I1/I2 hacer un chequeo de mutación real (debilitar el guard, confirmar que un test lo agarra, revertir) en vez de confiar en que un test con el nombre correcto hace lo correcto. Se le marcaron dos deltas de diseño ya decididos (instancias nuevas en vez de `PendingApplication`; `entry_ids` como callable) para que no los relitigue como hallazgos. Verificación de sólo lectura: no debe tocar `src/`/`tests/`, y si necesita mutar algo temporalmente para probar un guard de arquitectura, debe restaurarlo exacto antes de terminar.
+- **Veredicto:** ✅ aprobado
+
+## 2026-09-07 00:29 — Cerrar los hallazgos del verify report
+
+<!-- id: 20260907-002905-a1fe3a40 -->
+- **Qué intentaba:** (Turno disparado por la finalización del sub-agente de verify.) Revisar y cerrar los hallazgos del reporte antes de pasarlo por bueno.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** Reporte: PASS WITH WARNINGS — 131/131 tests, gates limpios, I1/I2 y ambos tests de arquitectura verificados por mutación real (debilitar el guard, confirmar fallo, revertir), no por confiar en el nombre del test. 1 CRITICAL, 2 WARNING, 2 SUGGESTION. **Los tres hallazgos principales se verificaron de forma independiente antes de aceptarlos** — corrida en vivo confirmando que `Transfer` con patas USD/EUR directas efectivamente lanza `UnbalancedTransferError` (comportamiento correcto, sólo sin test), grep confirmando ausencia total de test de moneda a nivel `Account`, y lectura de la firma de `revert()` confirmando que no acepta `amount` como parámetro (el escenario del spec describía un input irrecibible).
+- **Cerrado:** (1) test nuevo en `test_transfer.py` para el escenario "patas mezcladas alimentadas directo a Transfer"; (2) tres tests nuevos en `test_account.py` cubriendo moneda equivocada en `debit`/`credit`/`debit_for_reversal`, ninguno existía; (3) corregido el escenario de spec de reversa que describía un monto no aceptado por la firma real — reescrito para describir el guard real (identidad de cuenta), con nota explicando por qué el monto nunca podía ser lo que fallara; (4) corregida la tabla de imports de `posting.py` en el design, que omitía `money`/`errors` de shared.
+- **Diferido a propósito, no ignorado:** la evasión del test de arquitectura T7.3 por alias de import (`import datetime as dt`) — el propio reporte confirma que hoy no hay ninguna instancia real en el código; arreglar la robustez del test es trabajo de tooling sobre el propio test, no un hueco del dominio.
+- **137 tests, gates verdes, 3 commits nuevos.**
 - **Veredicto:** ⏳ pendiente
