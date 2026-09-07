@@ -286,7 +286,7 @@ Commit boundary: Work Unit 5 is one commit, `PRD:` trailer referencing I1, I3, I
 Depends on Work Units 1–5 (imports `account`, `transfer`, `entry`, `identifiers`, `errors` per
 design §1).
 
-- [ ] **T6.1 (test)** — Write `tests/unit/account_balance/domain/test_posting.py::TestTransfer`:
+- [x] **T6.1 (test)** — Write `tests/unit/account_balance/domain/test_posting.py::TestTransfer`:
       - Posting a valid transfer moves both balances and records both legs, returned `Transfer` has
         exactly two entries netting to zero (spec "Posting a valid transfer moves both balances and
         records both legs").
@@ -300,7 +300,7 @@ design §1).
         self-transfer scenario, exercised through the service entry point this time).
       Satisfies: spec "Posting a Transfer Produces Balanced Entries and Applies Them Atomically in the
       Domain"; design §5.1.
-- [ ] **T6.2 (test)** — Extend `test_posting.py::TestRevert`:
+- [x] **T6.2 (test)** — Extend `test_posting.py::TestRevert`:
       - Reversal references the original without touching it: new `Transfer` returned with
         `reverses=T1`, `T1`'s fields unchanged (spec "Reversal references the original without
         touching it").
@@ -319,18 +319,18 @@ design §1).
         at all; cite design only).
       Satisfies: spec "A Reversal Is an Ordinary Transfer That References Its Original", "A Reversal
       Always Posts in Full, Even Into Negative Territory"; design §5.2, §7.3 (PRD).
-- [ ] **T6.3 (test) — PROPERTY-BASED (design §9.1 P1)** — Write `test_posting_properties.py`: for any
+- [x] **T6.3 (test) — PROPERTY-BASED (design §9.1 P1)** — Write `test_posting_properties.py`: for any
       two accounts and any amount the source can cover, `transfer()` leaves
       `source.balance + destination.balance` unchanged (conservation). Mark explicitly as testing the
       D2 sign convention property. Satisfies: design §9.1 row P1 — conservation is implied by I1/I2
       together but has no single spec Given/When/Then of its own; cite design §9.1.
-- [ ] **T6.4 (test)** — Extend `test_posting.py` (or `test_account.py`, either is defensible — pick
+- [x] **T6.4 (test)** — Extend `test_posting.py` (or `test_account.py`, either is defensible — pick
       one and be consistent) with the atomicity example design §9.2 names: `transfer()` into a
       `CLOSED` destination raises and leaves `source.balance` **unchanged**. Satisfies: design §9.2
       "Atomicity" bullet — this is a design-level regression test for the §4.2 fix (mutate-then-
       validate), not a distinct spec scenario; the spec's closest coverage is "An Inoperable Account
       Rejects Debits and Credits", exercised here through the service rather than the method directly.
-- [ ] **T6.5 (impl)** — Implement `src/modules/account_balance/domain/posting.py`: `Posting` frozen
+- [x] **T6.5 (impl)** — Implement `src/modules/account_balance/domain/posting.py`: `Posting` frozen
       dataclass (`transfer`, `accounts` tuple), `transfer(...)` and `revert(...)` functions exactly
       per design §5.1/§5.2's guard-build-apply-construct-return sequence, grouping/netting legs per
       account before applying (design §4.2 "One application per account per posting"). Satisfies:
