@@ -137,6 +137,46 @@ class TestNetsToZeroPerCurrency:
             )
 
 
+class TestMismatchedLegCurrenciesFailViaNetting:
+    """spec "Mismatched legs fed directly to Transfer fail a different,
+
+    correct way": the module docstring above already explains why
+    (`Transfer` has no currency-match guard of its own), but that behaviour
+    had no test exercising the exact 2-leg shape the spec's GIVEN describes
+    (verify-report CRITICAL-1). This closes that gap.
+    """
+
+    def test_a_usd_debit_and_eur_credit_leg_pair_raises_unbalanced_not_currency_mismatch(
+        self,
+    ) -> None:
+        eur = Currency("EUR")
+        tid = TransferId(uuid4())
+        source = AccountId(uuid4())
+        destination = AccountId(uuid4())
+        legs = (
+            _entry(
+                transfer_id=tid,
+                account_id=source,
+                direction=EntryDirection.DEBIT,
+                amount=Money(100, USD),
+            ),
+            _entry(
+                transfer_id=tid,
+                account_id=destination,
+                direction=EntryDirection.CREDIT,
+                amount=Money(100, eur),
+            ),
+        )
+
+        with pytest.raises(UnbalancedTransferError):
+            _make_transfer(
+                transfer_id=tid,
+                source_account_id=source,
+                destination_account_id=destination,
+                entries=legs,
+            )
+
+
 class TestAmountIsStrictlyPositive:
     def test_zero_amount_rejected(self) -> None:
         with pytest.raises(NonPositiveAmountError):

@@ -21,6 +21,7 @@ from modules.account_balance.domain.errors import (
     InvalidAccountPurposeError,
 )
 from modules.account_balance.domain.identifiers import AccountId, EntryId, OwnerId, TransferId
+from modules.shared.domain.errors import CurrencyMismatchError
 from modules.shared.domain.money import Currency, Money
 
 USD = Currency("USD")
@@ -362,6 +363,52 @@ class TestDebitForReversal:
         assert reversed_account is not account
         assert reversed_account.balance == Money(-80, USD)
         assert account.balance == Money(20, USD)
+
+
+class TestCurrencyAgreement:
+    """design §4.2: "there is no second currency check" -- I4 at the
+
+    `Account` level falls out of `Money.__add__` itself, not a dedicated
+    guard. That was implemented but untested on the public API
+    (verify-report WARNING-1): nothing would have caught a regression that
+    reordered `_validated_balance` to check something else first and skip
+    past this. One test per public balance-moving method closes it.
+    """
+
+    def test_debit_with_a_mismatched_currency_entry_raises_currency_mismatch(self) -> None:
+        account = _open_user_account()  # USD
+        with pytest.raises(CurrencyMismatchError):
+            account.debit(
+                _entry(
+                    account_id=account.account_id,
+                    direction=EntryDirection.DEBIT,
+                    amount=Money(1, Currency("EUR")),
+                )
+            )
+
+    def test_credit_with_a_mismatched_currency_entry_raises_currency_mismatch(self) -> None:
+        account = _open_user_account()  # USD
+        with pytest.raises(CurrencyMismatchError):
+            account.credit(
+                _entry(
+                    account_id=account.account_id,
+                    direction=EntryDirection.CREDIT,
+                    amount=Money(1, Currency("EUR")),
+                )
+            )
+
+    def test_debit_for_reversal_with_a_mismatched_currency_entry_raises_currency_mismatch(
+        self,
+    ) -> None:
+        account = _open_user_account()  # USD
+        with pytest.raises(CurrencyMismatchError):
+            account.debit_for_reversal(
+                _entry(
+                    account_id=account.account_id,
+                    direction=EntryDirection.DEBIT,
+                    amount=Money(1, Currency("EUR")),
+                )
+            )
 
 
 class TestOperability:
