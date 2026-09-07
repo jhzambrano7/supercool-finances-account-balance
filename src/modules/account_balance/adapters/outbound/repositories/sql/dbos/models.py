@@ -2,7 +2,7 @@ from uuid import UUID
 
 from sqlalchemy import BigInteger, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 
 from modules.account_balance.domain.account import (
     Account,
@@ -11,11 +11,8 @@ from modules.account_balance.domain.account import (
     AccountType,
 )
 from modules.account_balance.domain.identifiers import AccountId, OwnerId
+from modules.shared.adapters.outbound.repositories.sql.base import Base
 from modules.shared.domain.money import Currency, Money
-
-
-class Base(DeclarativeBase):
-    """Declarative base for account_balance's SQL adapters — Alembic's `target_metadata`."""
 
 
 class AccountDbo(Base):

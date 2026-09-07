@@ -515,3 +515,11 @@ Formato de cada entrada:
 - **Respuesta:** Corregido primero `ResourceNotFoundError` para que realmente guarde `resource_type`/`resource_identifier` como atributos (no sólo en el string), y agregado `ResourceAlreadyExistsError` con la misma forma. `AccountAlreadyExistsError` (nombre corregido a plural correcto, no "AlreadyExist") reemplaza a `AccountNaturalKeyConflictError` en el puerto, el adapter SQL, el caso de uso y ambos test suites — guarda `owner_id`/`purpose`/`currency` como atributos propios además de lo que hereda de `ResourceAlreadyExistsError`. Los tests de integración ahora aseran los campos estructurados directamente, no sólo el tipo de excepción. Documentada la convención nueva en `docs/coding-conventions.md`, acotada a errores que un invocador real inspecciona — no aplicada a guards internos que nadie atrapa por tipo.
 - **151 tests, gates verdes.**
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 13:44 — Pausar commits hasta que el usuario termine de revisar
+
+<!-- id: 20260907-134408-a1fe3a40 -->
+- **Qué intentaba:** El usuario pidió frenar cualquier commit mientras él revisa el estado actual del PR #1.
+- **Prompt:** "no hagas commit hasta que no termine de revisar"
+- **Respuesta:** Reconocido como restricción activa: no se hacen más commits ni push hasta indicación explícita de que terminó la revisión.
+- **Veredicto:** ⏳ pendiente

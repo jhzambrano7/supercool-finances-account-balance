@@ -1,8 +1,16 @@
-"""Unit tests for `OpenAccountUseCase` against a fake in-memory repository.
+"""Unit tests for `AccountRegister` against a fake in-memory repository.
 
 Per openspec/specs/account-opening/spec.md's Testing Strategy: first-open,
 existing-natural-key return, and the unique-violation-race path (the fake
-raises the same conflict the SQL adapter would, AO4).
+raises the same conflict the SQL adapter would, AO4) -- now propagated to
+the caller rather than recovered inside the use case.
+
+Why a hand-written fake, not per-test `unittest.mock` objects: the natural-
+key uniqueness and the AO4 race are *stateful* behavior shared across every
+test below. A `Mock`/`AsyncMock` would still need that same state wired up
+via `side_effect` in each test, just duplicated instead of centralized once
+here -- and it wouldn't fail mypy if `AccountRepository`'s signature drifted,
+since fakes are checked as real subclasses of the port they implement.
 """
 
 from uuid import uuid4
@@ -18,7 +26,7 @@ from modules.account_balance.application.gateways.models.find_accounts_criteria 
     FindAccountByOwnerAndPurposeAndCurrency,
     FindAccountCriteria,
 )
-from modules.account_balance.application.use_cases.open_account import OpenAccountUseCase
+from modules.account_balance.application.use_cases.account_register import AccountRegister
 from modules.account_balance.domain.account import Account, AccountPurpose, AccountType
 from modules.account_balance.domain.errors import InvalidAccountPurposeError
 from modules.account_balance.domain.identifiers import OwnerId
@@ -66,8 +74,8 @@ class _FakeAccountRepository(AccountRepository):
         self.by_natural_key[key] = account
 
 
-def _use_case(repository: AccountRepository) -> OpenAccountUseCase:
-    return OpenAccountUseCase(repository=repository, id_generator=IdGenerator())
+def _use_case(repository: AccountRepository) -> AccountRegister:
+    return AccountRegister(repository=repository, id_generator=IdGenerator())
 
 
 async def test_first_open_creates_a_new_account() -> None:
@@ -80,7 +88,6 @@ async def test_first_open_creates_a_new_account() -> None:
     )
 
     assert result.created is True
-    assert result.http_status == 201
     assert result.account.owner_id == owner_id
     assert result.account.account_type is AccountType.USER
     assert result.account.purpose is AccountPurpose.CHECKING
@@ -105,24 +112,27 @@ async def test_retrying_an_open_returns_the_existing_account() -> None:
 
     assert first.created is True
     assert second.created is False
-    assert second.http_status == 200
     assert second.account.account_id == first.account.account_id
     assert len(repository.by_natural_key) == 1
 
 
-async def test_a_losing_concurrent_insert_returns_the_winner_not_an_error() -> None:
+async def test_a_losing_concurrent_insert_propagates_the_conflict() -> None:
+    """AO4's race, found by a genuinely concurrent insert: propagated to the
+    caller, not recovered here (reviewer's own call — the client's retry
+    finds the account via the same natural-key lookup this use case already
+    tries first, so a second recovery path inside this method is redundant).
+    """
     repository = _FakeAccountRepository()
     repository.force_conflict_once = True
     use_case = _use_case(repository)
     owner_id = OwnerId(uuid4())
 
-    result = await use_case.execute(
-        owner_id=owner_id, purpose=AccountPurpose.CHECKING, currency=USD
-    )
+    with pytest.raises(AccountAlreadyExistsError) as exc_info:
+        await use_case.execute(owner_id=owner_id, purpose=AccountPurpose.CHECKING, currency=USD)
 
-    assert result.created is False
-    assert result.http_status == 200
-    assert result.account.owner_id == owner_id
+    assert exc_info.value.owner_id == owner_id
+    assert exc_info.value.purpose is AccountPurpose.CHECKING
+    assert exc_info.value.currency == USD
 
 
 async def test_an_invalid_purpose_is_rejected_before_any_persistence() -> None:

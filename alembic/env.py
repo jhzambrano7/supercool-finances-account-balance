@@ -7,7 +7,12 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from modules.account_balance.adapters.outbound.repositories.sql.dbos.models import Base
+# Imported for its side effect: importing a module registers its DBO
+# classes on `Base.metadata` (SQLAlchemy declarative registration happens at
+# class-definition time). Every module's DBOs must be imported somewhere
+# reachable from here, or autogenerate silently won't see their tables.
+import modules.account_balance.adapters.outbound.repositories.sql.dbos.models  # noqa: F401
+from modules.shared.adapters.outbound.repositories.sql.base import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -18,8 +23,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# `accounts` (and every future account_balance table) is registered on this
-# one `Base`, so autogenerate sees the whole module's schema.
+# `Base` is shared across every module (modules.shared.adapters.outbound.
+# repositories.sql.base) so autogenerate sees the whole project's schema,
+# not just one module's.
 target_metadata = Base.metadata
 
 # `alembic.ini`'s `sqlalchemy.url` is the docker-compose default. A
