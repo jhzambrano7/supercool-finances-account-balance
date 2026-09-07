@@ -463,3 +463,42 @@ class TestClose:
         assert closed is not account
         assert closed.status is AccountStatus.CLOSED
         assert account.status is AccountStatus.ACTIVE
+
+
+class TestTellDontAsk:
+    """The enums and Account answer questions about their own state (docs/
+
+    coding-conventions.md) instead of exposing raw values for callers to
+    branch on themselves.
+    """
+
+    def test_account_status_knows_whether_it_is_active(self) -> None:
+        assert AccountStatus.ACTIVE.is_active()
+        assert not AccountStatus.CLOSED.is_active()
+
+    def test_account_status_knows_whether_it_is_closed(self) -> None:
+        assert AccountStatus.CLOSED.is_closed()
+        assert not AccountStatus.ACTIVE.is_closed()
+
+    def test_account_type_knows_whether_it_is_user_or_system(self) -> None:
+        assert AccountType.USER.is_user()
+        assert not AccountType.USER.is_system()
+        assert AccountType.SYSTEM.is_system()
+        assert not AccountType.SYSTEM.is_user()
+
+    def test_account_purpose_knows_whether_it_matches_a_type(self) -> None:
+        assert AccountPurpose.CHECKING.matches_type(AccountType.USER)
+        assert not AccountPurpose.CHECKING.matches_type(AccountType.SYSTEM)
+        assert AccountPurpose.FUNDING.matches_type(AccountType.SYSTEM)
+        assert not AccountPurpose.FUNDING.matches_type(AccountType.USER)
+
+    def test_account_knows_whether_it_is_active(self) -> None:
+        account = _open_user_account()
+
+        assert account.is_active()
+        assert not account.close().is_active()
+
+    def test_account_knows_whether_it_is_closable(self) -> None:
+        assert _open_user_account().is_closable()
+        assert not _open_system_account().is_closable()
+        assert not _open_user_account().close().is_closable()

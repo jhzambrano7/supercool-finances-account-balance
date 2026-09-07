@@ -11,6 +11,7 @@ rejection is written down, because the reasoning is the deliverable, not the cod
 | Document | What it is |
 | --- | --- |
 | [`docs/prd.md`](docs/prd.md) | The product contract. Every rule, with its rejected alternative |
+| [`docs/coding-conventions.md`](docs/coding-conventions.md) | How code is written, independent of feature — e.g. Tell, Don't Ask |
 | [`openspec/changes/account-balance-domain/proposal.md`](openspec/changes/account-balance-domain/proposal.md) | The domain model design: aggregates, invariants, twelve decisions |
 | [`docs/decision-log.md`](docs/decision-log.md) | Chronological record of what was decided and why |
 | [`docs/ai-transcript.md`](docs/ai-transcript.md) | Every prompt and every response, verbatim (see [AI usage](#ai-usage)) |

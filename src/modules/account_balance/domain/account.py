@@ -54,6 +54,12 @@ class AccountType(Enum):
             return OverdraftPolicy.FORBIDDEN
         return OverdraftPolicy.UNLIMITED
 
+    def is_user(self) -> bool:
+        return self is AccountType.USER
+
+    def is_system(self) -> bool:
+        return self is AccountType.SYSTEM
+
 
 class AccountPurpose(Enum):
     """What an account is *for* — a separate axis from `AccountType` (PRD §4.4)."""
@@ -70,10 +76,24 @@ class AccountPurpose(Enum):
             return AccountType.USER
         return AccountType.SYSTEM
 
+    def matches_type(self, account_type: AccountType) -> bool:
+        """Tell, don't ask (docs/coding-conventions.md): the caller states what it wants
+
+        verified, `AccountPurpose` answers, rather than the caller reading
+        `.account_type` back out and comparing it itself.
+        """
+        return self.account_type is account_type
+
 
 class AccountStatus(Enum):
     ACTIVE = "ACTIVE"
     CLOSED = "CLOSED"
+
+    def is_active(self) -> bool:
+        return self is AccountStatus.ACTIVE
+
+    def is_closed(self) -> bool:
+        return self is AccountStatus.CLOSED
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -96,7 +116,7 @@ class Account:
     version: int
 
     def __post_init__(self) -> None:
-        if self.purpose.account_type is not self.account_type:
+        if not self.purpose.matches_type(self.account_type):
             raise InvalidAccountPurposeError(
                 f"{self.purpose.value} does not belong to {self.account_type.value} (PRD §4.4)"
             )
@@ -196,13 +216,13 @@ class Account:
     def close(self) -> Account:
         """Refuses unless USER-typed, ACTIVE, and exactly zero balance (§7.2).
 
-        Checked in the order the spec states the requirement: type/status
+        Checked in the order the spec states the requirement: closability
         first (`AccountNotClosableError` — nothing branches differently
         between "already closed" and "SYSTEM"), then balance
         (`AccountNotEmptyError` — the one refusal a caller can act on by
         emptying the account first).
         """
-        if self.status is not AccountStatus.ACTIVE or self.account_type is AccountType.SYSTEM:
+        if not self.is_closable():
             raise AccountNotClosableError(
                 f"account {self.account_id} cannot be closed "
                 f"(status={self.status.value}, type={self.account_type.value})"
@@ -213,9 +233,16 @@ class Account:
             )
         return replace(self, status=AccountStatus.CLOSED, version=self.version + 1)
 
+    def is_active(self) -> bool:
+        return self.status.is_active()
+
+    def is_closable(self) -> bool:
+        """`ACTIVE` and `USER`-typed — `SYSTEM` accounts and closed ones never qualify (§7.2)."""
+        return self.is_active() and not self.account_type.is_system()
+
     def fail_if_not_active(self) -> None:
         """An account whose status is not `ACTIVE` refuses debits and credits (§7.2)."""
-        if self.status is not AccountStatus.ACTIVE:
+        if not self.is_active():
             raise AccountNotOperableError(
                 f"account {self.account_id} is not operable (status={self.status.value})"
             )
