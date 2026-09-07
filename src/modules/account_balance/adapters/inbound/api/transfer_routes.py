@@ -147,7 +147,12 @@ async def create_reversal(
         ) from exc
     except (TransferAlreadyReversedError, IdempotencyConflictError) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    except TransferNotFoundError as exc:
+    except (TransferNotFoundError, AccountNotFoundError) as exc:
+        # AccountNotFoundError here is defensive only (revert_transfer.py's
+        # own pragma: no cover): both accounts are FK-backed by the original
+        # transfer's own rows, so this cannot happen through the API today.
+        # Caught anyway, not left to bypass the DomainError net below, for
+        # the same reason create_transfer above catches it explicitly.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except DomainError as exc:
         raise HTTPException(

@@ -307,3 +307,35 @@ async def test_a_missing_caller_header_is_rejected(client: AsyncClient) -> None:
     )
 
     assert response.status_code == 401
+
+
+async def test_a_blank_idempotency_key_is_unprocessable_not_a_server_error(
+    client: AsyncClient,
+) -> None:
+    """Same bug class `transfer`'s own route found and fixed twice
+    (`5635aec`, `9b0427d`): InvalidIdempotencyKeyError is a DomainError
+    reachable straight from this endpoint's own input and must not fall
+    through to the generic 500 default. The mapping was already correct
+    when this test was added (found missing only as test *coverage* by an
+    independent review, not as a live bug) -- this closes that gap.
+    """
+    owner_id = str(uuid4())
+    account_id = await _open_user_account(client, owner_id=owner_id)
+    transfer_response = await client.post(
+        "/transfers",
+        json={
+            "source_account_id": str(FUNDING_ACCOUNT_ID),
+            "destination_account_id": account_id,
+            "amount": 500,
+            "currency": "USD",
+        },
+        headers=_headers(caller_id=owner_id, idempotency_key=str(uuid4())),
+    )
+    transfer_id = transfer_response.json()["transfer_id"]
+
+    response = await client.post(
+        f"/transfers/{transfer_id}/reversals",
+        headers=_headers(caller_id=str(uuid4()), idempotency_key="   "),
+    )
+
+    assert response.status_code == 422
