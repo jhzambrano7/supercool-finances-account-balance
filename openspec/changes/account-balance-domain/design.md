@@ -23,7 +23,7 @@ Import direction is strictly downward — no module imports one below it, so the
 | `domain/entry.py` | `EntryDirection`, `Entry` | `identifiers`, `errors`, `shared.domain.money` |
 | `domain/account.py` | `AccountType`, `AccountPurpose`, `AccountStatus`, `OverdraftPolicy`, `Account` | `entry`, `identifiers`, `errors`, `money` |
 | `domain/transfer.py` | `Transfer` | `entry`, `identifiers`, `errors`, `money` |
-| `domain/posting.py` | `transfer`, `revert` | `account`, `transfer`, `entry`, `identifiers`, `errors` |
+| `domain/posting.py` | `transfer`, `revert` | `account`, `transfer`, `entry`, `identifiers`, `errors`, `money` |
 
 Plus `src/modules/account_balance/__init__.py` and `domain/__init__.py` (the project uses explicit
 `__init__.py` everywhere — no namespace packages). Tests mirror the layout under

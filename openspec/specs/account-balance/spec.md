@@ -533,8 +533,16 @@ one.)*
 ##### Scenario: A reversal that does not mirror is rejected
 
 - GIVEN an original transfer of `100 USD` from A to B
-- WHEN a reversal is constructed whose legs move `50 USD`
+- WHEN `revert()` is called with accounts that are not the original's destination and source
+  (e.g. B and some unrelated account C, instead of B and A)
 - THEN `ReversalMismatchError` is raised
+
+Note: the amount cannot be the thing that mismatches here — `revert()` takes no `amount` parameter at
+all (design D10); it always inherits `original.amount`. The only way to construct a reversal whose
+legs do not mirror the original is to pass it the wrong *accounts*, which is what the test covering
+this requirement (`test_posting.py::TestRevert::test_reversal_mismatch_when_accounts_are_not_the_
+originals_legs`) actually exercises. An earlier revision of this scenario described a mismatched
+*amount*, which is not an input the implemented API can even accept — corrected here to match.
 
 ---
 
