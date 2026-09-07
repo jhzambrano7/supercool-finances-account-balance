@@ -35,7 +35,6 @@ from modules.account_balance.application.use_cases.transfer_money import (
     SystemToSystemTransferNotAllowedError,
     TransferMoney,
     TransferMoneyRequest,
-    _request_hash,
 )
 from modules.account_balance.domain.account import (
     Account,
@@ -515,7 +514,7 @@ async def test_two_concurrent_requests_with_the_same_key_never_both_apply() -> N
     database.conflicting_winner = IdempotencyRecord(
         caller_id=owner_a,
         idempotency_key=IdempotencyKey("race"),
-        request_hash=_request_hash(request),
+        request_hash=request.hash(),
         transfer_id=winner.transfer_id,
         status="COMPLETED",
         created_at=winner.occurred_at,
@@ -562,7 +561,7 @@ async def test_a_losing_concurrent_request_replays_even_when_underfunded() -> No
     database.conflicting_winner = IdempotencyRecord(
         caller_id=owner_a,
         idempotency_key=IdempotencyKey("race"),
-        request_hash=_request_hash(request),
+        request_hash=request.hash(),
         transfer_id=winner.transfer_id,
         status="COMPLETED",
         created_at=winner.occurred_at,

@@ -791,3 +791,19 @@ Formato de cada entrada:
 - **Prompt:** "procede y agrega la convención"
 - **Respuesta:** `git mv` de los 3 archivos (`transfer_repository.py`→`sql_transfer_repository.py`, `idempotency_repository.py`→`sql_idempotency_repository.py`, `unit_of_work.py`→`sql_unit_of_work.py`), actualizados los 4 imports que los referenciaban (`dependencies.py`, `sql_unit_of_work.py` mismo, el test de integración). Agregada la regla nueva en `docs/coding-conventions.md` ("An adapter's file name carries the same technology prefix as its class") justo después de la sección de DBOs/DTOs, más su fila en la tabla "Applied so far". Gates verdes: ruff, mypy strict (113 archivos). **188 tests, 3 corridas limpias + una cuarta con el Postgres local parado.** Barrido final sin referencias colgantes fuera de `docs/ai-transcript.md` (transcript histórico, no se toca).
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:49 — Commitear el rename pendiente y pushear todo el PR
+
+<!-- id: 20260907-184936-a1fe3a40 -->
+- **Qué intentaba:** Subir todo lo trabajado (merge + judgment-day + fixes de esta sesión) al PR abierto.
+- **Prompt:** "sube los cambios al PR"
+- **Respuesta:** Commiteado el rename de los 3 adapters + la convención nueva (`7e4ca04`, gates verdes ya corridos antes). `git push origin feat/transfer`: 25 commits subidos de una (`6de1dd1..7e4ca04`). PR #2 sigue OPEN y MERGEABLE. Detecté un cambio sin commitear ajeno (la sesión concurrente refactorizando `_request_hash` a un método `TransferMoneyRequest.hash()` en `transfer_money.py`, en progreso) -- no lo toqué ni se subió, `git push` sólo manda commits.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:53 — Commitear el refactor de la otra sesión y pushear de nuevo
+
+<!-- id: 20260907-185353-a1fe3a40 -->
+- **Qué intentaba:** El usuario pidió de nuevo "sube los cambios al PR" -- no había commits nuevos, pero sí working tree sucio: la otra sesión había terminado su refactor de `_request_hash` (free function) a `TransferMoneyRequest.hash()` (método).
+- **Prompt:** "sube los cambios al PR"
+- **Respuesta:** Revisé el diff antes de tocar nada -- refactor limpio, autocontenido, consistente entre `transfer_money.py` y su test. Corrí gates (ruff, mypy strict) y la suite completa (3 corridas + una con el Postgres local parado, 188 verdes) antes de commitear cualquier cosa que no escribí yo. Commiteado y pusheado.
+- **Veredicto:** ⏳ pendiente

@@ -77,7 +77,7 @@ class SystemToSystemTransferNotAllowedError(ApplicationError):
 
 @dataclass(frozen=True, slots=True)
 class TransferMoneyRequest:
-    """`POST /transfers`'s use-case input (design §5.3) -- the client-facing shape.
+    """Use-case input (design §5.3) -- the client-facing shape.
 
     Covers transfer, deposit and withdraw alike (there is no separate concept
     for any of the three -- spec Purpose).
@@ -89,23 +89,22 @@ class TransferMoneyRequest:
     idempotency_key: IdempotencyKey
     requested_by: OwnerId
 
+    def hash(self) -> str:
+        """A stable hash over exactly the fields a retry must not silently change (T3).
 
-def _request_hash(request: TransferMoneyRequest) -> str:
-    """A stable hash over exactly the fields a retry must not silently change (T3).
-
-    Source, destination, amount and currency. Deliberately a canonical,
-    delimiter-joined encoding rather than the dataclass's own `repr` -- a
-    field reorder or rename must not change what a retry means.
-    """
-    canonical = "|".join(
-        (
-            str(request.source_account_id),
-            str(request.destination_account_id),
-            str(request.amount.amount),
-            str(request.amount.currency),
+        Source, destination, amount and currency. Deliberately a canonical,
+        delimiter-joined encoding rather than the dataclass's own `repr` -- a
+        field reorder or rename must not change what a retry means.
+        """
+        canonical = "|".join(
+            (
+                str(self.source_account_id),
+                str(self.destination_account_id),
+                str(self.amount.amount),
+                str(self.amount.currency),
+            )
         )
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class TransferMoney:
@@ -127,7 +126,7 @@ class TransferMoney:
         self._clock = clock
 
     async def execute(self, request: TransferMoneyRequest) -> Transfer:
-        request_hash = _request_hash(request)
+        request_hash = request.hash()
 
         try:
             async with self._new_unit_of_work() as uow:
