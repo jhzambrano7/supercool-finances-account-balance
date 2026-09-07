@@ -403,3 +403,11 @@ Formato de cada entrada:
 - **Prompt:** (continuación directa del pedido original de este turno, sin nuevo prompt del usuario)
 - **Respuesta:** Pusheado `feat/account-opening` a `jhzambrano7/supercool-finances-account-balance` (privado, ya creado con `main` como base) y abierto el PR #1 contra `main`, con resumen de las dos piezas de trabajo (cierre del archive SDD + slice de apertura de cuentas), las decisiones no obvias (AO1–AO4), lo que encontró y corrigió la revisión fresca antes del PR, y el plan de test con números reales.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 10:06 — Cambiar al branch del PR #1
+
+<!-- id: 20260907-100645-a1fe3a40 -->
+- **Qué intentaba:** Moverse a `feat/account-opening` para trabajar sobre el PR #1.
+- **Prompt:** "muévete al branch del PR 1"
+- **Respuesta:** Verificado `git status` antes del checkout (sólo docs de sesión modificados, sincronizados y commiteados aparte). Cambiado a `feat/account-opening`, limpio y al día con origin.
+- **Veredicto:** ⏳ pendiente
