@@ -437,3 +437,11 @@ Formato de cada entrada:
 - **Dejado explícito, no resuelto:** las otras dos PRs de la cadena (`transfer`, `revert`) ya tienen su propio `AccountNotFoundError` (Exception plana, constructor con string), distinto del nuevo aquí — reconciliarlos es una decisión para cuando se toquen esas ramas, no algo que corregí unilateralmente ahora.
 - **151 tests (antes 147), gates verdes.** Todo commiteado en `feat/account-opening` pero **no pusheado** — a la espera de que el usuario decida si esto va al PR #1 o sigue siendo sólo el ejemplo para definir la convención.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 12:44 — Aclarar que las convenciones todavía no están documentadas
+
+<!-- id: 20260907-124427-a1fe3a40 -->
+- **Qué intentaba:** El usuario preguntó qué se hizo para tener lineamientos automáticos hacia adelante, dando a entender que asumía que ya existían.
+- **Prompt:** "con esto resuelto, qué hiciste para tener lineamientos y que ya sea automático hacia adelante?"
+- **Respuesta:** Aclarado directamente que no se hizo nada todavía — el turno anterior sólo corrigió código, no se escribió ningún documento ni skill. Reiterada la recomendación de documento versionado sobre skill, y ofrecido escribirlo ahora mismo con las 5 convenciones validadas contra código real más las dos correcciones que salieron en la práctica.
+- **Veredicto:** ⏳ pendiente
