@@ -1,4 +1,7 @@
-class DomainError(Exception):
+from abc import ABC
+
+
+class DomainError(Exception, ABC):
     """Base for every rule this domain refuses to break.
 
     Domain errors are not validation errors. A validation error says the caller

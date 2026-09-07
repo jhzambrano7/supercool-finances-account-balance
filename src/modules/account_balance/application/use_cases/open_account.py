@@ -4,6 +4,9 @@ from modules.account_balance.application.gateways.account_repository import (
     AccountNaturalKeyConflictError,
     AccountRepository,
 )
+from modules.account_balance.application.gateways.models.find_accounts_criteria import (
+    FindAccountByOwnerAndPurposeAndCurrency,
+)
 from modules.account_balance.domain.account import Account, AccountPurpose, AccountType
 from modules.account_balance.domain.identifiers import AccountId, OwnerId
 from modules.shared.application.services.id_generator import IdGenerator
@@ -43,9 +46,10 @@ class OpenAccountUseCase:
     async def execute(
         self, *, owner_id: OwnerId, purpose: AccountPurpose, currency: Currency
     ) -> OpenAccountResult:
-        existing = await self._repository.find_by_natural_key(
+        natural_key = FindAccountByOwnerAndPurposeAndCurrency(
             owner_id=owner_id, purpose=purpose, currency=currency
         )
+        existing = await self._repository.find(criteria=natural_key)
         if existing is not None:
             return OpenAccountResult(account=existing, created=False)
 
@@ -65,9 +69,7 @@ class OpenAccountUseCase:
         except AccountNaturalKeyConflictError:
             # AO4: the insert lost the race. The winner already committed,
             # so re-reading the natural key returns it rather than erroring.
-            winner = await self._repository.find_by_natural_key(
-                owner_id=owner_id, purpose=purpose, currency=currency
-            )
+            winner = await self._repository.find(criteria=natural_key)
             if winner is None:
                 raise  # pragma: no cover — defensive: the DB just told us it exists
             return OpenAccountResult(account=winner, created=False)

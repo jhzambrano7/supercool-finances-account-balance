@@ -13,10 +13,15 @@ from modules.account_balance.application.gateways.account_repository import (
     AccountNaturalKeyConflictError,
     AccountRepository,
 )
+from modules.account_balance.application.gateways.models.find_accounts_criteria import (
+    FindAccountByAccountId,
+    FindAccountByOwnerAndPurposeAndCurrency,
+    FindAccountCriteria,
+)
 from modules.account_balance.application.use_cases.open_account import OpenAccountUseCase
 from modules.account_balance.domain.account import Account, AccountPurpose, AccountType
 from modules.account_balance.domain.errors import InvalidAccountPurposeError
-from modules.account_balance.domain.identifiers import AccountId, OwnerId
+from modules.account_balance.domain.identifiers import OwnerId
 from modules.shared.application.services.id_generator import IdGenerator
 from modules.shared.domain.money import Currency
 
@@ -26,6 +31,8 @@ USD = Currency("USD")
 class _FakeAccountRepository(AccountRepository):
     """In-memory stand-in keyed by natural key.
 
+    `find` is the only abstract method this port requires (`get` -- find-or-
+    raise -- comes for free from the base class once `find` is implemented).
     `force_conflict_once` simulates AO4's race: the next `add()` behaves as
     if a concurrent request already committed the row, raising the same
     conflict the SQL adapter raises on a unique-violation.
@@ -35,10 +42,14 @@ class _FakeAccountRepository(AccountRepository):
         self.by_natural_key: dict[tuple[OwnerId, AccountPurpose, Currency], Account] = {}
         self.force_conflict_once = False
 
-    async def find_by_natural_key(
-        self, *, owner_id: OwnerId, purpose: AccountPurpose, currency: Currency
-    ) -> Account | None:
-        return self.by_natural_key.get((owner_id, purpose, currency))
+    async def find(self, *, criteria: FindAccountCriteria) -> Account | None:
+        match criteria:
+            case FindAccountByOwnerAndPurposeAndCurrency(owner_id, purpose, currency):
+                return self.by_natural_key.get((owner_id, purpose, currency))
+            case FindAccountByAccountId(account_id):
+                return next(
+                    (a for a in self.by_natural_key.values() if a.account_id == account_id), None
+                )
 
     async def add(self, account: Account) -> None:
         key = (account.owner_id, account.purpose, account.currency)
@@ -49,9 +60,6 @@ class _FakeAccountRepository(AccountRepository):
         if key in self.by_natural_key:
             raise AccountNaturalKeyConflictError("natural key already exists")
         self.by_natural_key[key] = account
-
-    async def get(self, account_id: AccountId) -> Account | None:
-        return next((a for a in self.by_natural_key.values() if a.account_id == account_id), None)
 
 
 def _use_case(repository: AccountRepository) -> OpenAccountUseCase:
@@ -73,8 +81,10 @@ async def test_first_open_creates_a_new_account() -> None:
     assert result.account.account_type is AccountType.USER
     assert result.account.purpose is AccountPurpose.CHECKING
     assert result.account.balance.is_zero
-    stored = await repository.find_by_natural_key(
-        owner_id=owner_id, purpose=AccountPurpose.CHECKING, currency=USD
+    stored = await repository.find(
+        criteria=FindAccountByOwnerAndPurposeAndCurrency(
+            owner_id=owner_id, purpose=AccountPurpose.CHECKING, currency=USD
+        )
     )
     assert stored == result.account
 

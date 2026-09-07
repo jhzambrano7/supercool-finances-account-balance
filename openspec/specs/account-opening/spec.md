@@ -76,8 +76,9 @@ all from `openspec/specs/account-balance/spec.md`.
 
 | Type | Kind | Responsibility |
 | --- | --- | --- |
-| `AccountRepository` | Port (protocol/ABC), `application/gateways` | `find_by_natural_key`, `add`, `get` — no SQL leaks through the signature |
-| `OpenAccountUseCase` | Application service, `application/use_cases` | orchestrates: check natural key → open or return existing → persist |
+| `AccountRepository` | Port (ABC), `application/gateways` | collection-like — `find(criteria)`, `get(criteria)` (find-or-raise, comes free from `find`), `add` — no SQL leaks through the signature |
+| `FindAccountCriteria` | Value objects, `application/gateways/models` | `FindAccountByOwnerAndPurposeAndCurrency`, `FindAccountByAccountId` — extensible instead of one dedicated method per lookup shape |
+| `OpenAccountUseCase` | Application service, `application/use_cases` | orchestrates: check natural key via `find` → open or return existing → persist |
 | `OpenAccountRequest` / response schema | Pydantic, `adapters/inbound/api` | HTTP request/response shape; not passed into the use case or domain |
 
 ## Requirements
