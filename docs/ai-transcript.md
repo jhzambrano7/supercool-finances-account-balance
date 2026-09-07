@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 38
+**Turns recorded:** 40
 
 ---
 
@@ -2810,5 +2810,220 @@ Ahora reviso el hallazgo que reportó el agente — la firma de `revert` en `des
 Confirmado: la implementación es `-> Posting`, correcta y consistente con la razón de ser de `Posting` (cuentas inmutables → alguien tiene que llevarse los sucesores). Es el design el que quedó desactualizado. Corrijo:
 
 Ahora el log de decisiones y memoria:
+
+Suite completa en verde (133 tests, todo lo del dominio ya integrado). **73 commits.**
+
+## Sobre el principio, ya generalizado
+
+Tu cambio en `AccountStatus` era el ejemplo de libro: reemplazaste `status is not AccountStatus.ACTIVE` por `status.is_active()`. Lo apliqué al resto del archivo:
+
+| Tipo | Método | Reemplaza |
+|---|---|---|
+| `AccountType` | `is_user()`, `is_system()` | `account_type is AccountType.SYSTEM` |
+| `AccountPurpose` | `matches_type(account_type)` | `purpose.account_type is not account_type` |
+| `Account` | `is_closable()` | el chequeo combinado que `close()` hacía en línea |
+
+Nada de esto cambia qué se lanza ni cuándo — los tests existentes siguen pasando intactos. Lo que cambia es **dónde vive la definición** de "activo" o "cerrable": en el tipo que la posee, no repetida en cada call site. Y esto no es abstracto en este proyecto — el PRD ya cambió el significado de esas clasificaciones dos veces en esta sesión misma (la reversa cambió lo que "operable" implicaba; `purpose` agregó un segundo eje a `type`). Una regla que vive en el tipo se corrige una vez; una regla desparramada en cada sitio hay que encontrarla y corregirla en todos.
+
+## Dónde puse un límite, a propósito
+
+Escribí `docs/coding-conventions.md` con una sección explícita de **dónde esto NO aplica** — porque envolver toda comparación en un método sería sobre-ingeniería sin beneficio real. Comparar dos valores del mismo tipo por igualdad pura (`entry.account_id != self.account_id`) no es una violación: no hay ninguna interpretación que centralizar, el método envoltorio sólo agregaría un nombre para buscar.
+
+Y dejé anotado, **no silenciado**, un candidato diferido: mover las aserciones de `Entry` (dirección, pertenencia de cuenta) hacia el propio `Entry` sería la misma idea aplicada un paso más allá. No lo toqué porque `Entry` estaba en construcción concurrente en ese momento — lo dejé como nota explícita para revisitar, no como omisión oculta.
+
+## El riesgo de concurrencia
+
+Mientras trabajaba en esto, el agente seguía terminando la unidad 6 sobre archivos vecinos del mismo módulo. Verifiqué el árbol antes de tocar nada, acoté el alcance estrictamente a `account.py` y su test, y el `git add` fue selectivo para no arrastrar `posting.py`/`test_posting.py` a mitad de escribirse. El agente, de su lado, respetó el mismo aislamiento sin que se lo pidiera — quedó documentado en su propio reporte.
+
+## Y de paso, verificado un hallazgo real del agente
+
+Reportó que `design.md` §5.2 tipaba `revert(...) -> Transfer` mientras decía "idéntico a `transfer`" una línea después, que devuelve `Posting`. Lo comparé contra el código real antes de corregir: la implementación ya devuelve `Posting` — correctamente, porque `Account` inmutable es justo la razón de ser de `Posting`. Era el documento el que había quedado atrás. Corregido.
+
+**El dominio completo está en el repo**: `errors`, `identifiers`, `entry`, `account`, `transfer`, `posting`. Queda la unidad 7 (tests de arquitectura restantes T7.2/T7.3 + scaffolding), y después el `sdd-verify` contra spec y design. ¿Seguimos?
+
+---
+
+## Turn 39 — 2026-09-07 04:55:26.135 UTC
+
+### Prompt
+
+```text
+cambié la inicialización de los entry ids. Por otro lado, no me gusta esas funciones tiradas en la raíz del archivo, al final del día, son constructores del posting por lo que:
+- Pueden ir como factory methos estaticos dentro de la clase posting
+- o bien en una nueva clase/servicio PostingFactoring
+
+Normalmente, hago lo primero, adelante si tienes challenge al respecto
+```
+
+<details><summary>Tool calls (21)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1 -uall echo "=== diff ===" git diff -- src/modul…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git diff -- src/modules/account_balance/domain/posting.py | tail -60 echo…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n 'entry_ids' tests/unit/account_balance/domain/test_posting.py tests…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '75,95p;160,180p' tests/unit/account_balance/domain/test_posting.p…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest tests/unit/account_balance/domain/test_posting.py tests/uni…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('src/modules/account_bal…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib for f in ['tests/unit/account_balance/dom…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest -q 2>&1 | tail -3 uv run pre-commit run --all-files 2>&1 | …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git diff --stat uv run pre-commit run --all-files 2>&1 | tail -10
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git diff src/modules/account_balance/domain/posting.py | head -20
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n 'entry_ids' src/modules/account_balance/domain/posting.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n 'entry_ids: tuple\[EntryId, EntryId\]|entry_ids\[0\]|entry_ids\[1\]…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^### D6 /,/^### D7 /p' openspec/changes/account-balance-domain/p…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '370,410p' openspec/changes/account-balance-domain/design.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/changes/accoun…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '138,150p' openspec/changes/account-balance-domain/proposal.md ech…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest -q 2>&1 | tail -3 uv run pre-commit run --all-files 2>&1 | …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add src/modules/account_balance/domain/posting.py tests/unit/account_…
+- `AskUserQuestion`
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## 1\. Module layout/,/^## 2\./p' openspec/changes/account-bala…
+
+</details>
+
+### Response
+
+Dejame ver primero qué cambiaste en la inicialización de entry_ids, y reviso el estado actual de `posting.py` antes de opinar sobre la propuesta de estructura.
+
+Dos cosas distintas: primero termino y verifico el cambio de `entry_ids`, que quedó a mitad de camino (sólo tocaste `transfer`, no `revert`). Después te doy mi challenge sobre la estructura, porque sí lo tengo.
+
+Confirmado: el cambio a `transfer` estaba rompiendo su propia suite de tests, y `revert` seguía sin tocar. Termino la migración a `Callable[[], EntryId]` en ambas funciones y sus tests:
+
+Ruff movió `Callable` de `typing` a `collections.abc` (UP035, la ubicación moderna). Todo verde. Ahora completo la docstring de `revert`, que mencionaba explícitamente `entry_ids[0]`/`entry_ids[1]`:
+
+Encontré algo que hay que dejar explícito: la proposal **argumentó activamente en contra** de esto. Reviso el texto exacto antes de decidir cómo tratarlo:
+
+Ahora aplico la corrección documental, siguiendo el mismo patrón que usamos con D10: conservar el razonamiento viejo marcado como superado, no borrarlo.
+
+Esos quedan igual a propósito — son snippets ilustrativos de decisiones anteriores (D5, D10) que el propio documento ya trata como históricos, con `design.md` como autoridad de la firma exacta. Corrijo sólo donde importa (D6, que es el párrafo que argumentaba activamente por la tupla) y en `design.md`, que sí debe reflejar el estado actual.
+
+Todo verde. Commiteo la migración de `entry_ids`:
+
+Listo, resuelto. Ahora tu challenge — que sí lo tengo, y es específico.
+
+## Mi objeción
+
+Que "normalmente hagas lo primero" tiene sentido para casos como `Account.open()` o `Money.zero()`: ahí el constructor estático arma **un único agregado propio** a partir de valores escalares. Todo lo que entra se convierte, directo o casi directo, en un campo del objeto que estás construyendo.
+
+`transfer` y `revert` no son eso. Mirá la primera línea de la firma:
+
+```python
+def transfer(*, transfer_id, source: Account, destination: Account, amount: Money, ...) -> Posting
+```
+
+`source` y `destination` **no son campos de `Posting`**. `Posting` sólo tiene `transfer` y `accounts`. Lo que la función hace no es "ensamblar mis propios campos" — es: tomar dos agregados que **ya existen**, llamarles comportamiento (`source.debit(...)`, `destination.credit(...)`), y reportar el resultado como un value object. `Posting` es un **recibo**, no algo que sepa construirse a sí mismo.
+
+Si lo convertís en `Posting.transfer(source=a, destination=b, ...)`, el call site *parece* un constructor pero en realidad está orquestando dos agregados ajenos. Es exactamente la forma del problema que ya rechazamos en D5: *"`Transfer.post(...)` como classmethod muta dos de sus argumentos mientras se presenta como un constructor"*. Colgarlo de `Posting` en vez de `Transfer` no cambia la naturaleza del problema, sólo mueve el disfraz un escalón.
+
+## Sobre tu segunda opción — `PostingFactory`
+
+Es honesta en un sentido que la primera no es: al menos no finge ser un constructor. Pero acá el desacuerdo es distinto, y es sobre Python específicamente. Una clase con **cero estado y cero polimorfismo**, que existe sólo para agrupar dos funciones bajo un prefijo, es el patrón clásico de "clase estática como namespace pobre" — necesario en Java o C#, que no tienen funciones de primer nivel fuera de una clase. Python sí las tiene, y ya te da el namespace gratis: el propio módulo.
+
+`posting.transfer(...)` y `posting.revert(...)`, calificados por el nombre del módulo, te dan exactamente la misma legibilidad que `PostingFactory.transfer(...)` — sin inventar una clase que nunca vas a instanciar.
+
+## Mi recomendación
+
+Dejarlas como funciones libres en `posting.py`, tal como están. Es la opción que ninguna de las dos que propusiste cubre, y me parece la más honesta con lo que la función realmente hace: coordinar, no construir.
+
+Si el motivo real detrás de tu costumbre es **descubribilidad** — poder escribir `Posting.` en el editor y que el autocomplete te muestre cómo se arma — es un argumento legítimo y el único punto real a favor de las otras dos opciones. No me parece que pese más que la claridad semántica, pero es tu llamada.
+
+Anotado: `LedgerServices` como agrupador semántico, `transfer`/`revert` como `@staticmethod`, y sin objeción a la naturaleza del namespace porque en dominio no hay nada que mockear. Reviso el layout de módulos del design antes de tocar código, para saber si conviene renombrar el archivo también.
+
+---
+
+## Turn 40 — 2026-09-07 05:05:41.139 UTC
+
+### Prompt
+
+```text
+espera, en otro archivo, además, tomando en cuenta tu base, cómo se ve el LedgerServices?
+```
+
+<details><summary>Tool calls (12)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat src/modules/account_balance/domain/posting.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n 'from modules.account_balance.domain.posting import|^from|^import' …
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/domain/ledger_services.py
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/domain/posting.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('tests/unit/account_bala…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest -q 2>&1 | tail -5 uv run pre-commit run --all-files 2>&1 | …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest tests/unit/account_balance/domain/test_architecture.py -q -…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('tests/unit/account_bala…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -10 echo "=== diff stat ===…
+- `AskUserQuestion`
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1 -uall echo "=== confirmando que HEAD ya tiene t…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git checkout -- src/modules/account_balance/domain/posting.py \ tests/uni…
+
+</details>
+
+### Response
+
+Confirmado: `LedgerServices` en su propio archivo, separado de `Posting`. Te muestro cómo quedaría antes de tocar nada:
+
+Ahora armo el archivo nuevo, extraigo `posting.py` a sólo el value object, y migro los tests:
+
+Ahora migro los tests para que la base completa quede verificable, no a medio camino:
+
+Todas las llamadas migradas; quedan sólo menciones en prosa de docstring (`transfer()`), que están bien tal cual — describen el comportamiento, no una referencia de código.
+
+Esperable: el test de arquitectura tiene la ruta hardcodeada `posting.py`, y `revert` se movió a `ledger_services.py`. Verifico el detalle exacto antes de tocarlo — es el test que protege la invariante más sensible del dominio:
+
+Exactamente lo esperado: el AST sigue viendo la única llamada legítima en `call:revert`, sólo que ahora en `ledger_services.py`. La invariante sigue intacta — actualizo la ruta esperada:
+
+Todo verde de nuevo. Ahora corro los gates finales y te muestro el diff completo antes de comprometerlo — es lo que pediste ver:
+
+Acá tenés el resultado completo, **139 tests en verde, gates en verde, sin commitear todavía**:
+
+`src/modules/account_balance/domain/ledger_services.py` (nuevo):
+
+```python
+class LedgerServices:
+    """The only code that may call `Account.credit`/`debit`/`debit_for_reversal`
+
+    and construct a `Transfer` from the entries those calls produce (D5).
+
+    `transfer` and `destination` are not `Posting`'s own fields — this
+    coordinates two independently-meaningful `Account` aggregates and
+    reports the outcome, which is a service's job, not a constructor's.
+    Grouped under one name rather than left as free functions purely for
+    semantic grouping (docs/coding-conventions.md); every method is a
+    `@staticmethod` because there is no instance state to hold, no I/O and
+    no dependency to inject here, so there is nothing a test would ever
+    need to substitute with a double.
+    """
+
+    @staticmethod
+    def transfer(*, transfer_id, source, destination, amount, ...) -> Posting: ...
+
+    @staticmethod
+    def revert(original, *, transfer_id, source, destination, ...) -> Posting: ...
+```
+
+`posting.py` quedó reducido a sólo el value object:
+
+```python
+@dataclass(frozen=True, slots=True)
+class Posting:
+    """...
+    Built exclusively by `LedgerServices.transfer`/`revert` — nothing here
+    builds a `Posting` from scratch, since assembling one means
+    coordinating two `Account` aggregates that are not fields of this
+    type, which is a service's job, not a constructor's.
+    """
+    transfer: Transfer
+    accounts: tuple[Account, ...]
+```
+
+Metí en el docstring de `LedgerServices` justo la razón que diste — *"siendo dominio no queremos mockearlos"* — como argumento explícito de por qué `@staticmethod` acá no tiene el costo que suele tener en otros contextos (sin estado, sin I/O, sin dependencia que inyectar, nada que un test necesite doblar).
+
+Un hallazgo real durante la migración: el test de arquitectura T4.8 —el que grepea dónde aparece `debit_for_reversal`— tenía la ruta `posting.py` hardcodeada. Al mover `revert`, falló exactamente como debía: la invariante sigue intacta (`debit_for_reversal` sigue llamándose sólo desde `revert`), sólo cambió el archivo donde vive. Actualicé la ruta esperada, no la lógica del test.
+
+Llamadas en tests migradas a `LedgerServices.transfer(...)` / `LedgerServices.revert(...)`.
+
+Antes de commitear, dos preguntas tuyas por resolver:
+
+Entendido — volvemos a funciones libres en `posting.py`, sin la clase envolvente. Como nada de esto se commiteó, restauro limpio desde el último commit:
+
+Confirmado: HEAD ya tiene exactamente lo que querés (funciones libres, `Callable` para `entry_ids`). Restauro y borro el archivo nuevo:
 
 ---
