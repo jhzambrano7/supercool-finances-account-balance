@@ -452,3 +452,11 @@ Formato de cada entrada:
 - **Prompt:** (continuación directa del pedido de este turno)
 - **Respuesta:** `openspec/specs/revert/spec.md`: decisiones R1–R8. La más importante: R1 declara explícitamente que "operador-autorizado" en v1 es sólo "un endpoint separado sin chequeo de dueño" — una limitación real y declarada, no un mecanismo de verificación de operador inventado (el PRD mismo delega esa pregunta al adaptador de autenticación real, fuera de alcance). R2 deriva origen/destino de la transferencia original en vez de aceptarlos del cliente, eliminando una clase entera de error posible. R3 aplica por adelantado la lección que costó un bug real en transfer: la reserva de idempotencia debe ser la primera escritura, antes de tocar cualquier cuenta — documentado explícitamente citando el commit del fix (`0c4ea93`) en el brief de implementación. R4 es el índice único parcial sobre `transfers.reverses` que design.md ya había especificado pero nunca se había construido. Lanzada la implementación en background sobre `feat/revert`, con instrucción explícita de reusar toda la maquinaria de `transfer` (unit of work, repositorios, mecanismo de idempotencia) sin duplicarla.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 02:55 — Verificar revert y lanzar su revisión fresca
+
+<!-- id: 20260907-025510-a1fe3a40 -->
+- **Qué intentaba:** (Turno disparado por la finalización del sub-agente de implementación.) Verificar la entrega antes de pasarla a revisión fresca.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** 196 tests confirmados. Leí `RevertTransferUseCase` completo antes de aceptar el reporte: la reserva de idempotencia efectivamente ocurre primero, antes de cargar el original o tocar cuentas — no sólo lo dice el comentario, lo hace el código. Verificado también R2 (origen=destino del original, destino=origen del original, coincide con el contrato real de `revert()` en posting.py) y R4 (el catch en `SqlTransferRepository.add()` está acotado por nombre al índice parcial, mismo patrón que AO4/T5; la migración crea el índice único parcial correctamente sobre `reverses IS NOT NULL`). Gates verdes. Lanzada revisión fresca con foco explícito en re-verificar la afirmación de "reserva primero" línea por línea en vez de confiar en el comentario, y en la dirección origen/destino de la reversa.
+- **Veredicto:** ⏳ pendiente
