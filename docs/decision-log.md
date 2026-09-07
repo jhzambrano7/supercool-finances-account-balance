@@ -438,3 +438,10 @@ Formato de cada entrada:
 - **Segundo hallazgo, mismo patrón que el anterior:** `InvalidIdempotencyKeyError` tampoco estaba mapeado, caía a 500. Reproducido con clave en blanco, corregido igual que `NonPositiveAmountError`/`InvalidCurrencyError`.
 - **178 tests, gates verdes.** Dos commits (`0c4ea93`, `9b0427d`).
 - **Veredicto:** ✅ aprobado
+
+## 2026-09-07 02:40 — Pushear feat/transfer y abrir el PR #2
+
+- **Qué intentaba:** Cerrar el segundo eslabón de la cadena.
+- **Prompt:** (continuación directa del pedido de este turno)
+- **Respuesta:** Pusheado `feat/transfer` y abierto el PR #2 apuntando a `feat/account-opening` (no a main, per feature-branch-chain), con el bug de concurrencia real y su fix documentados en el cuerpo del PR. `revert` (PR #3) arranca sobre `feat/transfer` a continuación.
+- **Veredicto:** ⏳ pendiente
