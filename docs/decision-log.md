@@ -523,3 +523,24 @@ Formato de cada entrada:
 - **Prompt:** "no hagas commit hasta que no termine de revisar"
 - **Respuesta:** Reconocido como restricción activa: no se hacen más commits ni push hasta indicación explícita de que terminó la revisión.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 13:52 — Aplicar las 12 observaciones de la revisión del usuario
+
+<!-- id: 20260907-135204-a1fe3a40 -->
+- **Qué intentaba:** Actuar sobre las observaciones que el usuario dejó como reviewer en el PR #1 (vía GitHub review comments) y mejorar convenciones donde correspondiera.
+- **Prompt:** "Revisa el PR, tomé el papel de reviwer y te dejé varias observaciones, además aprovecha para mejorar las convenciones donde corresponda"
+- **Respuesta:** Extraídas las 12 observaciones vía `gh api .../pulls/1/reviews/{id}/comments` (review PENDING, sin comentarios inline vía el endpoint normal). Implementadas todas: (1) sacado el docstring de `AccountBalanceContainer`; (2/4/5) `schemas.py`→`dtos.py`, `OpenAccountRequest`→`OpenAccountRequestDto`, `AccountResponse`→`AccountResponseDto`, con test unitario nuevo para `from_result` (mismo patrón que los DBOs); (3) `Base` movido a `shared/adapters/outbound/repositories/sql/base.py`, reusable para los DBOs de transfer/entries que faltan; (6/7) `http_status` eliminado de `OpenAccountResult` — la capa de aplicación no debe conocer HTTP, ni siquiera como int con comentario; el route decide 200/201 él mismo; (8) `OpenAccountUseCase`→`AccountRegister`, sin sufijo de capa; (9) el `except AccountAlreadyExistsError` en el caso de uso se eliminó — el error se propaga, el cliente reintenta y encuentra la cuenta por el mismo lookup de natural key; (10) el catch-all de `DomainError` en el route pasó de 500 a 400, agregado catch explícito de `AccountAlreadyExistsError`→409.
+- **No cambiado, respondido en cambio:** (11) por qué un fake en vez de mocks por test — la unicidad de clave natural y la carrera de AO4 son estado compartido entre tests; un mock por test terminaría reimplementando ese mismo estado vía `side_effect`, disperso en vez de centralizado, y no falla en mypy si el puerto cambia de firma.
+- **Documentado en `docs/coding-conventions.md`:** 3 reglas nuevas (aplicación no conoce HTTP, sin sufijos de capa, DomainError/ApplicationError → 400 por defecto — marcado explícitamente como no aplicado aún en transfer/revert) y generalizada la sección de DBOs para cubrir también DTOs.
+- **Actualizado `openspec/specs/account-opening/spec.md`:** tabla de tipos, escenario de la carrera (ahora 409 en vez de recovery a 200, con un escenario nuevo separando el retry secuencial del race genuino), tabla de mapeo de errores, estrategia de testing. Las decisiones AO3/AO4 se corrigieron manteniendo el razonamiento anterior visible como superado, no borrado.
+- **153 tests (antes 151), gates verdes.** Agregado un test de integración con concurrencia real (`asyncio.gather`) para el 201/409, corrido 5 veces limpio.
+- **Sin commitear** — a la espera de que el usuario confirme que terminó de revisar.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 14:02 — Commitear y pushear la respuesta a la revisión
+
+<!-- id: 20260907-140248-a1fe3a40 -->
+- **Qué intentaba:** El usuario confirmó que terminó de revisar y pidió subir los cambios.
+- **Prompt:** "sube los cambios"
+- **Respuesta:** Commiteado en dos partes (código + docs) tras limpiar cachés obsoletas de `__pycache__`/`.mypy_cache` que habían confundido un intento de commit intermedio (mismo tipo de falso positivo ya visto antes, no un bug real). 153 tests, gates verdes, confirmado en limpio antes de cada commit.
+- **Veredicto:** ⏳ pendiente

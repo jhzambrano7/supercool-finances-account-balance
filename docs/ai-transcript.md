@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 67
+**Turns recorded:** 71
 
 ---
 
@@ -4783,18 +4783,331 @@ No pusheé nada de esto. Antes de tocar más código necesito saber: ¿sos vos e
 Quitaste el override de los métodos del adapter, por uqé?
 ```
 
-<details><summary>Tool calls (5)</summary>
+<details><summary>Tool calls (34)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git log --all --oneline -- src/modules/account_balance/adapters/outbound/…
 - `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/sql_account_r…
 - `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/sql_account_r…
 - `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/sql_account_r…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run mypy src tests 2>&1 | tail -20 echo "---" uv run ruff check . 2>&1…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance tail -30 docs/decision-log.md
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/sql_account_r…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat -A src/modules/account_balance/adapters/outbound/repositories/sql/sql…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '48,76p' src/modules/account_balance/adapters/outbound/repositorie…
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/sql_account_r…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -n "Wrap third-party exceptions" docs/coding-conventions.md
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run ruff check . 2>&1 | tail -20 echo "---mypy---" uv run mypy src tes…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -3 echo "---" git status --short
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git diff src/modules/account_balance/adapters/config/dependencies.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --short echo "--- stash working tree safety check: nothing wil…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git diff --cached -- tests/integration/conftest.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python -c "from testcontainers.community.postgres import PostgresC…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -5 echo "---" uv run mypy src tests 2>&1 | tail…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git reset git status --short
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance tail -5 docs/decision-log.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 13:29 — Incidente de ed…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add src/modules/shared/adapters/config/dependencies.py \ src/modules/…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add src/modules/account_balance/adapters/outbound/repositories/sql/en…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit -q -m "$(cat <<'EOF' refactor(shared): move DB provider wiring…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add src/modules/account_balance/adapters/outbound/repositories/sql/sq…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit -q -m "$(cat <<'EOF' fix(sql): restore @override, log every In…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git diff src/modules/account_balance/adapters/outbound/repositories/sql/s…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit -q -m "$(cat <<'EOF' fix(sql): restore @override, log every In…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -3 uv run pre-commit run --all-files 2>&1 | tai…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --short
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --short sleep 1 git status --short
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add docs/ai-transcript.md docs/.transcript-store.jsonl git commit -q …
 
 </details>
 
 ### Response
 
 Tenés razón — no fue una decisión, se me cayó al reescribir el archivo entero para arreglar las importaciones rotas. Lo restauro ahora, junto con el reordenamiento del logging que también se había revertido (lo cual sí confirma que era el mismo problema del punto 1 que te reporté: edición externa, no algo que decidiste).
+
+Che, el archivo se me está volviendo a mover mientras lo edito — el logging volvió a quedar antes del chequeo de nuevo, justo después de que yo lo había corregido hace segundos. Estás editando `sql_account_repository.py` vos mismo ahora mismo, en paralelo conmigo.
+
+Prefiero parar acá antes de seguir pisándonos las ediciones. ¿Terminaste de tocar ese archivo, o seguís en eso? Si seguís vos, te dejo el archivo tranquilo y cuando avises reviso el estado final de una sola vez (`@override`, orden del logging, y los otros dos cambios que vi — el `provides=` en `dependencies.py` y `testcontainers.community.postgres` en `conftest.py`) en vez de ir corrigiendo línea por línea contra un objetivo que se mueve.
+
+Good, that entry (130924) is already there. Now appending the two pending entries.
+
+Now committing the substantive changes in clean, logical groups.
+
+Good, git correctly detected the rename now. Committing this group.
+
+Now the second commit: the adapter fixes and conventions correction.
+
+Cosmetic line-collapse. Retrying the commit.
+
+Now syncing session docs and running one final full check before pushing.
+
+Stable. Syncing docs and pushing.
+
+Pusheado. Historia local limpia (usé `git reset --soft` al último commit realmente publicado para descartar los commits contaminados por la edición concurrente, sin perder nada del trabajo correcto).
+
+**Resumen de lo que se aclaró:**
+- El `@override` no fue una decisión mía, se cayó al reescribir el archivo — restaurado.
+- El orden del logging: entendí mal como bug algo que era tu decisión deliberada. `logger.exception()` va antes del chequeo, incondicional para todo `IntegrityError` — el log es auditoría completa, no un filtro. Lo que cambia según se reconozca o no es qué se lanza después, no si se loggea. Corregido el código y también la sección de `docs/coding-conventions.md` que lo documentaba al revés.
+- Acepté el cambio a `testcontainers.community.postgres` en `conftest.py` (verificado que funciona, corrige el warning de deprecación que veníamos arrastrando).
+
+151 tests, gates verdes, pusheado a PR #1. ¿El archivo está tranquilo ahora, o seguís editando en la otra sesión?
+
+---
+
+## Turn 68 — 2026-09-07 18:37:19.333 UTC
+
+### Prompt
+
+```text
+Estoy viendo algo de reto en los errores que has creado, no tienen body y en consecuencia no creo aporten valor al invocador, cómo se verían?
+```
+
+<details><summary>Tool calls (1)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 13:37 — Proponer body e…
+
+</details>
+
+### Response
+
+Tenés razón, es un problema real. Ahora mismo la mayoría son cáscaras vacías (`class X(Y): pass`) que dependen de un string armado a mano en cada `raise` — el invocador sólo tiene `str(exc)`, nada estructurado que pueda leer sin parsear texto. `IntegrationError` es la excepción que sí lo hace bien (`self.code`, `self.cause`, `self.metadata` como atributos reales); el resto no.
+
+Así se verían con body real — el mensaje se arma una sola vez, adentro de la clase, y el invocador puede leer campos tipados en vez de parsear:
+
+```python
+# ResourceNotFoundError — hoy sólo arma el string, no guarda nada
+class ResourceNotFoundError(ApplicationError, ABC):
+    def __init__(self, resource_type: str, resource_identifier: str) -> None:
+        self.resource_type = resource_type
+        self.resource_identifier = resource_identifier
+        super().__init__(f"{resource_type} with ID {resource_identifier} not found")
+
+# AccountNaturalKeyConflictError — hoy es un Exception pelado, mensaje armado en cada raise
+class AccountNaturalKeyConflictError(Exception):
+    def __init__(self, *, owner_id: OwnerId, purpose: AccountPurpose, currency: Currency) -> None:
+        self.owner_id = owner_id
+        self.purpose = purpose
+        self.currency = currency
+        super().__init__(
+            f"account already exists for natural key "
+            f"(owner={owner_id}, purpose={purpose.value}, currency={currency})"
+        )
+```
+
+Beneficio extra más allá del acceso estructurado: el mensaje deja de duplicarse en cada call site — hoy `add()` arma ese mismo f-string a mano, si cambia el formato hay que acordarse de tocarlo ahí.
+
+La pregunta de alcance: ¿lo hacemos para **todas** las ~19 clases de error del dominio, o sólo las que un invocador real necesita inspeccionar (las que llegan a un route/HTTP, como `AccountNotFoundError`, `AccountOwnershipError`, `InsufficientFundsError`), dejando las de guard interno (`EntryDirectionMismatchError`, `MalformedTransferError`, etc. — nunca deberían dispararse en producción) con el string simple que tienen hoy?
+
+Logueado. Quedo esperando tu decisión de alcance para avanzar.
+
+---
+
+## Turn 69 — 2026-09-07 18:39:51.900 UTC
+
+### Prompt
+
+```text
+Crea un ResourceAlreadyExistsError simil a ResourceNotFoundError y de él extienede un AccountAlreadyExistError en remplazo de AccountNaturalKeyConflictError, de nuevo no reinventemos la rueda
+```
+
+<details><summary>Tool calls (33)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -rln "AccountNaturalKeyConflictError" src/ tests/
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/application/errors.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/application/errors.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/application/gateways/account_repository.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/application/gateways/account_repository.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/application/gateways/account_repository.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/sql_account_r…
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/sql_account_r…
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/sql_account_r…
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/application/use_cases/open_account.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/application/use_cases/open_account.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/application/use_cases/open_account.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/application/test_open_account_use_case.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/application/test_open_account_use_case.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/application/test_open_account_use_case.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_sql_account_repository.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_sql_account_repository.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_sql_account_repository.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_sql_account_repository.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -rln "AccountNaturalKeyConflictError" src/ tests/ docs/ openspec/ 2>…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -n "AccountNaturalKeyConflictError" docs/coding-conventions.md
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -n "Applied so far" docs/coding-conventions.md
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run mypy src tests 2>&1 | tail -40
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run ruff check . 2>&1 | tail -40
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -10
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -15
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add src/modules/shared/application/errors.py \ src/modules/account_ba…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit -q -m "$(cat <<'EOF' refactor(application): give errors a stru…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 13:39 — Crear ResourceA…
+
+</details>
+
+### Response
+
+Now updating the docstring reference for `add()`'s abstractmethod.
+
+Now updating `open_account.py`'s catch clause.
+
+Now the two test files.
+
+Now the integration test file.
+
+Now adding a new rule subsection about structured error bodies, right after the layering rule.
+
+Now let's run the full gate suite to verify everything works.
+
+All green. Committing.
+
+Pusheado. Un detalle: usé `AccountAlreadyExistsError` (con la "s" del plural correcto) en vez de "AlreadyExistError" — gramaticalmente es lo que corresponde y matchea el patrón de `AccountNotFoundError`.
+
+Resumen:
+- `ResourceNotFoundError` corregido para guardar `resource_type`/`resource_identifier` como atributos reales (antes sólo iban al string).
+- `ResourceAlreadyExistsError` nuevo, misma forma.
+- `AccountAlreadyExistsError` reemplaza a `AccountNaturalKeyConflictError` en todo el código (puerto, adapter SQL, caso de uso, ambos test suites) — guarda `owner_id`/`purpose`/`currency` propios además de lo heredado.
+- Los tests de integración ahora chequean los campos estructurados directamente, no sólo `pytest.raises(TipoDeError)`.
+- Documentada la regla en `docs/coding-conventions.md`, acotada a errores que un invocador real llega a inspeccionar.
+
+151 tests, gates verdes, pusheado a PR #1.
+
+---
+
+## Turn 70 — 2026-09-07 18:44:08.858 UTC
+
+### Prompt
+
+```text
+no hagas commit hasta que no termine de revisar
+```
+
+<details><summary>Tool calls (1)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 13:44 — Pausar commits …
+
+</details>
+
+### Response
+
+Entendido — no hago más commits (ni push) hasta que digas que terminaste de revisar. Quedo a la espera.
+
+Escrito en el archivo pero sin commitear, tal como pediste. Esperando.
+
+---
+
+## Turn 71 — 2026-09-07 18:52:04.064 UTC
+
+### Prompt
+
+```text
+Revisa el PR, tomé el papel de reviwer y te dejé varias observaciones, además aprovecha para mejorar las convenciones donde corresponda
+```
+
+<details><summary>Tool calls (58)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance gh pr view 1 --json reviews,comments -q '.reviews[] | {author: .author.lo…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance gh api repos/jhzambrano7/supercool-finances-account-balance/pulls/1/revie…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance REVIEW_ID=5134558156 gh api repos/jhzambrano7/supercool-finances-account-…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance REVIEW_ID=5134558156 gh api repos/jhzambrano7/supercool-finances-account-…
+- `Bash` — tail -c 6000 /tmp/pr_review_comments.json
+- `Bash` — python3 -c " import json with open('/tmp/pr_review_comments.json') as f: lines = f.readlines() for l in lines: d = json.loads(l) print('---'…
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/inbound/api/schemas.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/inbound/api/routes.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/application/use_cases/open_account.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/dbos/models.p…
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/config/dependencies.py
+- `Bash` — cat /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/inbound/api/routes.py
+- `Bash` — cat /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_open_account_route.py
+- `Bash` — cat /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/application/test_open_account_use_case.py
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/adapters/outbound/repositories/sql/base.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/outbound/repositories/sql/dbos/models.p…
+- `Bash` — grep -n "import Base\|dbos.models" /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/alembic/env.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/alembic/env.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/alembic/env.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/config/dependencies.py
+- `Bash` — git -C /Users/jhz7/work-spaces/mine/supercool-finances-account-balance mv src/modules/account_balance/application/use_cases/open_account.py …
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/application/use_cases/account_register.py
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/application/use_cases/account_register.py
+- `Bash` — git -C /Users/jhz7/work-spaces/mine/supercool-finances-account-balance mv src/modules/account_balance/adapters/inbound/api/schemas.py src/mo…
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/inbound/api/dtos.py
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/inbound/api/routes.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -rln "OpenAccountUseCase\|adapters\.inbound\.api\.schemas\|use_cases…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -rln "\bAccountResponse\b\|\bOpenAccountRequest\b" src/ tests/ 2>/de…
+- `Bash` — git -C /Users/jhz7/work-spaces/mine/supercool-finances-account-balance mv tests/unit/account_balance/application/test_open_account_use_case.…
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/application/test_account_register.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_open_account_route.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_open_account_route.py
+- `Bash` — mkdir -p /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/adapters/inbound/api
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/adapters/inbound/api/test_dtos.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -n "OpenAccountUseCase\|OpenAccountRequest\|AccountResponse\b\|http_…
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/specs/account-opening/spec.md
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/specs/account-opening/spec.md
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/specs/account-opening/spec.md
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/specs/account-opening/spec.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -n "AO4" openspec/specs/account-opening/spec.md | head -20
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/specs/account-opening/spec.md
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/specs/account-opening/spec.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -n "### DBOs:" docs/coding-conventions.md
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -n "^### \|^## " docs/coding-conventions.md
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -rln "OpenAccountUseCase\|open_account_use_case\|adapters\.inbound\.…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run mypy src tests 2>&1 | tail -60
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run ruff check . 2>&1 | tail -60
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest 2>&1 | tail -60
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -20
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance for i in 1 2 3 4 5; do uv run pytest tests/integration/account_balance/te…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --short
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md <<'EOF' ## 2026-09-07 13:52 — Aplicar las 12 …
+
+</details>
+
+### Response
+
+Now implementing. Starting with moving `Base` to shared (comment #3).
+
+Now updating `alembic/env.py`'s import of `Base`.
+
+Now comment #1 — removing the docstring on `AccountBalanceContainer`.
+
+Now the main use-case file — renaming, removing HTTP concerns, and letting the conflict propagate (comments #6, #7, #8, #9).
+
+Now the DTO rename (comments #2, #4, #5).
+
+Now rewriting the unit test file for the renamed use case.
+
+Now the DTO unit test (matching the DBO testing convention, per comment #2).
+
+Now the error-mapping table and testing strategy section.
+
+Now updating the "Applied so far" table with the new items.
+
+Clean. Now the gates.
+
+Implementé las 12 observaciones. Resumen:
+
+**Aplicadas directamente:**
+1. Docstring de `AccountBalanceContainer` eliminado.
+2/4/5. `schemas.py` → `dtos.py`, clases renombradas a `OpenAccountRequestDto`/`AccountResponseDto`, con test unitario nuevo para `from_result` (mismo patrón que los DBOs).
+3. `Base` movido a `shared/adapters/outbound/repositories/sql/base.py`, listo para que los DBOs de transfer/entries lo reusen.
+6/7. `http_status` eliminado de `OpenAccountResult` — la capa de aplicación no debe conocer HTTP ni como int con comentario disclaimer; el route decide 200/201.
+8. `OpenAccountUseCase` → `AccountRegister`.
+9. El `except AccountAlreadyExistsError` del caso de uso se eliminó — el error se propaga; el cliente reintenta y lo encuentra por el mismo lookup de natural key.
+10. El catch-all de `DomainError` pasó de 500 a 400; agregado catch explícito de `AccountAlreadyExistsError` → 409.
+
+**Respondido en vez de cambiado** (11 — fake vs. mocks): la unicidad de clave natural y la carrera de AO4 son estado compartido entre varios tests; un mock por test terminaría reimplementando ese mismo estado vía `side_effect`, disperso en vez de centralizado una sola vez, y no te avisa en mypy si el puerto cambia de firma. Si después de esto seguís prefiriendo mocks, lo cambio.
+
+**Convenciones nuevas documentadas**: capa de aplicación sin HTTP, sin sufijos de capa (`UseCase`/`Service`/etc.), `DomainError`/`ApplicationError` → 400 por defecto (marcado explícitamente como *no* aplicado todavía en `transfer`/`revert`). Actualicé también el spec de account-opening (tabla de tipos, el escenario de la carrera ahora es 409 en vez de recovery a 200, mapeo de errores) manteniendo el razonamiento anterior visible como superado.
+
+153 tests (antes 151), gates verdes, incluido un test de concurrencia real corrido 5 veces limpio. **Nada commiteado** — quedo esperando que confirmes si terminaste de revisar o hay más.
 
 ---
