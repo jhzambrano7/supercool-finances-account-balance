@@ -53,6 +53,12 @@ class _FakeAccountRepository(AccountRepository):
     async def get(self, account_id: AccountId) -> Account | None:
         return next((a for a in self.by_natural_key.values() if a.account_id == account_id), None)
 
+    async def get_for_update(self, account_id: AccountId) -> Account | None:
+        raise NotImplementedError("OpenAccountUseCase never locks accounts")
+
+    async def update(self, account: Account) -> None:
+        raise NotImplementedError("OpenAccountUseCase never updates an existing account")
+
 
 def _use_case(repository: AccountRepository) -> OpenAccountUseCase:
     return OpenAccountUseCase(repository=repository, id_generator=IdGenerator())

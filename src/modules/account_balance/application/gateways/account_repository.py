@@ -36,4 +36,38 @@ class AccountRepository(ABC):
 
     @abstractmethod
     async def get(self, account_id: AccountId) -> Account | None:
-        """Returns the account for this id, or `None` if none exists."""
+        """Returns the account for this id, or `None` if none exists.
+
+        For a `SYSTEM` account, the balance returned is computed as
+        `SUM(signed entries)` at read time, never the stored
+        `balance_amount` column (T7, PRD §5.3) -- that column goes unused
+        for `SYSTEM` rows from this slice on. For a `USER` account, the
+        stored column is the answer, unlocked.
+        """
+
+    @abstractmethod
+    async def get_for_update(self, account_id: AccountId) -> Account | None:
+        """Returns the `USER` account for this id, locked (`SELECT ... FOR
+        UPDATE`) for the lifetime of the caller's transaction (T6, PRD §5
+        step 3).
+
+        `SYSTEM` accounts are never locked (T6, T7) -- callers must not
+        invoke this for an id known to be a `SYSTEM` account; behaviour for
+        one is unspecified (implementations return `None`, matching "not
+        found" for this method's purpose, rather than silently locking
+        infrastructure nothing needs locked). Callers determine `USER`-ness
+        from an unlocked `get()` first, then lock only those ids, sorted by
+        `AccountId`, before calling this.
+        """
+
+    @abstractmethod
+    async def update(self, account: Account) -> None:
+        """Persists a `USER` account's new balance and version under the
+        lock `get_for_update` already holds (T9).
+
+        Must only be called for a `USER` account (T7) -- a `SYSTEM`
+        account's `balance_amount` column is never written by this path.
+        Does not commit: the enclosing `TransferUnitOfWork` commits once,
+        atomically, alongside the posted entries and the idempotency
+        record (T3).
+        """
