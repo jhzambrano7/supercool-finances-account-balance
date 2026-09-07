@@ -11,7 +11,10 @@ from modules.account_balance.domain.account import (
 )
 from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.errors import (
+    AccountNotClosableError,
+    AccountNotEmptyError,
     AccountNotOperableError,
+    AccountOwnershipError,
     EntryAccountMismatchError,
     EntryDirectionMismatchError,
     InsufficientFundsError,
@@ -405,3 +408,58 @@ class TestOperability:
                     amount=Money(1, USD),
                 )
             )
+
+
+class TestOwnership:
+    def test_owner_mismatch_is_rejected(self) -> None:
+        account = _open_user_account()
+        with pytest.raises(AccountOwnershipError):
+            account.assert_owned_by(_owner_id())
+
+    def test_owner_match_passes_silently(self) -> None:
+        account = _open_user_account()
+        account.assert_owned_by(account.owner_id)  # no error
+
+
+class TestClose:
+    def test_zero_balance_user_account_closes(self) -> None:
+        account = _open_user_account()
+
+        closed = account.close()
+
+        assert closed.status is AccountStatus.CLOSED
+
+    def test_non_zero_balance_blocks_closure(self) -> None:
+        account = _open_user_account()
+        account = account.credit(
+            _entry(
+                account_id=account.account_id,
+                direction=EntryDirection.CREDIT,
+                amount=Money(10, USD),
+            )
+        )
+
+        with pytest.raises(AccountNotEmptyError):
+            account.close()
+        assert account.status is AccountStatus.ACTIVE
+
+    def test_system_accounts_cannot_be_closed(self) -> None:
+        """The spec states only "the closure is rejected"; design §4.5 and the
+
+        spec's own error table both name AccountNotClosableError for this
+        case, so asserting the concrete type confirms spec and design agree
+        rather than inventing a new rule.
+        """
+        account = _open_system_account()
+
+        with pytest.raises(AccountNotClosableError):
+            account.close()
+
+    def test_returns_a_new_account_and_leaves_the_receiver_untouched(self) -> None:
+        account = _open_user_account()
+
+        closed = account.close()
+
+        assert closed is not account
+        assert closed.status is AccountStatus.CLOSED
+        assert account.status is AccountStatus.ACTIVE

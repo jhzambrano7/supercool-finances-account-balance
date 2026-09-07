@@ -4,7 +4,10 @@ from typing import Self
 
 from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.errors import (
+    AccountNotClosableError,
+    AccountNotEmptyError,
     AccountNotOperableError,
+    AccountOwnershipError,
     EntryAccountMismatchError,
     EntryDirectionMismatchError,
     InsufficientFundsError,
@@ -211,6 +214,31 @@ class Account:
             balance=self._validated_balance(entry, EntryDirection.DEBIT),
             version=self.version + 1,
         )
+
+    def assert_owned_by(self, owner_id: OwnerId) -> None:
+        """States the ownership fact only — which legs to check is use-case policy (G5, §5.3)."""
+        if owner_id != self.owner_id:
+            raise AccountOwnershipError(f"account {self.account_id} is not owned by {owner_id}")
+
+    def close(self) -> Account:
+        """Refuses unless USER-typed, ACTIVE, and exactly zero balance (§7.2).
+
+        Checked in the order the spec states the requirement: type/status
+        first (`AccountNotClosableError` — nothing branches differently
+        between "already closed" and "SYSTEM"), then balance
+        (`AccountNotEmptyError` — the one refusal a caller can act on by
+        emptying the account first).
+        """
+        if self.status is not AccountStatus.ACTIVE or self.account_type is AccountType.SYSTEM:
+            raise AccountNotClosableError(
+                f"account {self.account_id} cannot be closed "
+                f"(status={self.status.value}, type={self.account_type.value})"
+            )
+        if not self.balance.is_zero:
+            raise AccountNotEmptyError(
+                f"account {self.account_id} has a non-zero balance and cannot be closed"
+            )
+        return replace(self, status=AccountStatus.CLOSED, version=self.version + 1)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Account):

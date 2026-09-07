@@ -189,7 +189,7 @@ Commit boundary: 4b is one commit, `PRD:` trailer referencing I2, I4, G4, §7.3.
 
 ### 4c — ownership assertion and `close()`
 
-- [ ] **T4.6 (test)** — Extend `test_account.py` with `TestOwnership`, `TestClose`:
+- [x] **T4.6 (test)** — Extend `test_account.py` with `TestOwnership`, `TestClose`:
       - Owner mismatch raises `AccountOwnershipError` (spec "Owner mismatch is rejected").
       - Owner match passes silently, no error (spec "Owner match passes silently").
       - Zero-balance USER account closes, status becomes `CLOSED` (spec "Zero-balance USER account
@@ -203,7 +203,7 @@ Commit boundary: 4b is one commit, `PRD:` trailer referencing I2, I4, G4, §7.3.
         inventing a requirement — this is confirming spec + design agree, not adding a new rule).
       Satisfies: spec "Ownership Assertion Is a Domain Fact", "Closing an Account Requires Exactly
       Zero Balance and `USER` Type"; design §4.5.
-- [ ] **T4.7 (impl)** — Implement `Account.assert_owned_by()` and `Account.close()` per design §4.5.
+- [x] **T4.7 (impl)** — Implement `Account.assert_owned_by()` and `Account.close()` per design §4.5.
       Satisfies: same as T4.6.
 
 Commit boundary: 4c is one commit, `PRD:` trailer referencing G5, §7.2.
