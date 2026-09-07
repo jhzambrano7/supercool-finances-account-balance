@@ -48,6 +48,10 @@ not built**.
 | `AccountNotEmptyError` | `Account.close()` on a non-zero balance (§7.2) |
 | `AccountNotClosableError` | `Account.close()` on an account that is not `ACTIVE`, or is `SYSTEM`-typed (§7.2) |
 | `InvalidIdempotencyKeyError` | the key is empty or exceeds the accepted length |
+| `EntryDirectionMismatchError` | a leg is applied through the wrong method — Internal guard |
+| `MalformedTransferError` | a transfer's legs do not describe the transfer they belong to — Internal guard |
+| `NaiveTimestampError` | `occurred_at` carries no timezone |
+| `ReversalMismatchError` | a reversal's legs do not mirror the transfer it reverses — Internal guard |
 
 Closure raises **two** errors rather than one, and the split is by what the caller can do about it.
 `AccountNotEmptyError` is actionable — empty the account and try again — so it earns its own type.
@@ -450,6 +454,72 @@ than being refused or absorbed elsewhere.)*
 - THEN Bruno is debited `100 USD` via `debit_for_reversal`, his balance becomes `-80 USD`
 - AND Ana is credited `100 USD`
 - AND no error is raised
+
+---
+
+### Internal guards
+
+These four are not business rules a customer can trigger. They catch a caller inside this service
+assembling something incoherent, and they exist because the alternative to raising is writing a
+ledger entry that no one can explain later. They are specified here because the design enforces
+them, and a guard the specification does not state is a test with nothing behind it.
+
+#### Requirement: A Leg Is Applied Through the Method Matching Its Direction
+
+`Account.credit()` MUST reject an entry whose direction is `DEBIT`, and `Account.debit()` and
+`Account.debit_for_reversal()` MUST reject one whose direction is `CREDIT`.
+
+*(I1 — the sign is chosen once, on the entry. A method that accepted either direction would be a
+second place the sign is decided, and two places can disagree.)*
+
+##### Scenario: Credit refuses a debit leg
+
+- GIVEN an `ACTIVE` account and an entry with direction `DEBIT`
+- WHEN `credit(entry)` is called
+- THEN `EntryDirectionMismatchError` is raised and no successor account is produced
+
+#### Requirement: A Transfer's Legs Must Describe That Transfer
+
+`Transfer` construction MUST reject legs that do not belong to it: any entry whose `transfer_id`
+differs from the transfer's own, fewer than two legs, a `source_account_id` absent from the debited
+legs, or a `destination_account_id` absent from the credited legs.
+
+*(G1 — a balance is explained by its entries. Entries that describe a different movement explain
+nothing.)*
+
+##### Scenario: A leg belonging to another transfer is rejected
+
+- GIVEN legs that net to zero, one of which carries a different `transfer_id`
+- WHEN `Transfer(...)` is constructed
+- THEN `MalformedTransferError` is raised
+
+#### Requirement: `occurred_at` Must Be Timezone-Aware
+
+Every `Transfer` and `Entry` timestamp MUST carry a timezone. A naive datetime is rejected at
+construction.
+
+*(G1 — the entry trail is the audit record. "14:30" is not a time until you know where, and a ledger
+ordered by ambiguous timestamps cannot be reconciled across a daylight-saving boundary.)*
+
+##### Scenario: A naive timestamp is rejected
+
+- GIVEN an otherwise valid transfer whose `occurred_at` has no `tzinfo`
+- WHEN it is constructed
+- THEN `NaiveTimestampError` is raised
+
+#### Requirement: A Reversal's Legs Mirror the Original
+
+`revert()` MUST produce legs that mirror the original transfer: the same amount and currency, with
+the original's debited account credited and its credited account debited.
+
+*(I7 — a compensating entry that does not compensate is just another transfer wearing a reference to
+one.)*
+
+##### Scenario: A reversal that does not mirror is rejected
+
+- GIVEN an original transfer of `100 USD` from A to B
+- WHEN a reversal is constructed whose legs move `50 USD`
+- THEN `ReversalMismatchError` is raised
 
 ---
 
