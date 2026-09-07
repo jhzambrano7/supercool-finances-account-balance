@@ -78,6 +78,114 @@ assertion onto `Entry` (so `Entry` raises `EntryAccountMismatchError`/`EntryDire
 itself) is a reasonable next step in the same spirit, deferred only because `Entry` was mid-build in a
 concurrent unit when this rule was written. Revisit before treating `Entry`'s guard shape as settled.
 
+## Repository & Adapter Conventions
+
+Established while building the account-opening slice's SQL adapter (`src/modules/account_balance/adapters/outbound/repositories/sql/`), then verified by fixing every place the codebase still violated it. Applies to every repository/adapter this project adds, not only that one.
+
+### A repository is a persistent collection, not a catalog of one method per query
+
+**Rule:** a repository's public surface is collection-like — `find`, `get`, `add`, `update` — never a dedicated method per way of looking something up.
+
+```python
+# Before — invites one method per query shape
+async def find_by_natural_key(self, *, owner_id, purpose, currency) -> Account | None: ...
+async def find_by_email(self, *, email) -> Account | None: ...  # next one, and the one after
+```
+
+```python
+# After — one lookup method, extensible without a new port signature
+async def find(self, *, criteria: FindAccountCriteria) -> Account | None: ...
+```
+
+`get(criteria)` (find-or-raise `AccountNotFoundError`) comes for free from `find` on the abstract
+base — a caller picks the failure mode it wants (`None` vs. an exception) instead of every call site
+re-deriving "not found" from a `None` check. A new way to look an account up is a new `Criteria`
+subtype, not a new abstract method every adapter implementing the port has to add.
+
+### Filters are an extensible Criteria, translated to the query engine at the adapter boundary
+
+**Rule:** what to filter by is a plain value object in `application/gateways/models/`; how to turn it
+into an actual query is a pure function living in the adapter (`adapters/.../queries/`), never inside
+the port or the use case.
+
+```python
+FindAccountCriteria = FindAccountByOwnerAndPurposeAndCurrency | FindAccountByAccountId
+```
+
+```python
+def find_account_criteria_to_sql_query(criteria: FindAccountCriteria) -> Select[tuple[AccountDbo]]:
+    match criteria:
+        case FindAccountByOwnerAndPurposeAndCurrency(owner_id, purpose, currency):
+            return select(AccountDbo).where(...)
+        case FindAccountByAccountId(account_id):
+            return select(AccountDbo).where(...)
+```
+
+This keeps the application layer free of SQL (Ports & Adapters) while still letting a use case
+express an arbitrary lookup — the criteria is domain-shaped, the translation is adapter-shaped, and
+neither leaks into the other.
+
+### DBOs: the naming for persisted rows, and where their mapping logic lives
+
+**Rule:** a SQLAlchemy-mapped class is named `<Thing>Dbo`, lives in `adapters/.../dbos/`, and owns its
+own translation to and from the domain type as `from_domain`/`as_domain` — not as free functions
+sitting beside the class in the repository module. Its mapping logic gets its own unit test, not only
+indirect coverage through an integration test against a real database (`tests/unit/.../test_dbos.py`
+— covering, at minimum, a round trip and reconstituting a row the domain would refuse to *construct*
+fresh, e.g. a negative balance, to confirm the mapping uses `reconstitute()` and never re-asserts an
+invariant the domain only enforces on the write path).
+
+### Wrap third-party exceptions at the port boundary — but only the ones you didn't expect
+
+**Rule:** an adapter method that can fail in a *recognized* way (a unique-constraint violation the
+use case already knows how to recover from) raises its own typed error for that case, unchanged. Only
+a failure the adapter does **not** recognize gets `logger.exception(...)`'d and wrapped in an
+`<Thing>RepositoryError` (an `IntegrationError`) before crossing the port — so the application and
+domain layers never depend on which library sits behind the adapter, and an operator's logs are not
+full of "exceptions" for conditions the system already handles correctly.
+
+```python
+except IntegrityError as exc:
+    if _violates_natural_key_constraint(exc):
+        raise AccountNaturalKeyConflictError(...) from exc  # expected, handled upstream — no log
+    self._logger.exception(...)                              # genuinely unexpected — log, then wrap
+    raise AccountRepositoryError(operation="add", cause=exc, metadata=...) from exc
+```
+
+Getting the order backwards (log-then-check, instead of check-then-log-only-on-the-unrecognized-path)
+was a real bug found while applying this convention: it turned a normal, already-handled concurrency
+race into a logged "exception" on every occurrence.
+
+### Where each error type lives is decided by its base class, not by which file raises it
+
+**Rule:** `DomainError` (and its subclasses) belong under a module's own `domain/errors.py` or
+`shared/domain/errors.py` — they express a business invariant. `ApplicationError`/
+`ResourceNotFoundError`/`IntegrationError` belong under `shared/application/errors.py` (or a module's
+own `application/` package) — they express a fact about the *operation* or the *port*, not a rule the
+domain enforces. A domain-package file must never import from `application/` to build one of its own
+errors; if an error's natural base class lives in `application`, the error itself belongs in
+`application`, wherever it is actually raised (e.g. `AccountNotFoundError` lives beside
+`AccountRepository` in `application/gateways/`, not in `domain/errors.py`, even though it is *about*
+an `Account`). Getting this backwards was a real bug found while applying this convention: it forced
+the domain layer to import a criteria type from application, inverting the dependency direction
+Ports & Adapters exists to keep one-way.
+
+### Applied so far
+
+| Type | Convention | Where |
+| --- | --- | --- |
+| `AccountRepository` | collection-like (`find`/`get`/`add`), no `find_by_x` methods | `application/gateways/account_repository.py` |
+| `FindAccountCriteria` | extensible Criteria, one dataclass per lookup shape | `application/gateways/models/find_accounts_criteria.py` |
+| `AccountDbo` | DBO naming, `from_domain`/`as_domain` colocated + unit-tested | `adapters/outbound/repositories/sql/dbos/models.py` |
+| `AccountRepositoryError` | `IntegrationError` wrapper, logged only when unrecognized | `adapters/outbound/repositories/sql/sql_account_repository.py` |
+
+**Known gap, not yet reconciled:** `application/use_cases/transfer_money.py` and `revert_transfer.py`
+(the `transfer` and `revert` slices, later PRs in this repo's history) each define their own
+`AccountNotFoundError` — a plain `Exception` with a message-string constructor — predating this
+convention. Reconcile with the one described here (an `ApplicationError`, criteria-based) the next
+time either of those modules is touched; don't let two names for the same fact drift further apart in
+the meantime.
+
 ## When you touch a file and see a violation of a rule added later
 
 Fix it in that file if the cost is proportional to the change you are already making, and note the
