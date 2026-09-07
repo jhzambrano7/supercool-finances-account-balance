@@ -498,3 +498,11 @@ Formato de cada entrada:
 - **También aceptado**, verificado que funciona: el cambio de `testcontainers.postgres` a `testcontainers.community.postgres` en `conftest.py` (de la misma edición concurrente) — corrige el warning de deprecación que veníamos arrastrando toda la sesión.
 - **151 tests, gates verdes.**
 - **Veredicto:** ✅ aprobado — corrigió mi malentendido sobre el orden del logging
+
+## 2026-09-07 13:37 — Proponer body estructurado para los errores custom
+
+<!-- id: 20260907-133719-a1fe3a40 -->
+- **Qué intentaba:** El usuario notó que la mayoría de los errores custom no tienen body — dependen de un string armado a mano en cada `raise`, sin campos que el invocador pueda leer sin parsear texto.
+- **Prompt:** "Estoy viendo algo de reto en los errores que has creado, no tienen body y en consecuencia no creo aporten valor al invocador, cómo se verían?"
+- **Respuesta:** De acuerdo con la crítica — `IntegrationError` ya lo hace bien (guarda `code`/`cause`/`metadata` como atributos reales), el resto no. Mostrados dos ejemplos concretos (`ResourceNotFoundError`, `AccountNaturalKeyConflictError`) con `__init__` guardando campos tipados como atributos y armando el mensaje una sola vez adentro de la clase, en vez de duplicarlo en cada call site. Todavía no implementado — es una pregunta exploratoria, planteada la decisión de alcance (¿las ~19 clases de error del dominio, o sólo las que llegan a un route/HTTP, dejando los guards internos como están?).
+- **Veredicto:** ⏳ pendiente
