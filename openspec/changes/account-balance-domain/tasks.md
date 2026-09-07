@@ -136,7 +136,7 @@ Commit boundary: 4a is one commit, `PRD:` trailer referencing G1, §4.4.
 
 ### 4b — `credit`, `debit`, `debit_for_reversal`, operability
 
-- [ ] **T4.3 (test)** — Extend `test_account.py` with `TestDebit`, `TestCredit`,
+- [x] **T4.3 (test)** — Extend `test_account.py` with `TestDebit`, `TestCredit`,
       `TestDebitForReversal`, `TestOperability`:
       - USER debit refused when it would go negative, balance unchanged (spec "USER debit refused
         when it would go negative").
@@ -164,7 +164,7 @@ Commit boundary: 4a is one commit, `PRD:` trailer referencing G1, §4.4.
       Satisfies: spec "Debit Refuses to Drive a USER Account Below Zero", "Reversal Debit Is the Sole
       Path That May Cross Zero", "Credit Always Increases the Balance", "An Inoperable Account
       Rejects Debits and Credits"; design §4.2, §4.4 (`OverdraftPolicy`).
-- [ ] **T4.4 (test) — PROPERTY-BASED (design §9.1 P3, P4)** — Write
+- [x] **T4.4 (test) — PROPERTY-BASED (design §9.1 P3, P4)** — Write
       `test_account_properties.py` using `hypothesis`:
       - **P3**: for any generated sequence of `transfer`-shaped debit/credit operations over a pool of
         `USER` accounts (constructed via the posting service once it exists — if this task lands
@@ -179,7 +179,7 @@ Commit boundary: 4a is one commit, `PRD:` trailer referencing G1, §4.4.
       Satisfies: design §9.1 rows P3, P4 (property-based, not spec Given/When/Then scenarios — no
       spec requirement heading corresponds 1:1 to these; they are design-level coverage of I2 totality
       and the entry/balance correspondence).
-- [ ] **T4.5 (impl)** — Implement `OverdraftPolicy` enum (`FORBIDDEN`/`UNLIMITED`,
+- [x] **T4.5 (impl)** — Implement `OverdraftPolicy` enum (`FORBIDDEN`/`UNLIMITED`,
       `assert_allows(resulting_balance, *, account_id)`), `AccountType.overdraft_policy` property,
       `Account._validated_balance`, `credit()`, `debit()`, `debit_for_reversal()`,
       `assert_operable()`. Each of the three public methods returns a new `Account`; none mutates

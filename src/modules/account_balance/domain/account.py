@@ -1,8 +1,15 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum, auto
 from typing import Self
 
-from modules.account_balance.domain.errors import InvalidAccountPurposeError
+from modules.account_balance.domain.entry import Entry, EntryDirection
+from modules.account_balance.domain.errors import (
+    AccountNotOperableError,
+    EntryAccountMismatchError,
+    EntryDirectionMismatchError,
+    InsufficientFundsError,
+    InvalidAccountPurposeError,
+)
 from modules.account_balance.domain.identifiers import AccountId, OwnerId
 from modules.shared.domain.errors import CurrencyMismatchError
 from modules.shared.domain.money import Currency, Money
@@ -17,6 +24,15 @@ class OverdraftPolicy(Enum):
 
     FORBIDDEN = auto()
     UNLIMITED = auto()
+
+    def assert_allows(self, resulting_balance: Money, *, account_id: AccountId) -> None:
+        """Raises `InsufficientFundsError` (I2) when the policy forbids crossing zero.
+
+        The message deliberately carries no amount (PRD §11.4) — only the
+        account id, which is a structured field the caller may log alongside.
+        """
+        if self is OverdraftPolicy.FORBIDDEN and resulting_balance.is_negative:
+            raise InsufficientFundsError(f"account {account_id} balance would go negative")
 
 
 class AccountType(Enum):
@@ -143,6 +159,57 @@ class Account:
             balance=balance,
             status=status,
             version=version,
+        )
+
+    def assert_operable(self) -> None:
+        """An account whose status is not `ACTIVE` refuses debits and credits (§7.2)."""
+        if self.status is not AccountStatus.ACTIVE:
+            raise AccountNotOperableError(
+                f"account {self.account_id} is not operable (status={self.status.value})"
+            )
+
+    def _validated_balance(self, entry: Entry, direction: EntryDirection) -> Money:
+        """The shared preflight for every balance-moving method.
+
+        Order matters: operability, then the entry actually belongs to this
+        account, then the entry's direction matches the method being called.
+        Currency agreement (I4) falls out of `Money.__add__` itself — there is
+        no second currency check.
+        """
+        self.assert_operable()
+        if entry.account_id != self.account_id:
+            raise EntryAccountMismatchError(
+                f"entry {entry.entry_id} targets account {entry.account_id}, not {self.account_id}"
+            )
+        if entry.direction is not direction:
+            raise EntryDirectionMismatchError(
+                f"entry {entry.entry_id} has direction {entry.direction.value}, "
+                f"expected {direction.value}"
+            )
+        return self.balance + entry.signed_amount
+
+    def credit(self, entry: Entry) -> Account:
+        """Increases the balance, for `USER` and `SYSTEM` accounts alike — no floor or ceiling."""
+        resulting = self._validated_balance(entry, EntryDirection.CREDIT)
+        return replace(self, balance=resulting, version=self.version + 1)
+
+    def debit(self, entry: Entry) -> Account:
+        """The ordinary debit path — refuses to drive a `USER` account below zero (I2)."""
+        resulting = self._validated_balance(entry, EntryDirection.DEBIT)
+        self.account_type.overdraft_policy.assert_allows(resulting, account_id=self.account_id)
+        return replace(self, balance=resulting, version=self.version + 1)
+
+    def debit_for_reversal(self, entry: Entry) -> Account:
+        """The sole path that may drive a `USER` account below zero (I2, §7.3).
+
+        Does not consult `OverdraftPolicy` at all — that is the entire
+        difference from `debit()`. Referenced only here and in
+        `posting.py::revert` (design §4.3's architecture test).
+        """
+        return replace(
+            self,
+            balance=self._validated_balance(entry, EntryDirection.DEBIT),
+            version=self.version + 1,
         )
 
     def __eq__(self, other: object) -> bool:
