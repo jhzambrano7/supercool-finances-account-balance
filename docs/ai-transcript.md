@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 35
+**Turns recorded:** 36
 
 ---
 
@@ -2575,7 +2575,7 @@ Sigue la unidad 5, `Transfer` — ahí vive I1 como neteo por moneda. ¿Seguimos
 sigamos con Transfer, moví par de cosas en la cuenta
 ```
 
-<details><summary>Tool calls (7)</summary>
+<details><summary>Tool calls (8)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1 -uall echo "=== diff completo ===" git diff -- …
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== ¿assert_operable sigue referenciado en otro lado? ===" rg -n 'a…
@@ -2584,6 +2584,7 @@ sigamos con Transfer, moví par de cosas en la cuenta
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest -q 2>&1 | tail -3 git diff --stat src/modules/account_balan…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -8 git add src/modules/acco…
 - `Agent` — Implement **Work Unit 5 only** — `Transfer` — of the account balance domain. Do NOT start Work Unit 6 (`posting.py` / `transfer` / `revert`)…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s+=""" ## 2026…
 
 </details>
 
@@ -2600,5 +2601,86 @@ Ahora integro los dos cambios reales que hiciste en `account.py`. El rename `ass
 Único fallo el esperado. Ahora sí, gates finales y commits:
 
 Ahora sí, arranco la unidad 5. Le paso el contexto de todo lo corregido este turno para que no lo vea como sorpresa:
+
+Antes de arrancar `Transfer`, resolví lo que trajiste. **63 commits.**
+
+**El settings.json.** Había quedado con black como formatter por defecto — te pregunté y confirmaste volver a ruff. Lo probé antes de tocar nada: `ruff-format` deshizo en el acto los saltos de línea que black acababa de meter en `account.py`. Es exactamente el desajuste editor-vs-gate que cerramos hace unos commits — cada guardado con black te va a generar un diff que el commit revierte.
+
+**El rename en `account.py`.** `assert_operable` → `fail_if_not_active`. Me parece un cambio bueno y lo dejé: un nombre `assert_*` lee como "verificar un hecho que el llamador ya cree", pero el método existe para **rechazar** la transacción cuando la cuenta no está activa. Nombrarlo por el fallo que produce describe mejor lo que cada call site le está pidiendo. Lo propagué a `design.md`, `proposal.md` y `tasks.md`, que todavía citaban el nombre viejo — si no lo hacía, la unidad 5 iba a leer documentación desactualizada.
+
+Ahora `Transfer` está corriendo, con nota explícita del rename para que no lo tome de memoria vieja de los documentos. Ahí vive I1 como neteo por moneda — el chequeo que hace que el ledger cierre por construcción. Te aviso cuando termine.
+
+---
+
+## Turn 36 — 2026-09-07 04:37:27.688 UTC
+
+### Prompt
+
+```text
+<task-notification>
+<task-id>a4de737c7b9058002</task-id>
+<tool-use-id>toolu_01GriJHkgjjKEqMgvQjEdioS</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-finances-account-balance/5899ca45-2031-46b9-ada4-dcd2507881d3/tasks/a4de737c7b9058002.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Transfer aggregate" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Work Unit 5 (`Transfer`) is complete and gated.
+
+## Summary
+
+**Status**: done
+**Executive summary**: Implemented `Transfer` (Work Unit 5) via strict TDD — 3/3 tasks (T5.1, T5.2, T5.3) complete, full test suite green except the pre-existing intentionally-red T4.8 architecture test; committed as `77f3c3a`.
+
+**Artifacts**:
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/domain/transfer.py` (new)
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/domain/test_transfer.py` (new, 15 tests)
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/domain/test_transfer_properties.py` (new, hypothesis property test P2)
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/changes/account-balance-domain/tasks.md` — T5.1/T5.2/T5.3 checked off
+- Engram `sdd/account-balance-domain/apply-progress` (topic_key upsert, id 1376)
+
+**Next recommended**: sdd-verify (or sdd-apply again to start Work Unit 6, `posting.py` — explicitly not started here as instructed).
+
+**Risks / things to flag**:
+1. The claimed "previous apply-progress" did not exist under a matching, discoverable content prior to this save — `mem_search` for that topic_key only ever returned observation #1376, whose title was "Verify Account implementation and widen mypy gate to tests" (a Work Unit 4 verify note), not an apply-progress artifact. My `mem_save` upserted onto that same id via topic_key match — confirmed via `mem_get_observation` that Engram tracked it as a revision (Revisions: 4), so nothing was destructively lost, but flagging the discrepancy per the accuracy rule rather than silently claiming a clean merge.
+2. Spec vs. design tension (named per accuracy rule, not silently resolved): the spec's "Cross-currency transfer rejected" scenario expects `CurrencyMismatchError`, but `Transfer.__post_init__`'s guard table (design §5) has no currency-match guard at all — a cross-currency leg pair is instead caught by I1 netting and raises `UnbalancedTransferError`. This was already anticipated by tasks.md's own escape hatch in T5.1, so I did not force that scenario into this unit's tests; it's deferred to Work Unit 6's posting-service guard (I4, design §5.1 step 1).
+3. Commit is 573 changed lines, over the 400-line review budget — already flagged and accepted in tasks.md's own Review Workload Forecast, which recommends one PR per work unit for this change (PR 4 = Work Unit 5).
+4. T5.2's property test never had an independent RED phase — the full implementation (T5.3) was already written and green from T5.1's cycle before T5.2 was authored, since both exercise the identical `__post_init__` guard sequence. Documented honestly in the TDD Cycle Evidence table rather than fabricating a RED phase.
+5. One pre-existing, out-of-scope test failure remains: `test_debit_for_reversal_is_referenced_only_in_definition_and_revert` (T4.8) — intentionally red until Work Unit 6 lands `posting.py::revert`; untouched.
+
+**Skill resolution**: paths-injected — `work-unit-commits/SKILL.md` was loaded in full before writing anything, per the orchestrator's injected path.</result>
+<usage><subagent_tokens>117034</subagent_tokens><tool_uses>48</tool_uses><duration_ms>363272</duration_ms></usage>
+</task-notification>
+```
+
+<details><summary>Tool calls (8)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== escenario del spec ===" rg -n -B3 -A8 'Cross-currency transfer …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '340,373p' openspec/specs/account-balance/spec.md echo "=== tasks.…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^### 5\.1 `transfer`/,/^### 5\.2/p' openspec/changes/account-bal…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python - <<'PY' from uuid import uuid4 from datetime import dateti…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('openspec/specs/account-…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== tests completos ==="; uv run pytest -q 2>&1 | tail -5 echo "===…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat tests/unit/account_balance/domain/test_transfer_properties.py
+- `mcp__plugin_engram_engram__mem_search` — sdd/account-balance-domain/apply-progress
+
+</details>
+
+### Response
+
+`Transfer` terminó, y reportó algo que necesito verificar antes de nada: dice que la firma "cruce de moneda" del spec no la cubrió porque no hay guard de moneda en `__post_init__` — sólo cae por I1. Eso puede ser un problema real de diseño o una excusa. Reviso primero.
+
+Este es un gap real de coherencia entre el spec y el diseño, no una excusa del agente. Lo verifico en vivo antes de decidir cómo cerrarlo:
+
+Confirmado empíricamente: `Transfer` con patas en USD/EUR directas lanza `UnbalancedTransferError`, **no** `CurrencyMismatchError` como pide el escenario del spec. El agente no inventó una excusa — es un gap real, y ya lo documentó en el propio test. El motivo de fondo: `Transfer` sólo ve `entry.amount.currency`, nunca `account.currency` — ese dato sólo existe en `Account`, y el chequeo de "la moneda de la cuenta coincide" vive en el servicio de posteo (unidad 6), no acá.
+
+Corrijo el spec para que quede exacto en vez de ambiguo, y dejo el escenario donde realmente se puede observar:
+
+Ahora reviso el resto — el módulo `Transfer` completo y los tests, y verifico las otras dos observaciones que reportó (el merge de apply-progress y el ciclo TDD sin rojo independiente en T5.2):
+
+Único fallo, el esperado. Reviso el test de propiedades P2, el más importante de esta unidad:
+
+Excelente test: genera hasta 4 patas extra en USD/EUR agregadas al par base balanceado, y verifica **en ambas direcciones** — construye sin error cuando todo neta a cero, y falla con `UnbalancedTransferError` cuando no. Eso prueba la forma general de I1 (la que necesita FX y la reversa de tres patas) antes de que exista quien la use. Correcto.
+
+Ahora resta el hallazgo sobre el `apply-progress` que no encontró como esperaba:
 
 ---
