@@ -228,13 +228,26 @@ and no write to its `accounts.balance_amount` column MUST occur during posting (
 | Domain error | HTTP status |
 | --- | --- |
 | `AccountOwnershipError` | 403 |
+| `SystemToSystemTransferNotAllowedError` | 403 — neither leg is `USER`; no customer caller has authority to request this (T1) |
 | `InsufficientFundsError` | 422 |
 | `AccountNotOperableError` | 422 |
 | `SelfTransferError` | 422 |
 | `CurrencyMismatchError` | 422 |
+| `NonPositiveAmountError` | 422 — a zero/negative amount is a client mistake, not an internal fault |
+| `InvalidCurrencyError` | 422 — a currency code failing `Currency`'s ISO-4217 shape check |
+| `AccountNotFoundError` | 404 — either account id does not resolve to a persisted row |
 | Idempotency key reused with a different payload | 409 |
 | Missing/malformed `X-Caller-Id` | 401 |
 | any other `DomainError` reaching this endpoint | 500 — defensive default |
+
+*(The last four rows were not in this table's first draft — found while independently verifying the
+implementation, not anticipated up front. `SystemToSystemTransferNotAllowedError` and
+`AccountNotFoundError` are both use-case-level errors, not `DomainError`s, added by the
+implementation to cover cases this spec's first draft under-specified: a request naming an id that
+doesn't exist, and the fourth PRD §9.1 movement shape this endpoint has no caller to authorize.
+`NonPositiveAmountError`/`InvalidCurrencyError` were a real, reproduced bug — both are `DomainError`
+subclasses reachable straight from this endpoint's own input and were falling through to the 500
+default before this table and the route's `_UNPROCESSABLE_ERRORS` tuple were corrected together.)*
 
 ## Testing Strategy
 

@@ -274,3 +274,50 @@ async def test_insufficient_funds_is_unprocessable(client: AsyncClient) -> None:
     )
 
     assert response.status_code == 422
+
+
+async def test_a_non_positive_amount_is_unprocessable_not_a_server_error(
+    client: AsyncClient,
+) -> None:
+    owner_id = str(uuid4())
+    account_id = await _open_user_account(client, owner_id=owner_id)
+
+    response = await client.post(
+        "/transfers",
+        json={
+            "source_account_id": str(FUNDING_ACCOUNT_ID),
+            "destination_account_id": account_id,
+            "amount": 0,
+            "currency": "USD",
+        },
+        headers=_headers(caller_id=owner_id, idempotency_key=str(uuid4())),
+    )
+
+    assert response.status_code == 422
+
+
+async def test_a_lowercase_currency_code_is_unprocessable_not_a_server_error(
+    client: AsyncClient,
+) -> None:
+    """`ZZZ` (three uppercase letters) passes `Currency`'s ISO-4217-*shape*
+    check even though it names no real currency -- that is a pre-existing,
+    deliberate simplification (`Currency` validates format, not a whitelist)
+    and not this test's concern. `usd` (lowercase) is what actually fails the
+    regex and is the only way to reach `InvalidCurrencyError` through this
+    endpoint, since the request schema already pins the field to 3 characters.
+    """
+    owner_id = str(uuid4())
+    account_id = await _open_user_account(client, owner_id=owner_id)
+
+    response = await client.post(
+        "/transfers",
+        json={
+            "source_account_id": str(FUNDING_ACCOUNT_ID),
+            "destination_account_id": account_id,
+            "amount": 100,
+            "currency": "usd",
+        },
+        headers=_headers(caller_id=owner_id, idempotency_key=str(uuid4())),
+    )
+
+    assert response.status_code == 422
