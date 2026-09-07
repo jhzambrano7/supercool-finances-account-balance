@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 32
+**Turns recorded:** 34
 
 ---
 
@@ -2401,14 +2401,135 @@ Siguiente es la unidad 4, `Account` — la grande (~430 líneas). Ahí vive `deb
 procede
 ```
 
-<details><summary>Tool calls (1)</summary>
+<details><summary>Tool calls (2)</summary>
 
 - `Agent` — Implement **Work Unit 4 only** — `Account` — of the account balance domain. Do NOT start Work Unit 5 (`Transfer`) or anything after it. Stop…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
 
 </details>
 
 ### Response
 
 Corrijo mi omisión anterior: esta vez le inyecto las rutas del skill registry.
+
+`Account` en marcha, en cuatro commits (4a/4b/4c/4d).
+
+Le inyecté la ruta del skill registry esta vez — `work-unit-commits`, que aplica justo por el corte en sub-unidades. Y le marqué que existe progreso previo y debe **fusionar, no sobrescribir**.
+
+Le remarqué las cinco cosas que en esta unidad son fáciles de implementar mal:
+
+- **`Account` inmutable**, identidad por `AccountId` y nunca por valor — dos cargas de la misma cuenta con saldos distintos son *la misma cuenta*.
+- **Los tres métodos de movimiento devuelven instancia nueva.** Es lo que hace que una segunda pata fallida deje la primera intacta.
+- **`debit_for_reversal` como único camino que puede cruzar cero**, con nombres load-bearing porque un test los grepea.
+- **`reconstitute()` NO debe re-afirmar saldo no negativo.** Este es el que más me preocupa: es el error que se comete *por reflejo*. Si el repositorio se negara a cargar una cuenta en negativo, la deuda que una reversa dejó se volvería irrecuperable — no podrías ni leerla para cobrarla. La validación "obvia" rompe justamente el caso que decidiste soportar.
+- El corte de errores en `close()`.
+
+También le avisé que el test de arquitectura T4.8 **queda en rojo hasta la unidad 7 por diseño**, para que no lo "arregle" debilitando la aserción. Un rojo esperado que alguien silencia es peor que no tener el test.
+
+Te aviso cuando termine y lo verifico igual que la tajada anterior.
+
+---
+
+## Turn 33 — 2026-09-07 04:08:45.876 UTC
+
+### Slash command
+
+```text
+/model
+```
+
+### Response
+
+*(No response was produced for this prompt — the turn was interrupted or the prompt was re-submitted.)*
+
+---
+
+## Turn 34 — 2026-09-07 04:16:20.555 UTC
+
+### Prompt
+
+```text
+<task-notification>
+<task-id>abf7be8ecb1bd0c32</task-id>
+<tool-use-id>toolu_01MXmY3ewDqKuXr1RYrY22Yj</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-finances-account-balance/5899ca45-2031-46b9-ada4-dcd2507881d3/tasks/abf7be8ecb1bd0c32.output</output-file>
+<status>completed</status>
+<summary>Agent "Implement Account aggregate" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Saved (merged, same topic_key, no conflict flagged). Final summary:
+
+**Status**: done (Work Unit 4 complete, stopped before Work Unit 5 as instructed)
+
+**Executive summary**: Implemented `Account` (Work Unit 4, all sub-units 4a-4d) via strict TDD — open/reconstitute, credit/debit/debit_for_reversal, ownership/close, and architecture tests — 9/9 tasks (T4.1-T4.9) done across 4 commits.
+
+**Artifacts**:
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/domain/account.py` (new)
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/domain/test_account.py` (new)
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/domain/test_account_properties.py` (new, hypothesis P3/P4)
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/domain/test_architecture.py` (new, T4.8 red + T4.9 green)
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/changes/account-balance-domain/tasks.md` (T4.1-T4.9 checked)
+- Engram topic `sdd/account-balance-domain/apply-progress` (merged, id 1376)
+- Commits: `c6fd958`, `d055524`, `c74338c`, `d1eb6b0` (4a, 4b, 4c, 4d)
+
+**Next recommended**: `sdd-apply` again for Work Unit 5 (`Transfer`).
+
+**Risks / things to flag to the user**:
+1. `test_debit_for_reversal_is_referenced_only_in_definition_and_revert` (T4.8) is currently **failing on `main`**, by design — `posting.py` doesn't exist until Work Unit 6, and tasks.md explicitly documents this as the red half completed by T7.1. Full suite: 1 expected failure, everything else green.
+2. Two small judgment calls not explicitly named in spec/design, flagged for reviewer awareness: `version &gt;= 0` raises a plain `ValueError` (no domain error is named for it anywhere); `close()` checks closability (status/type) before emptiness — order isn't stated in the design table but matches the spec's own requirement phrasing and no scenario tests the conflicting order.
+3. mypy strict was run as `mypy src` only, matching the project's own pre-commit hook scope (`files: ^src/.*\.py$`) — `mypy tests` surfaces 2 pre-existing unrelated errors in files I didn't touch (`test_money.py`, `test_identifiers.py`), not part of this unit's gate.
+
+**Skill resolution**: paths-injected (work-unit-commits SKILL.md was loaded and applied for the 4a/4b/4c/4d commit split).</result>
+<usage><subagent_tokens>170583</subagent_tokens><tool_uses>89</tool_uses><duration_ms>580964</duration_ms></usage>
+</task-notification>
+```
+
+<details><summary>Tool calls (16)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== tests completos ==="; uv run pytest -q 2>&1 | tail -12 echo "==…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat src/modules/account_balance/domain/account.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python - <<'PY' from modules.account_balance.domain.account import…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== ¿el spec exige un error de dominio para version inválida? ===" …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== test_money.py:46 ==="; sed -n '40,50p' tests/unit/shared/domain…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n 'mypy' .pre-commit-config.yaml
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '38,50p' .pre-commit-config.yaml
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git log --format='%h %s' -1 -S'Scoped to src/ so the gate stays quiet' --…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' import pathlib p = pathlib.Path('tests/unit/shared/domai…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p = '.pre-commit-config.yaml' s = open(p).read() s = s.r…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat tests/unit/account_balance/domain/test_architecture.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n 'in.place.mutator|InPlaceMutation|T4\.9|no in-place|no_in_place' op…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== propiedades P3/P4 ==="; cat tests/unit/account_balance/domain/t…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest -q 2>&1 | tail -5 git add .pre-commit-config.yaml tests/uni…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit -q -F - <<'MSG' build(tooling): extend the mypy gate to tests,…
+- `mcp__plugin_engram_engram__mem_save`
+
+</details>
+
+### Response
+
+`Account` terminó. Verifico por mi cuenta antes de aceptarlo — en particular los dos puntos que quiero comprobar primero: que `reconstitute()` de verdad no re-afirme saldo no negativo, y el estado real del test rojo esperado.
+
+Rojo confirmado y es el esperado — coincide exactamente con lo documentado (falta `posting.py`/`revert`, unidad 6). Ahora verifico el punto que más me preocupaba: que `reconstitute()` de verdad no bloquee un saldo negativo.
+
+Confirmado leyendo el código: `reconstitute()` no llama a `assert_allows` en ningún lado. Ahora lo pruebo en vivo, y de paso los dos judgment calls que el agente marcó:
+
+Las cuatro propiedades centrales se sostienen empíricamente, no sólo por lectura. Ahora reviso los dos judgment calls que marcó y el detalle de mypy:
+
+Confirmo los dos hallazgos, y encuentro que el de mypy en tests merece mirarse — no es sólo "preexistente e irrelevante":
+
+El agente reportó estos como "preexistentes, fuera del alcance de esta unidad" — cierto respecto a esta unidad, pero encontré algo más de fondo: **el gate de mypy nunca revisó tests, por una decisión mía**.
+
+Sólo dos hallazgos en todo el árbol de tests, y ambos con arreglo limpio. La razón original ("que el gate se quede callado hasta que haya código") ya no aplica — hay 52 archivos de tests con código real que nunca se tipa-chequean. Lo cierro:
+
+Único fallo, el esperado. Ahora reviso el test de arquitectura y el de propiedades, antes de commitear todo:
+
+Estaba tasqueado — no es iniciativa extra sino cumplimiento de T4.9. Es un test que me gusta especialmente: recorre el AST de `account.py` y falla si encuentra **cualquier** `self.x = ...`, `self.x += ...` o `object.__setattr__` dentro de la clase. No es una promesa de estilo, es una garantía estructural verificable de que ningún método futuro reintroduce mutación por error.
+
+Estos dos son de calidad real, no cosméticos. **P3** genera hasta 30 movimientos aleatorios entre un pool de 4 cuentas y verifica, después de cada corrida, que ningún saldo cruzó cero y que **la suma del pool sigue siendo exactamente cero** — dinero ni creado ni destruido, sobre secuencias que Hypothesis inventa, no que alguien escribió a mano. **P4** verifica la identidad contable pura: el saldo final es exactamente la suma de los `signed_amount` aplicados, sin pasar por I2 (usa cuenta `SYSTEM` a propósito para aislar la propiedad).
+
+Corro todo una vez más con los fixes de mypy adentro y commiteo:
+
+Único fallo esperado. Gates verdes con tests incluidos ahora.
+
+Ahora la memoria de sesión y el log de decisiones:
 
 ---
