@@ -1,5 +1,3 @@
-from collections.abc import Callable
-
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -15,10 +13,10 @@ def create_engine(settings: Settings) -> AsyncEngine:
     return create_async_engine(settings.database_url)
 
 
-def create_session_factory(engine: AsyncEngine) -> Callable[[], AsyncSession]:
-    """`expire_on_commit=False`: adapter methods return the domain object they
+def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """`expire_on_commit=False`: adapter methods return the domain object they just persisted.
 
-    just persisted, not the ORM row, so there is no reason to force a reload
-    of attributes nothing here re-reads after commit.
+    Not the ORM row, so there is no reason to force a reload of attributes
+    nothing here re-reads after commit.
     """
     return async_sessionmaker(bind=engine, expire_on_commit=False)

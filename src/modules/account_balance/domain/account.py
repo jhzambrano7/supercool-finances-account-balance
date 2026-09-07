@@ -77,11 +77,9 @@ class AccountPurpose(Enum):
         return AccountType.SYSTEM
 
     def matches_type(self, account_type: AccountType) -> bool:
-        """Tell, don't ask (docs/coding-conventions.md): the caller states what it wants
-
-        verified, `AccountPurpose` answers, rather than the caller reading
-        `.account_type` back out and comparing it itself.
-        """
+        """Tell, don't ask (docs/coding-conventions.md): the caller states what it wants verified,
+        `AccountPurpose` answers, rather than the caller reading `.account_type` back out and
+        comparing it itself."""
         return self.account_type is account_type
 
 

@@ -81,11 +81,10 @@ def _debit_for_reversal_sites() -> dict[str, set[str]]:
 
 
 def test_debit_for_reversal_is_referenced_only_in_definition_and_revert() -> None:
-    """design §4.3: a boolean flag could be forwarded from anywhere, but a
+    """design §4.3: a boolean flag could be forwarded from anywhere, but a second *named* method
+    must be called by name -- so the audit is this failing test on the next call site, not a
+    runtime guard (Python cannot make the name unreachable).
 
-    second *named* method must be called by name -- so the audit is this
-    failing test on the next call site, not a runtime guard (Python cannot
-    make the name unreachable).
 
     Expected RED until Work Unit 6 lands `posting.py::revert` -- tasks.md
     T4.8 leaves this deliberately failing; T7.1 completes it once the call
@@ -108,11 +107,9 @@ def _is_self_attribute(node: ast.expr) -> bool:
 
 
 class _InPlaceMutationVisitor(ast.NodeVisitor):
-    """Flags any `self.<field> = ...`, `self.<field> += ...` or
-
-    `object.__setattr__(self, ...)` found inside `Account` -- every
-    state-changing method must return a new `Account` instead (design §9.3).
-    """
+    """Flags any `self.<field> = ...`, `self.<field> += ...` or `object.__setattr__(self, ...)`
+    found inside `Account` -- every state-changing method must return a new `Account` instead
+    (design §9.3)."""
 
     def __init__(self) -> None:
         self.violations: list[str] = []

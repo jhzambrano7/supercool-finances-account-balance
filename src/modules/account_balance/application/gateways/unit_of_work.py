@@ -23,7 +23,7 @@ class TransferUnitOfWork(ABC):
     record in one transaction | Use case").
 
     A caller obtains a *fresh* instance each time it needs one (see
-    `TransferMoneyUseCase`, which opens a second one to recover after losing
+    `TransferMoney`, which opens a second one to recover after losing
     the T5 race) -- this type is not itself reused across `async with`
     blocks.
     """

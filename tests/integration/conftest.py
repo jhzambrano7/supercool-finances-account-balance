@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from testcontainers.postgres import PostgresContainer
+from testcontainers.community.postgres import PostgresContainer
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -57,16 +57,13 @@ async def session_factory(engine: AsyncEngine) -> Callable[[], AsyncSession]:
 
 @pytest_asyncio.fixture(autouse=True)
 async def _clean_tables(engine: AsyncEngine) -> AsyncIterator[None]:
-    """Isolates every test from the next -- but not from the migration's own
-
-    seed data (T8's two SYSTEM accounts, transfer/spec.md): those are seeded
-    once, at container startup, not per test, so a blind `TRUNCATE ...
-    accounts` would delete them after the first test that runs and leave
-    every later test unable to deposit or withdraw. `entries`/`transfers`/
-    `idempotency_records` are truncated first (nothing but a SYSTEM account's
-    own zero-forever `balance_amount` depends on them), then every `USER`
-    account is removed -- by that point nothing still references it.
-    """
+    """Isolates every test from the next -- but not from the migration's own seed data (T8's two
+    SYSTEM accounts, transfer/spec.md): those are seeded once, at container startup, not per
+    test, so a blind `TRUNCATE ... accounts` would delete them after the first test that runs and
+    leave every later test unable to deposit or withdraw. `entries`/`transfers`/
+    `idempotency_records` are truncated first (nothing but a SYSTEM account's own zero-forever
+    `balance_amount` depends on them), then every `USER` account is removed -- by that point
+    nothing still references it."""
     yield
     async with engine.begin() as connection:
         await connection.execute(text("TRUNCATE TABLE entries, idempotency_records, transfers"))

@@ -5,6 +5,7 @@ from modules.account_balance.adapters.inbound.api.routes import router as accoun
 from modules.account_balance.adapters.inbound.api.transfer_routes import (
     router as transfer_router,
 )
+from modules.shared.adapters.config.dependencies import SharedDependencies
 
 _WIRED_MODULES = [
     "modules.account_balance.adapters.inbound.api.routes",
@@ -22,6 +23,14 @@ def create_app() -> FastAPI:
     them, it does not define any dependency itself.
     """
     account_balance_container = AccountBalanceContainer()
+    # `shared` is a `DependenciesContainer` proxy, not a copy (see the
+    # comment above `AccountBalanceContainer.shared`) -- this override forwards to the real, live
+    # `SharedDependencies`, avoiding the deep-copy fork `providers.Container`
+    # would cause. It does NOT mean settings can be re-overridden at will:
+    # `SharedDependencies.engine`/`.session_factory` are Singletons that
+    # cache on first resolution, so an override only takes effect if it
+    # happens before anything has resolved them in this process.
+    account_balance_container.shared.override(SharedDependencies)
     account_balance_container.wire(modules=_WIRED_MODULES)
 
     app = FastAPI(title="SuperCool Finances — Account Balance Service")

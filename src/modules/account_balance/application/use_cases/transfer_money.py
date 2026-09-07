@@ -2,9 +2,13 @@ import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from modules.account_balance.application.gateways.account_repository import AccountNotFoundError
 from modules.account_balance.application.gateways.idempotency_repository import (
     IdempotencyRecord,
     IdempotencyRecordConflictError,
+)
+from modules.account_balance.application.gateways.models.find_accounts_criteria import (
+    FindAccountByAccountId,
 )
 from modules.account_balance.application.gateways.unit_of_work import TransferUnitOfWork
 from modules.account_balance.domain import posting as domain_posting
@@ -17,23 +21,27 @@ from modules.account_balance.domain.identifiers import (
     TransferId,
 )
 from modules.account_balance.domain.transfer import Transfer
+from modules.shared.application.errors import ApplicationError
 from modules.shared.application.services.clock import Clock
 from modules.shared.application.services.id_generator import IdGenerator
 from modules.shared.domain.money import Money
 
 _IDEMPOTENCY_STATUS_COMPLETED = "COMPLETED"
 
+# Re-exported so a route can catch this without importing the port module
+# directly -- the same `AccountNotFoundError` `account-opening`'s own
+# AccountRepository.get() raises, not a second, transfer-local type for the
+# same fact (an id the client sent resolves to nothing).
+__all__ = [
+    "AccountNotFoundError",
+    "IdempotencyConflictError",
+    "SystemToSystemTransferNotAllowedError",
+    "TransferMoney",
+    "TransferMoneyRequest",
+]
 
-class AccountNotFoundError(Exception):
-    """Either leg's account id does not resolve to a persisted account.
 
-    Not a `DomainError`: it is a fact about the request's own references
-    (the client sent an id nothing backs), not an invariant `Account` or
-    `Transfer` enforce over aggregates already loaded from real rows.
-    """
-
-
-class IdempotencyConflictError(Exception):
+class IdempotencyConflictError(ApplicationError):
     """The idempotency key was already used with a *different* request (T3).
 
     Distinct from `IdempotencyRecordConflictError`, the adapter-level
@@ -42,8 +50,15 @@ class IdempotencyConflictError(Exception):
     happened, so it is rejected rather than silently resolved.
     """
 
+    def __init__(self, *, caller_id: OwnerId, idempotency_key: IdempotencyKey) -> None:
+        self.caller_id = caller_id
+        self.idempotency_key = idempotency_key
+        super().__init__(
+            f"idempotency key {idempotency_key} was already used with a different request"
+        )
 
-class SystemToSystemTransferNotAllowedError(Exception):
+
+class SystemToSystemTransferNotAllowedError(ApplicationError):
     """Neither leg is a `USER` account.
 
     PRD §9.1's fourth movement shape ("system movement") requires operator
@@ -52,13 +67,20 @@ class SystemToSystemTransferNotAllowedError(Exception):
     picking a leg to check ownership over.
     """
 
+    def __init__(self, *, source_account_id: AccountId, destination_account_id: AccountId) -> None:
+        self.source_account_id = source_account_id
+        self.destination_account_id = destination_account_id
+        super().__init__(
+            f"neither {source_account_id} nor {destination_account_id} is a USER account"
+        )
+
 
 @dataclass(frozen=True, slots=True)
-class TransferMoney:
-    """`POST /transfers`'s use-case input (design §5.3) -- the client-facing
+class TransferMoneyRequest:
+    """`POST /transfers`'s use-case input (design §5.3) -- the client-facing shape.
 
-    shape covering transfer, deposit and withdraw alike (there is no
-    separate concept for any of the three -- spec Purpose).
+    Covers transfer, deposit and withdraw alike (there is no separate concept
+    for any of the three -- spec Purpose).
     """
 
     source_account_id: AccountId
@@ -68,12 +90,12 @@ class TransferMoney:
     requested_by: OwnerId
 
 
-def _request_hash(request: TransferMoney) -> str:
-    """A stable hash over exactly the fields a retry must not silently
+def _request_hash(request: TransferMoneyRequest) -> str:
+    """A stable hash over exactly the fields a retry must not silently change (T3).
 
-    change (T3): source, destination, amount and currency. Deliberately a
-    canonical, delimiter-joined encoding rather than the dataclass's own
-    `repr` -- a field reorder or rename must not change what a retry means.
+    Source, destination, amount and currency. Deliberately a canonical,
+    delimiter-joined encoding rather than the dataclass's own `repr` -- a
+    field reorder or rename must not change what a retry means.
     """
     canonical = "|".join(
         (
@@ -86,7 +108,7 @@ def _request_hash(request: TransferMoney) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-class TransferMoneyUseCase:
+class TransferMoney:
     """Orchestrates a transfer end to end (T1-T7).
 
     Authentication (T2, resolving `X-Caller-Id`) is the inbound adapter's
@@ -104,7 +126,7 @@ class TransferMoneyUseCase:
         self._id_generator = id_generator
         self._clock = clock
 
-    async def execute(self, request: TransferMoney) -> Transfer:
+    async def execute(self, request: TransferMoneyRequest) -> Transfer:
         request_hash = _request_hash(request)
 
         try:
@@ -137,14 +159,13 @@ class TransferMoneyUseCase:
     async def _replay_or_conflict(
         self, uow: TransferUnitOfWork, existing: IdempotencyRecord, request_hash: str
     ) -> Transfer:
-        """T3, T4: same key + same payload replays; same key + a different
+        """T3, T4: same key + same payload replays; same key + a different payload is a conflict.
 
-        payload is a conflict -- never a silent replacement.
+        Never a silent replacement.
         """
         if existing.request_hash != request_hash:
             raise IdempotencyConflictError(
-                f"idempotency key {existing.idempotency_key} was already used with a "
-                "different request"
+                caller_id=existing.caller_id, idempotency_key=existing.idempotency_key
             )
         transfer = await uow.transfers.get(existing.transfer_id)
         if transfer is None:  # pragma: no cover -- defensive: the record names a real transfer
@@ -154,7 +175,7 @@ class TransferMoneyUseCase:
         return transfer
 
     async def _post_new_transfer(
-        self, uow: TransferUnitOfWork, request: TransferMoney, request_hash: str
+        self, uow: TransferUnitOfWork, request: TransferMoneyRequest, request_hash: str
     ) -> Transfer:
         transfer_id = TransferId(self._id_generator.next_id())
         occurred_at = self._clock.now()
@@ -182,12 +203,14 @@ class TransferMoneyUseCase:
             )
         )
 
-        source = await uow.accounts.get(request.source_account_id)
-        destination = await uow.accounts.get(request.destination_account_id)
-        if source is None:
-            raise AccountNotFoundError(f"account {request.source_account_id} does not exist")
-        if destination is None:
-            raise AccountNotFoundError(f"account {request.destination_account_id} does not exist")
+        # get(), not find(): AccountRepository's own find-or-raise already
+        # names the reachable fact ("this id resolves to nothing") -- a
+        # manual None-check re-deriving the same error would just be this
+        # port's own AccountNotFoundError, reimplemented at the call site.
+        source = await uow.accounts.get(criteria=FindAccountByAccountId(request.source_account_id))
+        destination = await uow.accounts.get(
+            criteria=FindAccountByAccountId(request.destination_account_id)
+        )
 
         self._assert_authorized(source=source, destination=destination, caller=request.requested_by)
 
@@ -214,9 +237,9 @@ class TransferMoneyUseCase:
     async def _lock_user_accounts(
         self, uow: TransferUnitOfWork, source: Account, destination: Account
     ) -> tuple[Account, Account]:
-        """T6: locks the `USER`-typed leg(s), sorted by `AccountId`, in that
+        """T6: locks the `USER`-typed leg(s), sorted by `AccountId`, in that order.
 
-        order -- the deterministic ordering that keeps a concurrent A->B and
+        This is the deterministic ordering that keeps a concurrent A->B and
         B->A transfer from deadlocking. A `SYSTEM` leg is never locked and
         keeps the unlocked snapshot already loaded above -- its balance is
         never persisted (T7), so re-reading it under lock would buy nothing.
@@ -231,7 +254,7 @@ class TransferMoneyUseCase:
         for account_id in user_ids:
             locked = await uow.accounts.get_for_update(account_id)
             if locked is None:  # pragma: no cover -- defensive: already read unlocked above
-                raise AccountNotFoundError(f"account {account_id} does not exist")
+                raise AccountNotFoundError(FindAccountByAccountId(account_id))
             if locked.account_id == source.account_id:
                 source = locked
             if locked.account_id == destination.account_id:
@@ -239,11 +262,10 @@ class TransferMoneyUseCase:
         return source, destination
 
     def _assert_authorized(self, *, source: Account, destination: Account, caller: OwnerId) -> None:
-        """T1, PRD §9.1's table: authorization is stated over the debited
+        """T1, PRD §9.1's table: authorization is stated over the debited leg(s).
 
-        leg(s), computed from the two accounts' *types* -- not a fixed
-        "caller owns the source" assumption, which would wrongly block
-        every deposit.
+        Computed from the two accounts' *types* -- not a fixed "caller owns
+        the source" assumption, which would wrongly block every deposit.
         """
         if source.account_type.is_user():
             source.assert_owned_by(caller)
@@ -251,5 +273,5 @@ class TransferMoneyUseCase:
             destination.assert_owned_by(caller)
         else:
             raise SystemToSystemTransferNotAllowedError(
-                f"neither {source.account_id} nor {destination.account_id} is a USER account"
+                source_account_id=source.account_id, destination_account_id=destination.account_id
             )

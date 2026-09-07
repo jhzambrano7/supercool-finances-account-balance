@@ -112,9 +112,8 @@ def revert(
     occurred_at: datetime,
     entry_ids: Callable[[], EntryId],
 ) -> Posting:
-    """Posts a reversal of `original`. Identical to `transfer` with three
+    """Posts a reversal of `original`. Identical to `transfer` with three differences (design §5.2):
 
-    differences (design §5.2):
 
     1. `amount` is not a parameter -- it is `original.amount`. A partial
        reversal is just another transfer and does not need a concept (D10).

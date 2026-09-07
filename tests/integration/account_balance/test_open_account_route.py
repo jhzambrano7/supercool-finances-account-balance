@@ -1,13 +1,15 @@
 """Integration test for `POST /accounts` against a real PostgreSQL."""
 
+import asyncio
 from collections.abc import AsyncIterator, Iterator
 from uuid import uuid4
 
 import pytest
 from dependency_injector import providers
 from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 
+from modules.shared.adapters.config.dependencies import SharedDependencies
 from modules.shared.adapters.config.settings import Settings
 from modules.shared.adapters.inbound.api.app import create_app
 
@@ -17,10 +19,11 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def app(postgres_url: str) -> Iterator[FastAPI]:
     application = create_app()
-    container = application.container  # type: ignore[attr-defined]
-    container.settings.override(providers.Object(Settings(database_url=postgres_url)))
+    # Settings/engine/session_factory are process-wide (SharedDependencies),
+    # not owned by AccountBalanceContainer — overridden at their real source.
+    SharedDependencies.settings.override(providers.Object(Settings(database_url=postgres_url)))
     yield application
-    container.settings.reset_override()
+    SharedDependencies.settings.reset_override()
 
 
 @pytest.fixture
@@ -61,3 +64,22 @@ async def test_a_system_only_purpose_is_rejected(client: AsyncClient) -> None:
     response = await client.post("/accounts", json=payload)
 
     assert response.status_code == 422
+
+
+async def test_a_genuinely_concurrent_open_conflicts_instead_of_recovering(
+    client: AsyncClient,
+) -> None:
+    """AO4's race, against real concurrent requests: reviewer's own call is
+    that the loser is reported as a conflict, not silently recovered into a
+    200 -- a client that hits this simply retries and finds the account via
+    the natural-key lookup the use case already tries first.
+    """
+    payload = {"owner_id": str(uuid4()), "purpose": "CHECKING", "currency": "USD"}
+
+    async def _open() -> Response:
+        return await client.post("/accounts", json=payload)
+
+    first, second = await asyncio.gather(_open(), _open())
+
+    statuses = sorted([first.status_code, second.status_code])
+    assert statuses == [201, 409]

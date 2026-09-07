@@ -59,11 +59,9 @@ _moves = st.lists(
 
 
 class TestPropertyP3TransferSequencesNeverGoNegativeAndConserve:
-    """P3: over any sequence of debit/credit moves across a pool of USER
-
-    accounts, every balance stays >= 0 and the sum across the pool is
-    conserved (no move creates or destroys money — it only relocates it).
-    """
+    """P3: over any sequence of debit/credit moves across a pool of USER accounts, every balance
+    stays >= 0 and the sum across the pool is conserved (no move creates or destroys money — it
+    only relocates it)."""
 
     @given(_moves)
     def test_user_balances_never_go_negative_and_pool_sum_is_conserved(
@@ -99,12 +97,10 @@ class TestPropertyP3TransferSequencesNeverGoNegativeAndConserve:
 
 
 class TestPropertyP4BalanceEqualsSumOfSignedAmounts:
-    """P4: after any sequence of entries applied to one `Account`, its balance
-
-    equals the sum of `signed_amount` over every entry actually applied to it.
-    Uses a `SYSTEM` account so no move is ever refused by the overdraft
-    policy — the property is about the accounting identity, not I2.
-    """
+    """P4: after any sequence of entries applied to one `Account`, its balance equals the sum of
+    `signed_amount` over every entry actually applied to it. Uses a `SYSTEM` account so no move
+    is ever refused by the overdraft policy — the property is about the accounting identity, not
+    I2."""
 
     @given(
         st.lists(

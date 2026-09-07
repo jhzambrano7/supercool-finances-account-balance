@@ -30,11 +30,8 @@ class TestEntryIsAStrictlyPositiveMovement:
             )
 
     def test_negative_amount_entry_is_rejected(self) -> None:
-        """I3: not in the spec's own scenario list verbatim, but an obvious
-
-        extension of "strictly positive" — a negative amount is even less
-        representable than zero.
-        """
+        """I3: not in the spec's own scenario list verbatim, but an obvious extension of "strictly
+        positive" — a negative amount is even less representable than zero."""
         with pytest.raises(NonPositiveAmountError):
             _make_entry(
                 amount=Money(-100, USD),
@@ -59,10 +56,8 @@ class TestSignedAmount:
 
 class TestOccurredAtMustBeTimezoneAware:
     def test_a_naive_timestamp_is_rejected(self) -> None:
-        """design §3 — not one of the spec's own Entry scenarios verbatim,
-
-        but the guard design introduces at this layer.
-        """
+        """design §3 — not one of the spec's own Entry scenarios verbatim, but the guard design
+        introduces at this layer."""
         with pytest.raises(NaiveTimestampError):
             _make_entry(
                 amount=Money(100, USD),

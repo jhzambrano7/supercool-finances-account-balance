@@ -3,24 +3,32 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from modules.account_balance.domain.identifiers import IdempotencyKey, OwnerId, TransferId
+from modules.shared.application.errors import ResourceAlreadyExistsError
 
 
-class IdempotencyRecordConflictError(Exception):
+class IdempotencyRecordConflictError(ResourceAlreadyExistsError):
     """Raised by an adapter when `add()` loses the idempotency race (T5).
 
-    Mirrors `AccountNaturalKeyConflictError` (AO4): deliberately not a
-    `DomainError` -- whether `(caller_id, idempotency_key)` is already taken
-    is a fact about *other rows*, the same kind of question the
-    account-balance domain spec says no single aggregate can answer. This is
-    a persistence-adapter concern, raised by whichever `IdempotencyRepository`
-    implementation backs a real database.
+    Mirrors `AccountAlreadyExistsError` (AO4): whether `(caller_id,
+    idempotency_key)` is already taken is a fact about *other rows*, the
+    same kind of question the account-balance domain spec says no single
+    aggregate can answer. This is a persistence-adapter concern, raised by
+    whichever `IdempotencyRepository` implementation backs a real database.
     """
+
+    def __init__(self, *, caller_id: OwnerId, idempotency_key: IdempotencyKey) -> None:
+        self.caller_id = caller_id
+        self.idempotency_key = idempotency_key
+        super().__init__(
+            resource_type="idempotency_record",
+            resource_identifier=f"(caller={caller_id}, key={idempotency_key})",
+        )
 
 
 @dataclass(frozen=True, slots=True)
 class IdempotencyRecord:
     """The durable row PRD §6.1 describes -- a persistence row, not a domain
-    type (it carries no invariant of its own; `TransferMoneyUseCase` is what
+    type (it carries no invariant of its own; `TransferMoney` is what
     gives its fields meaning).
 
     Deliberately does not carry a response body (PRD §6.1): a replay

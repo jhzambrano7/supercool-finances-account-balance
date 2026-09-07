@@ -135,11 +135,12 @@ Numbered `T1`–`T9`, continuing the citation convention `AO1`–`AO6` establish
 
 | Type | Kind | Responsibility |
 | --- | --- | --- |
-| `TransferMoney` | Use-case request, `application/use_cases` | `amount`, `source_account_id`, `destination_account_id`, `idempotency_key`, `requested_by` — the client-facing shape design.md §5.3 already specified |
-| `TransferMoneyUseCase` | Application service | orchestrates: authenticate → authorize → idempotency check → lock → load → `transfer()` → persist |
+| `TransferMoneyRequest` | Use-case request, `application/use_cases` | `amount`, `source_account_id`, `destination_account_id`, `idempotency_key`, `requested_by` — the client-facing shape design.md §5.3 already specified |
+| `TransferMoney` | Application service | orchestrates: authenticate → authorize → idempotency check → lock → load → `transfer()` → persist |
 | `Clock` | Port, `application/gateways` (or `services`, mirroring `IdGenerator`'s home) | supplies `occurred_at`; the domain takes no ambient time (D6) |
 | `IdempotencyRecord` | Persistence row, not a domain type | `caller_id, idempotency_key, request_hash, transfer_id, status, created_at` |
 | `AuthenticatedCaller` / caller-id dependency | Inbound API, `adapters/inbound/api` | resolves `X-Caller-Id` into an `OwnerId`, or raises unauthorized (T2) |
+| `TransferRequestDto` / `TransferResponseDto` / `EntryResponseDto` | Inbound API DTOs, `adapters/inbound/api/dtos.py` | the HTTP request/response shapes, mapped by their own `from_transfer` (docs/coding-conventions.md's DTO convention) |
 
 ## Requirements
 
@@ -264,7 +265,7 @@ default before this table and the route's `_UNPROCESSABLE_ERRORS` tuple were cor
 
 ## Testing Strategy
 
-- **Unit** (`tests/unit/account_balance/application/`): `TransferMoneyUseCase` against fake
+- **Unit** (`tests/unit/account_balance/application/`): `TransferMoney` against fake
   `AccountRepository`/`IdempotencyRepository`/`Clock`/`IdGenerator` — authorization for all four
   movement shapes (T1's table), idempotency replay and conflict, the idempotency race path.
 - **Integration** (`tests/integration/account_balance/`): real PostgreSQL via the shared

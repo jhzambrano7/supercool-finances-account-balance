@@ -134,11 +134,9 @@ class TestReconstitute:
         assert account.version == 7
 
     def test_accepts_a_negative_user_balance_and_closed_status(self) -> None:
-        """design §4.1: a reversal legitimately leaves a USER balance negative
-
-        (PRD §7.3) — reconstitute must not re-assert non-negative, or the
-        debt would be unrecoverable from storage.
-        """
+        """design §4.1: a reversal legitimately leaves a USER balance negative (PRD §7.3) —
+        reconstitute must not re-assert non-negative, or the debt would be unrecoverable from
+        storage."""
         account = Account.reconstitute(
             account_id=_account_id(),
             owner_id=_owner_id(),
@@ -366,14 +364,11 @@ class TestDebitForReversal:
 
 
 class TestCurrencyAgreement:
-    """design §4.2: "there is no second currency check" -- I4 at the
-
-    `Account` level falls out of `Money.__add__` itself, not a dedicated
-    guard. That was implemented but untested on the public API
-    (verify-report WARNING-1): nothing would have caught a regression that
-    reordered `_validated_balance` to check something else first and skip
-    past this. One test per public balance-moving method closes it.
-    """
+    """design §4.2: "there is no second currency check" -- I4 at the `Account` level falls out of
+    `Money.__add__` itself, not a dedicated guard. That was implemented but untested on the
+    public API (verify-report WARNING-1): nothing would have caught a regression that reordered
+    `_validated_balance` to check something else first and skip past this. One test per public
+    balance-moving method closes it."""
 
     def test_debit_with_a_mismatched_currency_entry_raises_currency_mismatch(self) -> None:
         account = _open_user_account()  # USD
@@ -491,12 +486,9 @@ class TestClose:
         assert account.status is AccountStatus.ACTIVE
 
     def test_system_accounts_cannot_be_closed(self) -> None:
-        """The spec states only "the closure is rejected"; design §4.5 and the
-
-        spec's own error table both name AccountNotClosableError for this
-        case, so asserting the concrete type confirms spec and design agree
-        rather than inventing a new rule.
-        """
+        """The spec states only "the closure is rejected"; design §4.5 and the spec's own error
+        table both name AccountNotClosableError for this case, so asserting the concrete type
+        confirms spec and design agree rather than inventing a new rule."""
         account = _open_system_account()
 
         with pytest.raises(AccountNotClosableError):
@@ -513,11 +505,8 @@ class TestClose:
 
 
 class TestTellDontAsk:
-    """The enums and Account answer questions about their own state (docs/
-
-    coding-conventions.md) instead of exposing raw values for callers to
-    branch on themselves.
-    """
+    """The enums and Account answer questions about their own state (docs/ coding-conventions.md)
+    instead of exposing raw values for callers to branch on themselves."""
 
     def test_account_status_knows_whether_it_is_active(self) -> None:
         assert AccountStatus.ACTIVE.is_active()
