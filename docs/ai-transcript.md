@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 41
+**Turns recorded:** 42
 
 ---
 
@@ -3055,11 +3055,12 @@ El dominio queda igual que al terminar la unidad 6, más el `entry_ids` como cal
 procede con los tests de arquitectura
 ```
 
-<details><summary>Tool calls (3)</summary>
+<details><summary>Tool calls (4)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/^## Work Unit 7/,/^## Explicitly not covered/p' openspec/changes…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== ¿ya existen T7.2/T7.3? ===" rg -n 'test_no_upward_imports|test_…
 - `Agent` — Implement the two remaining tasks of **Work Unit 7** — architecture tests — closing out the account balance domain module. This is the last …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
 
 </details>
 
@@ -3070,5 +3071,79 @@ Reviso qué falta exactamente de la unidad 7 antes de delegar:
 T7.1 y T7.4 ya están resueltos (T7.1 se puso verde solo con la unidad 6; T7.4 el scaffolding ya existe). Falta sólo T7.2 y T7.3. Verifico que no existan ya, y hago una pasada rápida manual antes de delegar para no descubrir sorpresas en el sub-agente:
 
 Todo limpio — el orden de imports ya es estrictamente descendente y no hay llamadas ambientes reales, sólo menciones en docstrings. Delego T7.2 y T7.3:
+
+Corriendo. **76 commits.**
+
+Antes de delegar hice una pasada manual: el orden de imports ya es estrictamente descendente y no hay llamadas ambientes reales en el dominio, sólo menciones en docstrings (por ejemplo, `identifiers.py` explica por qué acepta IDs minteados afuera, mencionando `IdGenerator` en prosa). Así que le dejé aclarado al agente que un **verde inmediato es el resultado correcto** para estos dos tests — son guardias de regresión sobre una propiedad ya verdadera, no señal de que algo salió mal.
+
+Dos instrucciones específicas para que no se equivoque:
+
+- **T7.2** (orden de imports): que derive el orden de `errors → identifiers → entry → account → transfer → posting` de §1 del design, en vez de hardcodear "5 módulos". Así el test sigue protegiendo aunque el dominio crezca.
+- **T7.3** (sin ambiente): que distinga **llamadas reales** (`ast.Call`) de **menciones en docstrings**. Si sólo buscara la cadena "uuid" o "IdGenerator" en el texto del archivo, se dispararía contra comentarios que ya existen a propósito y que no son una violación.
+
+Con esto cierra el módulo de dominio completo — unidades 1 a 7. Te aviso cuando termine.
+
+---
+
+## Turn 42 — 2026-09-07 05:18:01.820 UTC
+
+### Prompt
+
+```text
+<task-notification>
+<task-id>a4f57dc5c3f823057</task-id>
+<tool-use-id>toolu_01HNA9MFEA3ytEYQg4cwe1JY</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-jhz7-work-spaces-mine-supercool-finances-account-balance/5899ca45-2031-46b9-ada4-dcd2507881d3/tasks/a4f57dc5c3f823057.output</output-file>
+<status>completed</status>
+<summary>Agent "Add remaining architecture tests" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Result
+
+**status**: done
+
+**executive_summary**: Implemented and committed the final two Work Unit 7 architecture tests (T7.2 `test_no_upward_imports`, T7.3 `test_no_ambient_time_or_id_generation`), confirmed T7.1 and T7.4 already satisfied, checked off all of tasks.md — closing out the entire account-balance domain module (Work Units 1–7, 131 tests passing, 7 domain files).
+
+**artifacts**:
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/domain/test_architecture.py` — added `_IMPORT_ORDER`, `_domain_module_paths()`, `_ImportedAccountBalanceModulesVisitor` + `test_no_upward_imports`, `_AmbientCallVisitor` + `test_no_ambient_time_or_id_generation`
+- `/Users/jhz7/work-spaces/mine/supercool-finances-account-balance/openspec/changes/account-balance-domain/tasks.md` — T7.1/T7.2/T7.3 checked off
+- Commit `75e7448 test(domain): complete architecture tests for Work Unit 7` (`PRD: §10.3`)
+- Engram topic_key `sdd/account-balance-domain/apply-progress` (observation id 1376) updated/merged, not duplicated
+
+**next_recommended**: sdd-verify
+
+**risks**:
+- None outstanding. One design-vs-implementation nuance worth flagging for verify: `identifiers.py`'s `UUID(int=0)` construction is a real `ast.Call` but is deliberately NOT flagged by T7.3's visitor — it matches uuid-module *generator* functions only via the pattern `^uuid\d+$` (lowercase, e.g. `uuid4`), which correctly excludes the `UUID` type constructor. This is semantically correct (fixed/literal construction ≠ ambient generation) but is a judgment call worth a second look during verify.
+- The ambiguity the task brief anticipated (distinguishing call-sites from docstring prose for T7.3) turned out not to be ambiguous in practice — AST naturally separates string literals from `Call`/`Attribute`/`Name` nodes, confirmed by a scratch-script synthetic-violation check (upward import, `datetime.now()`, `uuid4()`, `IdGenerator().generate()` all correctly caught; `UUID(int=0)` correctly not caught).
+- Commit-msg hook enforces a 72-char header limit (undocumented in prior progress notes) — first commit message was rejected on length, not content; shortened and passed on retry.
+
+**skill_resolution**: paths-injected</result>
+<usage><subagent_tokens>75751</subagent_tokens><tool_uses>31</tool_uses><duration_ms>303046</duration_ms></usage>
+</task-notification>
+```
+
+<details><summary>Tool calls (5)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest -q 2>&1 | tail -5 echo "=== gates ==="; uv run pre-commit r…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '/_AmbientCallVisitor/,/^def test_no_ambient/p' tests/unit/account…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n '_ID_GENERATING_UUID_CALL' tests/unit/account_balance/domain/test_a…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python -c " from uuid import UUID print('UUID(int=0) llamado dos v…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== ¿el test cubre el orden de imports derivado de §1, no hardcodea…
+
+</details>
+
+### Response
+
+Terminó, y marcó un judgment call para segunda mirada: si `UUID(int=0)` no debería dispararse por T7.3. Verifico eso primero, junto con el resto, antes de aceptar.
+
+Todo verde. Ahora el judgment call sobre `UUID(int=0)`:
+
+Confirmado el criterio del agente. La distinción es real, no una laguna del regex:
+
+```
+UUID(int=0) == UUID(int=0)  → True   (constante, determinística)
+uuid4() == uuid4()          → False  (ambiente, distinta cada vez)
+```
+
+`D6` prohíbe que el dominio **genere** tiempo o identidad — o sea, que dependa de algo externo que cambia entre llamadas (reloj, aleatoriedad del SO), lo cual obligaría a usar fakes en los tests para poder verificar aritmética. `UUID(int=0)` no tiene esa propiedad: es una constante literal, igual a `Money.zero(currency)` — un constructor con un valor fijo, no una fuente de no-determinismo. Excluirla del test es correcto, no una laguna.
 
 ---

@@ -333,3 +333,12 @@ Formato de cada entrada:
 - **Prompt:** "procede con los tests de arquitectura"
 - **Respuesta:** Verificado antes de delegar que T7.1 ya está verde (se cerró solo con la unidad 6) y T7.4 (scaffolding) ya existe — sólo faltaban T7.2 (orden de imports estrictamente descendente) y T7.3 (sin tiempo/ids ambientes en el dominio). Chequeo manual previo confirmó que el código ya cumple ambas reglas, así que se le aclaró al agente que un verde inmediato es el resultado correcto para un guardia de regresión, no señal de que algo esté mal. Se le pidió derivar el orden de imports de §1 del design en vez de hardcodear la lista de módulos, y distinguir llamadas reales (`ast.Call`) de menciones en docstrings/comentarios para el chequeo de ids/tiempo ambiente — ya hay docstrings que mencionan `IdGenerator`/UUIDs a propósito y no deben disparar el test. Cierra la unidad 7 y el módulo de dominio completo (unidades 1–7).
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 00:18 — Cerrar el dominio completo: verificar T7.2/T7.3 y el judgment call de UUID(int=0)
+
+<!-- id: 20260907-001801-a1fe3a40 -->
+- **Qué intentaba:** (Turno disparado por la finalización del sub-agente de apply.) Verificar y aceptar el cierre de la unidad 7.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** Verificado de forma independiente: 131 tests, 11 gates en verde, commit `75e7448`. El agente marcó un judgment call para revisar: `PLATFORM_OWNER_ID = OwnerId(UUID(int=0))` en `identifiers.py` es un `ast.Call` real pero el visitor de T7.3 no lo marca, porque su regex sólo atrapa nombres tipo `uuid4`/`uuid7` (funciones **generadoras**), no `UUID` (el constructor de tipo). **Verificado empíricamente**: `UUID(int=0) == UUID(int=0)` da `True`; `uuid4() == uuid4()` da `False`. D6 prohíbe que el dominio dependa de algo que cambia entre llamadas (reloj, aleatoriedad) porque eso obligaría a fakes en los tests; `UUID(int=0)` es una constante literal determinística, análoga a `Money.zero(currency)`, no una fuente de no-determinismo. Excluirla es correcto, no una laguna del regex. También verificado que el orden de imports de T7.2 está declarado explícito (siguiendo §1) pero con guardia: el test falla ruidosamente si aparece un módulo de dominio nuevo sin agregar a la lista, en vez de dejarlo pasar sin auditar.
+- **Cierra el dominio completo:** 6 archivos (`errors`, `identifiers`, `entry`, `account`, `transfer`, `posting`), 131 tests, unidades 1–7 terminadas.
+- **Veredicto:** ⏳ pendiente
