@@ -14,6 +14,9 @@ import pytest
 import pytest_asyncio
 from alembic import command
 from alembic.config import Config
+from dependency_injector import providers
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -22,6 +25,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from testcontainers.community.postgres import PostgresContainer
+
+from modules.shared.adapters.config.dependencies import SharedDependencies
+from modules.shared.adapters.config.settings import Settings
+from modules.shared.adapters.inbound.api.app import create_app
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -53,6 +60,29 @@ async def engine(postgres_url: str) -> AsyncIterator[AsyncEngine]:
 @pytest_asyncio.fixture
 async def session_factory(engine: AsyncEngine) -> Callable[[], AsyncSession]:
     return async_sessionmaker(bind=engine, expire_on_commit=False)
+
+
+@pytest.fixture(scope="session")
+def app(postgres_url: str) -> Iterator[FastAPI]:
+    """One `FastAPI` app, one wired `AccountBalanceContainer`, for the whole session -- not one per
+    test. `create_app()`/`.wire()` mutate process-global state
+    (`dependency_injector.wiring`); building a second app per test would silently repoint every
+    previously-built app's routes at the newest container (see decision-log.md, the `wire()`
+    finding). `postgres_url` is itself session-scoped already, so overriding `settings` once here
+    loses nothing a per-test override was actually giving us."""
+    application = create_app()
+    # Settings/engine/session_factory are process-wide (SharedDependencies),
+    # not owned by AccountBalanceContainer — overridden at their real source.
+    SharedDependencies.settings.override(providers.Object(Settings(database_url=postgres_url)))
+    yield application
+    SharedDependencies.settings.reset_override()
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
 
 
 @pytest_asyncio.fixture(autouse=True)

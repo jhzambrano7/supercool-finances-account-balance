@@ -1,6 +1,11 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
-from modules.account_balance.adapters.config.dependencies import AccountBalanceContainer
+from modules.account_balance.adapters.config.dependencies import (
+    build_account_balance_container,
+)
 from modules.account_balance.adapters.inbound.api.routes import router as account_balance_router
 from modules.account_balance.adapters.inbound.api.transfer_routes import (
     router as transfer_router,
@@ -13,6 +18,20 @@ _WIRED_MODULES = [
 ]
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Disposes `SharedDependencies.engine` (AO5, one per process) on shutdown.
+
+    A Singleton is never torn down by `dependency_injector` itself -- nothing calls this on a
+    plain shutdown signal (SIGTERM, an ECS Fargate task stopping) unless something does it
+    explicitly. `httpx.ASGITransport`, which every integration test uses, does not drive the ASGI
+    lifespan protocol at all, so this never runs under the test suite -- a real ASGI server
+    (uvicorn) does.
+    """
+    yield
+    await SharedDependencies.engine().dispose()
+
+
 def create_app() -> FastAPI:
     """Composes the service's inbound HTTP surface.
 
@@ -22,23 +41,14 @@ def create_app() -> FastAPI:
     mirroring `SharedDependencies`'s shape) — this function only assembles
     them, it does not define any dependency itself.
     """
-    account_balance_container = AccountBalanceContainer()
-    # `shared` is a `DependenciesContainer` proxy, not a copy (see the
-    # comment above `AccountBalanceContainer.shared`) -- this override forwards to the real, live
-    # `SharedDependencies`, avoiding the deep-copy fork `providers.Container`
-    # would cause. It does NOT mean settings can be re-overridden at will:
-    # `SharedDependencies.engine`/`.session_factory` are Singletons that
-    # cache on first resolution, so an override only takes effect if it
-    # happens before anything has resolved them in this process.
-    account_balance_container.shared.override(SharedDependencies)
+    account_balance_container = build_account_balance_container()
     account_balance_container.wire(modules=_WIRED_MODULES)
 
-    app = FastAPI(title="SuperCool Finances — Account Balance Service")
-    # Kept as an attribute so tests can override providers (e.g. `settings`)
-    # against a real database before the app is exercised.
-    app.container = account_balance_container  # type: ignore[attr-defined]
+    app = FastAPI(title="SuperCool Finances — Account Balance Service", lifespan=_lifespan)
+
     app.include_router(account_balance_router)
     app.include_router(transfer_router)
+
     return app
 
 

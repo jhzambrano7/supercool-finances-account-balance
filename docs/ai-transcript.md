@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 93
+**Turns recorded:** 102
 
 ---
 
@@ -7090,17 +7090,368 @@ Todo lo relevante quedó staged, y las 3 cosas ajenas al merge (`AGENTS.md`, `CL
 Incluye todo en ese commit
 ```
 
-<details><summary>Tool calls (4)</summary>
+<details><summary>Tool calls (10)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat .gitignore | rg -i "claude|agents" echo "---" fd . .claude/skills -t …
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add .claude/skills/ AGENTS.md CLAUDE.md git status --porcelain=v1 | t…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance tail -15 docs/decision-log.md
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md << 'EOF' ## 2026-09-07 18:04 — Enmendar el co…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance CLAUDE_PROJECT_DIR="$PWD" python3 .claude/hooks/ai-transcript-build.py 2>…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add -u git status --porcelain=v1
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -20
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add CLAUDE.md AGENTS.md uv run pre-commit run --all-files 2>&1 | tail…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit --amend --no-edit 2>&1 | tail -20
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status git log --oneline -3 git show --stat HEAD | head -20
 
 </details>
 
 ### Response
 
 Solo 6 archivos en `.claude/skills/`, nada ignorado por gitignore. Los agrego y modifico el commit del merge (sigue local, sin pushear, así que amend es seguro).
+
+Corro el pre-commit sobre todo y enmiendo el commit anterior.
+
+All clean. Ahora hago el `amend`.
+
+Listo — `ee13b48` reemplaza al commit anterior, working tree limpio, todo incluido.
+
+---
+
+## Turn 94 — 2026-09-07 23:09:57.055 UTC
+
+### Prompt
+
+```text
+que queda pendiente en este PR?
+```
+
+<details><summary>Tool calls (2)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance gh pr view --json number,title,state,url 2>&1 | head -20 echo "---" git s…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo '<!-- skip: 20260907-180957-a1fe3a40 -->' >> docs/decision-log.md
+
+</details>
+
+### Response
+
+**PR #2** (`feat/transfer`, 23 commits sin pushear todavía).
+
+**Sin fixear del judgment-day (Ronda 3, no tocado — quedó explícito en el mensaje del commit):**
+- `wire()` de `dependency_injector` es global por proceso — el último `create_app()` pisa a los anteriores para toda la app.
+- `SharedDependencies.engine`/`.session_factory` son Singletons que nunca se resetean entre tests — el `reset_override()` de `settings` es un no-op comprobado; el aislamiento sigue siendo ilusorio, sostenido sólo porque todos los tests comparten la misma URL.
+- El `engine` nunca se dispone (`dispose()`), sin `lifespan` de FastAPI.
+- `idempotency_repository.py` y `transfer_repository.py` no loguean ni envuelven excepciones de infraestructura (violan la convención que sí aplica `SqlAccountRepository`).
+- `shared` (el `DependenciesContainer`) no tiene default — un entrypoint futuro que no pase por `create_app()` falla recién al primer request, no al construirse.
+- Sin test unitario que ejercite la composición del container directamente — hoy sólo lo cazan tests de integración con Docker.
+- Sin sección de convenciones documentando el gotcha de `DependenciesContainer`/Singleton-caching (el mismo bug ya se regresionó una vez en medio de esta sesión).
+
+**Más chico, no bloqueante:**
+- `ResourceNotFoundError` queda achatado a 400 en vez de 404 para subclases futuras no nombradas explícitamente (teórico).
+- Pool del engine sin tunear (`pool_pre_ping`, `pool_recycle`, `lock_timeout`) para un ledger que sostiene locks con `SELECT FOR UPDATE`.
+- `.env` no está en `.gitignore`; `database_url` tiene un default que parece real en vez de fallar rápido.
+- Sin CI — los gates sólo corren en pre-commit local.
+- `dependency-injector` sin upper bound de versión.
+- Gap documentado (no bug): `TransferResponseDto.from_transfer` mapea desde el dominio directo, no desde un resultado de aplicación.
+
+**Fuera de este PR:** `revert`/cerrar cuenta viven en otra branch todavía no sincronizada ni tocada.
+
+¿Con cuál seguimos?
+
+---
+
+## Turn 95 — 2026-09-07 23:14:20.027 UTC
+
+### Prompt
+
+```text
+SObre wire, que tan costoso es de resolver?
+```
+
+<details><summary>Tool calls (2)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance bat -n --color=never src/modules/shared/adapters/inbound/api/app.py echo …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md << 'EOF' ## 2026-09-07 18:14 — Estimar el cos…
+
+</details>
+
+### Response
+
+Antes de responder: la sesión concurrente ya sacó `app.container = account_balance_container` de `app.py` (coincide con el hallazgo de "código muerto"), pero dejó el comentario de arriba huérfano — describe una asignación que ya no existe. No lo toqué.
+
+Sobre el costo real de arreglar `wire()`:
+
+**No es un fix de una línea, pero tampoco es grande.** Tres niveles:
+
+1. **Band-aid (trivial, ~10 min):** `unwire()` en el teardown de cada fixture de test. No arregla la estructura — el `app = create_app()` a nivel de módulo sigue vivo, y dos apps en el mismo proceso siguen pisándose. Tapa el síntoma, no la causa.
+
+2. **El fix real (mediano, un par de horas con tests):** sacar `@inject`/`Provide[Container.provider]` de las rutas y reemplazarlo por un `Depends()` chico que lee `request.app.state.container` — guardando el container ahí en `create_app()` en vez de llamar `.wire()`. Esto hace que cada app tenga sus propias dependencias, sin wiring global, sin necesidad de `unwire()` en ningún lado. Toca 4 archivos: `app.py`, `routes.py`, `transfer_routes.py`, y un helper nuevo chico. Elimina la clase de problema de raíz, no sólo el síntoma de hoy.
+
+3. **Rearquitectura de fixtures (más grande):** un solo container/app por proceso, tests mutando sólo `SharedDependencies.settings` en vez de reconstruir todo. Se entrelaza con el problema de los Singletons que nunca se resetean — si lo tocás, te conviene resolver los dos juntos.
+
+**Mi recomendación: opción 2.** Tamaño acotado, cierra el hallazgo de verdad, y no te obliga a tocar el problema de los Singletons en el mismo paso (podés dejarlo aparte).
+
+¿Querés que la implemente?
+
+---
+
+## Turn 96 — 2026-09-07 23:17:22.034 UTC
+
+### Prompt
+
+```text
+Podemos mantenerlo así, no veo razón por la que tengamos o ejecutemos más de un create app, nada más allá de las pruebas donde tenemos que señalar el trade off de correrlas en serie. Estoy errado?
+```
+
+<details><summary>Tool calls (3)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== how many times does any single test file/function call create_a…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== fixture scope explicit? (default es function) ===" rg -n "@pyte…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md << 'EOF' ## 2026-09-07 18:17 — Verificar el r…
+
+</details>
+
+### Response
+
+Voy a verificarlo, no doy por sentado el razonamiento.
+
+Verificado. La conclusión (dejarlo así) me parece correcta, pero el mecanismo que describís no es exactamente el que nos salva — te lo marco porque importa para el día que alguien toque esto.
+
+**No es "correrlas en serie" lo que evita el problema — es que ningún código usa un `app` viejo después de que se construyó uno nuevo.** El fixture `app` es function-scoped (default, sin `scope=` explícito en los 3 archivos), así que cada test arma su propio `app`+`client`, los usa, y los tira. Aunque las corridas SÍ son seriales (no hay `xdist` instalado, confirmé en `pyproject.toml`/`uv.lock`), lo que realmente importa es que nadie vuelve a golpear un `app` después de que otro lo pisó — si alguien parelalizara la EJECUCIÓN de tests dentro del mismo proceso (no la corrida de tests distintos, sino interleaving real), seguiría sin romperse, porque el patrón es "un app, se usa, se descarta" — nunca "dos apps vivos al mismo tiempo, atendiendo requests".
+
+**Un dato que contradice literalmente tu frase, aunque no tu conclusión:** ya hoy corren **más de un `create_app()` por proceso de test**, no sólo uno por test. `app.py:44` tiene `app = create_app()` a nivel de módulo — se ejecuta la primera vez que CUALQUIER test importa ese módulo (que es justo lo que hace cada uno de los 3 archivos de test, para importar `create_app` mismo). Entonces en cualquier corrida ya hay: 1 call a nivel de import + 1 call por cada fixture de test que corre. El primero (el de módulo) queda huérfano y wireado a nada que nadie use — inofensivo, pero es evidencia de que "más de un `create_app()`" ya pasa, sin que nada se rompa, exactamente por la razón de arriba (nadie lo usa después).
+
+En producción tampoco hay riesgo: un worker de uvicorn importa el módulo una sola vez, un solo `create_app()`, listo.
+
+**Mi veredicto: no estás errado en la decisión.** El invariante real que sostiene esto ("nunca dos apps vivos usados a la vez") se cumple hoy y es razonablemente difícil de romper por accidente en este test suite. Si en algún momento alguien introduce un fixture `session`-scoped que mantenga un `app` vivo entre tests mientras otro test arma uno nuevo, ahí sí se activa el bug — vale la pena dejar un comentario corto en `app.py` documentando el invariante, para que quien toque el scope de un fixture sepa por qué no debe hacerlo sin pensar. ¿Lo agrego?
+
+Listo, agregada la entrada. Quedé esperando tu confirmación sobre si agrego el comentario documentando el invariante en `app.py`.
+
+---
+
+## Turn 97 — 2026-09-07 23:21:45.060 UTC
+
+### Prompt
+
+```text
+Es posible reusar el fixture? así tendrías una misma app para los tests de integración
+```
+
+<details><summary>Tool calls (6)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python -c "import pytest_asyncio; print(pytest_asyncio.__version__…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance mkdir -p /tmp/proto_tests cat > /tmp/proto_tests/conftest.py << 'EOF' imp…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat > tests/integration/account_balance/test_zzz_prototype_session_app.py…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest -q 2>&1 | tail -10 echo "--- cleanup ---" rm -f tests/integ…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat > tests/integration/account_balance/test_zzz_proto2.py << 'EOF' from …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md << 'EOF' ## 2026-09-07 18:21 — Prototipar y v…
+
+</details>
+
+### Response
+
+**Sí, y lo probé de verdad (no en teoría) — es mejor idea que lo que yo había propuesto antes.**
+
+Prototipé un `app`/`client` session-scoped contra el testcontainer real: `@pytest.fixture(scope="session")` para el app y `@pytest_asyncio.fixture(scope="session", loop_scope="session")` para el client, con `pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]` a nivel de módulo — **no hace falta decorar cada test función por función**, lo verifiqué. Con un contador global confirmé que `create_app()`/`.wire()` corre **exactamente una vez** para toda la sesión, y la suite completa sigue pasando.
+
+Esto cierra el hallazgo de `wire()` de raíz para los tests, no lo esquiva: sólo existe un container, igual que en producción — no hay "el último gana" porque no hay más de uno. Y de yapa saca el riesgo teórico de afinidad de event loop que había marcado un juez, porque ahora el engine y el client comparten el mismo loop de sesión en vez de uno por test. También destapa algo: el override de `settings` hoy ya sólo pega en el primer test por el caching de los Singletons (lo comprobamos en la Ronda 2/3) — con scope de sesión, el código deja de fingir que hace algo por test cuando en la práctica ya no lo hacía.
+
+**Costo real:** mover el par de fixtures (hoy duplicado igual en `test_open_account_route.py`, `test_transfer_route.py` y `test_concurrent_transfer_locking.py`) a `tests/integration/conftest.py`, y una línea de `pytestmark` en cada uno de esos 3 archivos. Nada más. Borré el prototipo, no quedó nada en el árbol.
+
+¿Lo implemento?
+
+---
+
+## Turn 98 — 2026-09-07 23:24:53.985 UTC
+
+### Prompt
+
+```text
+adelante!!
+```
+
+<details><summary>Tool calls (15)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance bat -n --color=never tests/integration/conftest.py echo "=== test_open_ac…
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_open_account_route.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/conftest.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/conftest.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_open_account_route.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_transfer_route.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_concurrent_transfer_locking.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/integration/account_balance/test_concurrent_transfer_locking.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run ruff check . 2>&1 | tail -30
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run ruff format . 2>&1 | tail -5 uv run mypy --strict . 2>&1 | tail -2…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance for i in 1 2 3; do uv run pytest -q 2>&1 | tail -3; done
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance docker stop supercool-finances-account-balance-postgres-1 uv run pytest -…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git diff --stat -- tests/integration/ echo "=== conftest.py final ===" ba…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '65,79p' tests/integration/conftest.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md << 'EOF' ## 2026-09-07 18:24 — Implementar el…
+
+</details>
+
+### Response
+
+Ahora agrego los fixtures compartidos al `conftest.py`:
+
+Ahora saco los fixtures duplicados de los 3 archivos y agrego el `pytestmark` con `loop_scope`.
+
+Ahora corro los gates completos.
+
+Ahora la suite completa, tres veces seguidas, y una vez más con el Postgres local apagado.
+
+Implementado. `app` y `client` ahora viven en `tests/integration/conftest.py`, session-scoped, sacados de los 3 archivos que los duplicaban — cada uno queda con `pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]`. El docstring del fixture documenta el invariante explícitamente.
+
+Gates verdes: ruff, mypy strict. **185 tests, 3 corridas limpias + una cuarta con el Postgres local parado** — sigue aislado de verdad. Con esto el hallazgo de `wire()` global queda cerrado de raíz para los tests, no parcheado.
+
+No lo commiteé — decime si querés que lo incluya en un commit ahora o seguimos con otra cosa primero.
+
+---
+
+## Turn 99 — 2026-09-07 23:29:34.593 UTC
+
+### Prompt
+
+```text
+Con eso hecho, no veo un issue en que el engine y session factory de alchemy sean singleton, cosa que me parece desable
+```
+
+<details><summary>Tool calls (1)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n "One async engine per process|dispose|lifespan|on_event" src/module…
+
+</details>
+
+### Response
+
+Lo verifico antes de darte la razón sin más.
+
+---
+
+## Turn 100 — 2026-09-07 23:31:12.517 UTC
+
+### Prompt
+
+```text
+Con eso hecho, no veo un issue en que el engine y session factory de alchemy sean singleton, cosa que me parece desable.
+Puede haber reto en los datos, pero cada prueba debe ser dueña de sus datos, escribir el data set antes de empezar y limpiarlo al terminar. Eso debe resolver. Cómo lo ves?
+```
+
+<details><summary>Tool calls (2)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '88,100p' tests/integration/conftest.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md << 'EOF' ## 2026-09-07 18:31 — Confirmar que …
+
+</details>
+
+### Response
+
+Verificado. Dos partes.
+
+**Sobre Singleton:** tenés razón, y no es sólo intuición — es el diseño documentado. `engine.py:12` dice literalmente `"""One async engine per process (AO5)"""`. Un pool por proceso es lo correcto en producción (ECS Fargate, un proceso por task, según el README) — no querés N pools compitiendo por conexiones. Con el fixture session-scoped ya no hay override "de mentira" por test, así que el caching del Singleton pasó de ser un problema a ser exactamente lo que querías: un engine, resuelto una vez, para toda la sesión.
+
+**Ojo, esto no cierra todo el hallazgo original.** Quedó una pata separada, que no tiene que ver con que sea Singleton: **nadie llama `dispose()` nunca** — no hay `lifespan` de FastAPI, ni hook de shutdown, en ningún lado (`rg` sobre `dispose|lifespan|on_event` no encuentra nada). Es un fix chico e independiente (agregar un `lifespan` que cierre el pool al bajar el proceso) — te lo dejo aparte para que decidas si lo hacemos ahora o no, no es parte de la pregunta que hiciste.
+
+**Sobre el reto de los datos:** ya existe, y ya lo resuelve, el fixture `_clean_tables` (`tests/integration/conftest.py:88`) — `autouse=True`, corre después de cada test (incluso si el test falla, el teardown de pytest no se salta), trunca `entries`/`transfers`/`idempotency_records` y borra todo `USER` account. Como corre DESPUÉS de cada test, funcionalmente ya te da "antes de que arranque el próximo test, la base está limpia" — lo probé de nuevo recién: 3 corridas seguidas + una con el Postgres local apagado, 185 verdes las 4 veces.
+
+Lo que decís ("escribir el dataset antes, limpiarlo al terminar") es un patrón más estricto que el actual (blind truncate compartido) — cada test dueño explícito de su propio setup/teardown en vez de un fixture global que barre todo. Es un refactor real, no un tweak: tocaría cada test de integración existente. La razón para pagarlo hoy sería específicamente **paralelizar tests** (pytest-xdist) — con ejecución serial (que es lo único configurado, no hay CI ni xdist en este repo) el truncate global ya te da la garantía completa.
+
+¿Es paralelizar lo que tenés en mente, o querés el patrón más explícito igual aunque sigamos en serie?
+
+Listo, agregada la entrada. Sigo esperando tu respuesta: ¿el objetivo es paralelizar tests, o querés el patrón explícito igual aunque sigamos en serie?
+
+---
+
+## Turn 101 — 2026-09-07 23:34:37.443 UTC
+
+### Prompt
+
+```text
+De acuerdo, el dispose del engine está pendiente, procede a resolverlo
+```
+
+<details><summary>Tool calls (15)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python - << 'EOF' import asyncio from contextlib import asyncconte…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance fd . tests/unit/shared -t d 2>/dev/null fd . tests/unit/shared -t f 2>/de…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance bat -n --color=never src/modules/shared/adapters/inbound/api/app.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/adapters/inbound/api/app.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/adapters/inbound/api/app.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/adapters/inbound/api/app.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance fd . tests/unit/shared/adapters -t d 2>/dev/null fd . tests/unit/shared -…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance fd "__init__.py" tests/ | head -5 fd "__init__.py" tests/ | wc -l
+- `Bash` — mkdir -p /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/shared/adapters/inbound/api
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/shared/adapters/inbound/api/test_app.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run ruff check . 2>&1 | tail -30
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run ruff format . 2>&1 | tail -5 uv run mypy --strict . 2>&1 | tail -3…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest tests/unit/shared/adapters/inbound/api/test_app.py -v 2>&1 …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance for i in 1 2 3; do uv run pytest -q 2>&1 | tail -3; done docker stop supe…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md << 'EOF' ## 2026-09-07 18:34 — Agregar el `li…
+
+</details>
+
+### Response
+
+Ahora conecto el `lifespan` al `FastAPI(...)`.
+
+Ahora el test unitario para el lifespan.
+
+Ahora corro los gates completos.
+
+Ahora la suite completa, 3 veces + una con el Postgres local apagado.
+
+Resuelto. `_lifespan` en `app.py` llama `await SharedDependencies.engine().dispose()` al bajar el proceso, conectado vía `FastAPI(lifespan=_lifespan)`.
+
+Un dato que encontré verificando antes de escribir el test: **`httpx.ASGITransport` no dispara el protocolo de lifespan de ASGI en absoluto** — lo comprobé con un repro chico antes de asumirlo. O sea, este fix es invisible para toda la suite de integración (no la rompe, pero tampoco la ejercita nunca). Por eso agregué un test unitario dedicado que llama `_lifespan` directo con un `AsyncMock` en lugar del engine, y asegura que `dispose()` se espera una sola vez, después del `yield`.
+
+Gates verdes, **186 tests** (antes 185), 3 corridas limpias + una con el Postgres local parado. No lo commiteé todavía — decime cómo seguimos.
+
+---
+
+## Turn 102 — 2026-09-07 23:38:10.229 UTC
+
+### Prompt
+
+```text
+comitea lo hecho
+Dijiste antes, "shared (el DependenciesContainer) no tiene default" eso hay que resolverlo, planeo tener otros tipos de endpoints tipo cron jobs
+```
+
+<details><summary>Tool calls (25)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python -c " from dependency_injector import providers help(provide…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python -c " import inspect, dependency_injector print(dependency_i…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance find .venv/lib/python3.14/site-packages/dependency_injector -name "provid…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n "class DependenciesContainer" -A 20 .venv/lib/python3.14/site-packa…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python - << 'EOF' from dependency_injector import containers, prov…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python - << 'EOF' from dependency_injector import containers, prov…
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/config/dependencies.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/config/dependencies.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/account_balance/adapters/config/dependencies.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/adapters/inbound/api/app.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/adapters/inbound/api/app.py
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/adapters/inbound/api/app.py
+- `Read` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/src/modules/shared/adapters/inbound/api/app.py
+- `Bash` — mkdir -p /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/adapters/config
+- `Write` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/adapters/config/test_dependencies.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python -c " from dependency_injector import containers, providers,…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python -c " from dependency_injector import containers, providers …
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/tests/unit/account_balance/adapters/config/test_dependencies.py
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest tests/unit/account_balance/adapters/config/test_dependencie…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run ruff check . 2>&1 | tail -30
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run ruff format . 2>&1 | tail -5 uv run mypy --strict . 2>&1 | tail -4…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance for i in 1 2 3; do uv run pytest -q 2>&1 | tail -3; done docker stop supe…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git log --format="%H %s" -5 echo "---" git log -1 --format="%B" 9b0427d 2…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git log --all --format="%B" | rg "^PRD: n/a" | head -5
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1
+
+</details>
+
+### Response
+
+Ahora actualizo `app.py` para usar la factory.
+
+It vive en `dependency_injector.errors`, no `.exceptions`. Corrijo el import.
+
+Ahora los gates completos y la suite entera.
 
 ---

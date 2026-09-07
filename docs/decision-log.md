@@ -717,3 +717,61 @@ Formato de cada entrada:
 - **Prompt:** "Incluye todo en ese commit"
 - **Respuesta:** Corregido mi propio criterio: no era mi decisión filtrar qué entra al commit sin preguntar, y el usuario ya lo dejó explícito. Como el commit sigue 100% local (no pusheado), hago `amend` en vez de un commit nuevo -- es lo que pide "en ese commit" literalmente, y no reescribe historia publicada.
 - **Veredicto:** ⏳ pendiente
+<!-- skip: 20260907-180957-a1fe3a40 -->
+
+## 2026-09-07 18:14 — Estimar el costo de arreglar `wire()` global
+
+<!-- id: 20260907-181420-a1fe3a40 -->
+- **Qué intentaba:** El usuario preguntó qué tan costoso es resolver el hallazgo de Ronda 3 sobre `wire()` siendo global por proceso.
+- **Prompt:** "SObre wire, que tan costoso es de resolver?"
+- **Respuesta:** Presentadas 3 opciones con costo creciente: (1) `unwire()` en teardown de cada fixture -- trivial, pero band-aid, no arregla la estructura; (2) reemplazar `Provide[Container.provider]`/`wire()` por un `Depends()` que lee `request.app.state.container` -- el fix real, tamaño mediano (~4 archivos: `app.py` + 2 route files + un helper chico), elimina la clase de problema de raíz; (3) rearquitectura de fixtures a un solo container/app por proceso -- más grande, entrelazado con el problema de reseteo de Singletons ya señalado. Recomendada la opción 2. Sin implementar todavía -- pendiente de que el usuario elija.
+- **Nota aparte:** detecté que la sesión concurrente ya sacó `app.container = account_balance_container` de `app.py` (código muerto, coincide con el hallazgo de Ronda 3), pero dejó el comentario de arriba huérfano (describe una asignación que ya no existe) -- no lo toqué, se lo señalé al usuario.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:17 — Verificar el razonamiento del usuario sobre dejar `wire()` como está
+
+<!-- id: 20260907-181722-a1fe3a40 -->
+- **Qué intentaba:** El usuario propuso dejar `wire()` sin tocar, razonando que nunca corremos más de un `create_app()` salvo en tests, donde ya asumimos el trade-off de correrlos en serie. Pidió que lo chequee.
+- **Prompt:** "Podemos mantenerlo así, no veo razón por la que tengamos o ejecutemos más de un create app, nada más allá de las pruebas donde tenemos que señalar el trade off de correrlas en serie. Estoy errado?"
+- **Respuesta:** Verificado con grep: los 3 fixtures `app` son function-scoped (default), no hay `pytest-xdist` instalado, y ningún test guarda una referencia a un `app` viejo para reusarla. La conclusión (dejarlo así) es correcta, pero el mecanismo no es "correrlas en serie" -- es que ningún código usa un `app` superado después de que otro lo pisó. Además, ya hoy corre *más de un* `create_app()` por proceso de test (el de `app.py:44` a nivel de módulo, más el de cada fixture), sin romper nada, exactamente por esa razón. Ofrecido documentar el invariante real con un comentario corto en `app.py`, para que un fixture `session`-scoped futuro no lo rompa sin querer -- sin implementar todavía, a la espera de que el usuario confirme.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:21 — Prototipar y verificar un fixture `app`/`client` session-scoped
+
+<!-- id: 20260907-182145-a1fe3a40 -->
+- **Qué intentaba:** El usuario preguntó si se puede reusar el fixture para tener un solo `app` compartido entre los tests de integración, en vez de uno por test.
+- **Prompt:** "Es posible reusar el fixture? así tendrías una misma app para los tests de integración"
+- **Respuesta:** Prototipado y corrido de verdad (no en teoría) contra un testcontainer real: `@pytest.fixture(scope="session")` para `app` + `@pytest_asyncio.fixture(scope="session", loop_scope="session")` para `client`, con `pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]` a nivel de módulo (no hace falta decorar cada test función por función -- verificado). Confirmado con un contador global que `create_app()`/`.wire()` corre **exactamente una vez** para toda la sesión, y que la suite completa sigue pasando con el prototipo adentro. Esto cierra el hallazgo de `wire()` global de raíz para los tests (sólo existe un container, igual que en producción) y de paso saca el riesgo teórico de afinidad de event loop que había marcado un juez (el engine y el client ahora comparten el mismo loop de sesión). También hace honesto el override de `settings`, que hoy ya sólo surte efecto en el primer test por el caching de los Singletons -- con scope de sesión, el código deja de fingir que reevalúa por test. Costo real, verificado: mover el par de fixtures (hoy duplicado en 3 archivos) a `conftest.py`, una línea de `pytestmark` por archivo de test. Prototipo borrado, no quedó nada en el árbol. No implementado en los archivos reales todavía -- a la espera de que el usuario confirme.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:24 — Implementar el fixture `app`/`client` session-scoped
+
+<!-- id: 20260907-182454-a1fe3a40 -->
+- **Qué intentaba:** Aplicar en los archivos reales lo prototipado y aprobado por el usuario.
+- **Prompt:** "adelante!!"
+- **Respuesta:** Movidos `app` (session-scoped) y `client` (`pytest_asyncio.fixture(scope="session", loop_scope="session")`) a `tests/integration/conftest.py`, sacados de los 3 archivos duplicados (`test_open_account_route.py`, `test_transfer_route.py`, `test_concurrent_transfer_locking.py`), cada uno con `pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]`. Docstring en el fixture `app` documentando el invariante (un solo `create_app()`/`.wire()` por sesión) para que quede explícito, no implícito. Gates verdes: ruff, mypy strict (111 archivos). **185 tests, 3 corridas seguidas limpias + una cuarta con el Postgres local parado** (aislamiento real confirmado de nuevo).
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:31 — Confirmar que Singleton es el diseño correcto y evaluar la propuesta de "cada test dueño de sus datos"
+
+<!-- id: 20260907-183112-a1fe3a40 -->
+- **Qué intentaba:** El usuario planteó que no ve problema en que `engine`/`session_factory` sean Singleton (con el fixture session-scoped ya hecho), y propuso que el reto de datos compartidos se resuelve con que cada test sea dueño de su dataset (lo escribe antes, lo limpia al terminar). Pidió mi opinión.
+- **Prompt:** "Con eso hecho, no veo un issue en que el engine y session factory de alchemy sean singleton... Puede haber reto en los datos, pero cada prueba debe ser dueña de sus datos... Cómo lo ves?"
+- **Respuesta:** Verificado, no asumido: `engine.py:12` documenta explícitamente "One async engine per process (AO5)" -- Singleton es el diseño buscado, no un accidente, y ahora que no hay override por test, el caching deja de ser un problema. Separé una pata que NO se cierra con esto: nadie llama `dispose()` en ningún lado (grep vacío de `dispose|lifespan|on_event`) -- independiente de que sea Singleton, ofrecido aparte. Sobre el patrón de "cada test dueño de su dataset": ya existe y ya lo resuelve el fixture `_clean_tables` (autouse, corre después de cada test incluso si falla, trunca todo lo relevante) -- probado de nuevo, 185 verdes en 4 corridas incluida una con el Postgres local apagado. Planteado que migrar a un patrón más estricto (setup/teardown explícito por test) es un refactor real que sólo se justifica si el objetivo es paralelizar tests (no configurado hoy, sin xdist, sin CI) -- pregunté cuál es el objetivo antes de asumir alcance.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:34 — Agregar el `lifespan` que dispone el engine al apagar
+
+<!-- id: 20260907-183437-a1fe3a40 -->
+- **Qué intentaba:** Cerrar la última pata pendiente del hallazgo de Singleton: nadie llamaba `dispose()` en el engine al bajar el proceso.
+- **Prompt:** "De acuerdo, el dispose del engine está pendiente, procede a resolverlo"
+- **Respuesta:** Agregado `_lifespan` (context manager async) en `app.py`, conectado a `FastAPI(lifespan=_lifespan)`: no hace nada al arrancar, llama `await SharedDependencies.engine().dispose()` al bajar. Verificado empíricamente antes de escribir el test: `httpx.ASGITransport` (lo que usa `client` en los tests de integración) **no dispara el protocolo de lifespan de ASGI en absoluto** -- confirmado con un repro chico, `events` quedó vacío tras cerrar el client. Esto significa que el fix es 100% invisible para la suite de integración (no la afecta, pero tampoco la ejercita) -- por eso agregué un test unitario dedicado (`tests/unit/shared/adapters/inbound/api/test_app.py`) que llama `_lifespan` directo, overrideando `SharedDependencies.engine` con un `AsyncMock` y asertando que `dispose()` se espera exactamente una vez, sólo después del `yield`. Gates verdes: ruff, mypy strict (112 archivos). **186 tests (antes 185), 3 corridas limpias + una cuarta con el Postgres local parado.**
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:38 — Cerrar el hallazgo de `shared` sin default, pensando en entrypoints tipo cron
+
+<!-- id: 20260907-183810-a1fe3a40 -->
+- **Qué intentaba:** El usuario pidió commitear lo hecho y, de paso, resolver el hallazgo de que `shared` no tiene default, porque planea agregar otros tipos de entrypoint (cron jobs) que construirían `AccountBalanceContainer` fuera de `create_app()`.
+- **Prompt:** "comitea lo hecho / Dijiste antes, shared (el DependenciesContainer) no tiene default eso hay que resolverlo, planeo tener otros tipos de endpoints tipo cron jobs"
+- **Respuesta:** Antes de elegir la solución, verifiqué empíricamente si `DependenciesContainer` puede llevar un default seguro pre-poblándolo con providers nombrados a nivel de clase (`session_factory=SharedDependencies.session_factory`, etc.) -- **no puede**: cae en el mismo fork por deep-copy que la clase existe para evitar, confirmado con `id()`. Como no hay forma de darle un default que sobreviva la instanciación de `AccountBalanceContainer`, la solución es centralizar el único punto correcto de construcción: `build_account_balance_container()` en `dependencies.py`, que siempre empareja `AccountBalanceContainer()` con `.shared.override(SharedDependencies)`. `create_app()` ahora usa esa factory en vez de construir el container a mano. Agregado un test que fija el contrato con `check_dependencies()` (método real de `dependency_injector`, verificado que sí detecta `shared` sin llenar): construir el container a mano falla, construirlo vía la factory no. Gates verdes, **188 tests** (antes 186), 4 corridas limpias incluida una con el Postgres local parado.
+- **Veredicto:** ⏳ pendiente
