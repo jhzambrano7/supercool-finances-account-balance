@@ -5,13 +5,13 @@ from typing import Self, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from modules.account_balance.adapters.outbound.repositories.sql.idempotency_repository import (
-    SqlIdempotencyRepository,
-)
 from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repository import (
     SqlAccountRepository,
 )
-from modules.account_balance.adapters.outbound.repositories.sql.transfer_repository import (
+from modules.account_balance.adapters.outbound.repositories.sql.sql_idempotency_repository import (
+    SqlIdempotencyRepository,
+)
+from modules.account_balance.adapters.outbound.repositories.sql.sql_transfer_repository import (
     SqlTransferRepository,
 )
 from modules.account_balance.application.gateways.unit_of_work import TransferUnitOfWork

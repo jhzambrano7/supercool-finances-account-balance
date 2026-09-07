@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 102
+**Turns recorded:** 105
 
 ---
 
@@ -7416,7 +7416,7 @@ comitea lo hecho
 Dijiste antes, "shared (el DependenciesContainer) no tiene default" eso hay que resolverlo, planeo tener otros tipos de endpoints tipo cron jobs
 ```
 
-<details><summary>Tool calls (25)</summary>
+<details><summary>Tool calls (34)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python -c " from dependency_injector import providers help(provide…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run python -c " import inspect, dependency_injector print(dependency_i…
@@ -7443,6 +7443,15 @@ Dijiste antes, "shared (el DependenciesContainer) no tiene default" eso hay que 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git log --format="%H %s" -5 echo "---" git log -1 --format="%B" 9b0427d 2…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git log --all --format="%B" | rg "^PRD: n/a" | head -5
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md << 'EOF' ## 2026-09-07 18:38 — Cerrar el hall…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git add -A git status --porcelain=v1
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -20
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit -F - <<'EOF' fix(infra): dispose the shared engine on shutdown…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit -F - <<'EOF' fix(infra): dispose the shared engine on shutdown…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit -F - <<'EOF' fix(infra): dispose the shared engine on shutdown…
+- `Bash` — echo -n "fix(infra): dispose the engine, guard the container's construction" | wc -c
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit -F - <<'EOF' fix(infra): dispose the engine, guard the contain…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git log --oneline -3 git status
 
 </details>
 
@@ -7453,5 +7462,116 @@ Ahora actualizo `app.py` para usar la factory.
 It vive en `dependency_injector.errors`, no `.exceptions`. Corrijo el import.
 
 Ahora los gates completos y la suite entera.
+
+All limpio. Ahora el commit.
+
+Header muy largo. Lo acorto.
+
+Commit `5da4008` listo — incluye ambos fixes: el `lifespan` que dispone el engine, y `build_account_balance_container()` como único punto de construcción seguro (verificado con `check_dependencies()` que un cron job futuro que construya el container a mano falla rápido en vez de explotar en el primer request). 188 tests, working tree limpio, 24 commits sin pushear.
+
+---
+
+## Turn 103 — 2026-09-07 23:43:40.154 UTC
+
+### Prompt
+
+```text
+- el prefijo tecnológico no lo veo en los adapters agregados en este PR, al menos no en el nombre del archivo
+```
+
+<details><summary>Tool calls (4)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance fd . src/modules/account_balance/adapters/outbound/repositories/sql -t f …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n -i "technology|prefix|sql_|adapter naming" docs/coding-conventions.…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== imports of these 3 modules ===" rg -n "repositories\.sql\.trans…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md << 'EOF' ## 2026-09-07 18:43 — Verificar la o…
+
+</details>
+
+### Response
+
+Lo verifiqué — tenés razón, y es más concreto de lo que parece a simple vista.
+
+A nivel de **clase**, el prefijo `Sql` se respeta siempre: `SqlAccountRepository`, `SqlTransferRepository`, `SqlIdempotencyRepository`, `SqlTransferUnitOfWork`. Pero a nivel de **archivo**, sólo el original de account-opening lo tiene:
+
+- `sql_account_repository.py` → `SqlAccountRepository` ✅ coincide
+- `transfer_repository.py` → `SqlTransferRepository` ❌ sin prefijo
+- `idempotency_repository.py` → `SqlIdempotencyRepository` ❌ sin prefijo
+- `unit_of_work.py` → `SqlTransferUnitOfWork` ❌ sin prefijo
+
+No hay una regla escrita en `docs/coding-conventions.md` sobre esto (busqué), pero el patrón está establecido de facto por el primer adapter y roto por los tres que agregó este PR.
+
+**Costo de arreglarlo:** chico y contenido — sólo 4 sitios importan estos 3 módulos (`unit_of_work.py` mismo, `dependencies.py`, y un test de integración). Renombrar a `sql_transfer_repository.py`, `sql_idempotency_repository.py`, `sql_unit_of_work.py` y actualizar esos imports.
+
+¿Lo hago?
+
+Listo. Sigo esperando tu confirmación para renombrar los 3 archivos.
+
+---
+
+## Turn 104 — 2026-09-07 23:44:51.368 UTC
+
+### Prompt
+
+```text
+procede y agrega la convención
+```
+
+<details><summary>Tool calls (14)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git mv src/modules/account_balance/adapters/outbound/repositories/sql/tra…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance grep -rln "repositories\.sql\.transfer_repository\|repositories\.sql\.ide…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sd "repositories\.sql\.transfer_repository" "repositories.sql.sql_transfe…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run ruff check . 2>&1 | tail -20 uv run mypy --strict . 2>&1 | tail -2…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run ruff check --fix . 2>&1 | tail -10 uv run ruff format . 2>&1 | tai…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '265,282p' docs/coding-conventions.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n "^### |^## " docs/coding-conventions.md | sed -n '1,40p'
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance sed -n '128,145p' docs/coding-conventions.md
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Edit` — /Users/jhz7/work-spaces/mine/supercool-finances-account-balance/docs/coding-conventions.md
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run ruff check . 2>&1 | tail -10 uv run ruff format . 2>&1 | tail -5 u…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance for i in 1 2 3; do uv run pytest -q 2>&1 | tail -3; done docker stop supe…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance rg -n "\bsql\.transfer_repository\b|\bsql\.idempotency_repository\b|\bsql…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat >> docs/decision-log.md << 'EOF' ## 2026-09-07 18:44 — Renombrar los …
+
+</details>
+
+### Response
+
+Ahora actualizo los 4 imports.
+
+All imports actualizados correctamente. Corro gates.
+
+Import order roto por el rename (ahora `sql_idempotency_repository` ordena antes que `sql_account_repository`... espera, ruff lo detecta). Auto-fix.
+
+Ahora agrego la convención al doc y corro la suite completa.
+
+Ahora agrego la nueva regla justo después de esta sección.
+
+Ahora la fila en la tabla "Applied so far".
+
+Ahora corro gates y toda la suite.
+
+Listo. Renombrados los 3 archivos, imports actualizados, convención documentada en `coding-conventions.md` (regla + fila en "Applied so far"). Gates verdes, 188 tests estables (3 corridas + una con el Postgres local parado). No lo commiteé — avisame si seguimos con otra cosa o lo incluyo en un commit.
+
+---
+
+## Turn 105 — 2026-09-07 23:49:36.430 UTC
+
+### Prompt
+
+```text
+sube los cambios al PR
+```
+
+<details><summary>Tool calls (1)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1
+
+</details>
+
+### Response
+
+*(No response was produced for this prompt — the turn was interrupted or the prompt was re-submitted.)*
 
 ---

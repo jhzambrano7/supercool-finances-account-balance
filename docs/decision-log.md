@@ -775,3 +775,19 @@ Formato de cada entrada:
 - **Prompt:** "comitea lo hecho / Dijiste antes, shared (el DependenciesContainer) no tiene default eso hay que resolverlo, planeo tener otros tipos de endpoints tipo cron jobs"
 - **Respuesta:** Antes de elegir la solución, verifiqué empíricamente si `DependenciesContainer` puede llevar un default seguro pre-poblándolo con providers nombrados a nivel de clase (`session_factory=SharedDependencies.session_factory`, etc.) -- **no puede**: cae en el mismo fork por deep-copy que la clase existe para evitar, confirmado con `id()`. Como no hay forma de darle un default que sobreviva la instanciación de `AccountBalanceContainer`, la solución es centralizar el único punto correcto de construcción: `build_account_balance_container()` en `dependencies.py`, que siempre empareja `AccountBalanceContainer()` con `.shared.override(SharedDependencies)`. `create_app()` ahora usa esa factory en vez de construir el container a mano. Agregado un test que fija el contrato con `check_dependencies()` (método real de `dependency_injector`, verificado que sí detecta `shared` sin llenar): construir el container a mano falla, construirlo vía la factory no. Gates verdes, **188 tests** (antes 186), 4 corridas limpias incluida una con el Postgres local parado.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:43 — Verificar la observación sobre el prefijo tecnológico faltante en los adapters
+
+<!-- id: 20260907-184340-a1fe3a40 -->
+- **Qué intentaba:** El usuario notó que los adapters agregados en este PR no llevan el prefijo tecnológico en el nombre de archivo, a diferencia de `sql_account_repository.py`.
+- **Prompt:** "el prefijo tecnológico no lo veo en los adapters agregados en este PR, al menos no en el nombre del archivo"
+- **Respuesta:** Verificado con grep, no asumido: a nivel de clase el prefijo `Sql` se respeta siempre (`SqlTransferRepository`, `SqlIdempotencyRepository`, `SqlTransferUnitOfWork`), pero los archivos que los contienen (`transfer_repository.py`, `idempotency_repository.py`, `unit_of_work.py`) no llevan `sql_`, sólo el original de account-opening (`sql_account_repository.py`) lo tiene. No hay regla escrita en `coding-conventions.md` sobre esto, pero el patrón de facto está roto por los 3 archivos nuevos. Sólo 4 sitios importan estos módulos -- costo de renombrar es chico y contenido. Propuesto el fix, a la espera de que el usuario confirme.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:44 — Renombrar los 3 adapters con el prefijo `sql_` y documentar la convención
+
+<!-- id: 20260907-184451-a1fe3a40 -->
+- **Qué intentaba:** Aplicar el rename aprobado y dejar la convención escrita para que no se vuelva a romper.
+- **Prompt:** "procede y agrega la convención"
+- **Respuesta:** `git mv` de los 3 archivos (`transfer_repository.py`→`sql_transfer_repository.py`, `idempotency_repository.py`→`sql_idempotency_repository.py`, `unit_of_work.py`→`sql_unit_of_work.py`), actualizados los 4 imports que los referenciaban (`dependencies.py`, `sql_unit_of_work.py` mismo, el test de integración). Agregada la regla nueva en `docs/coding-conventions.md` ("An adapter's file name carries the same technology prefix as its class") justo después de la sección de DBOs/DTOs, más su fila en la tabla "Applied so far". Gates verdes: ruff, mypy strict (113 archivos). **188 tests, 3 corridas limpias + una cuarta con el Postgres local parado.** Barrido final sin referencias colgantes fuera de `docs/ai-transcript.md` (transcript histórico, no se toca).
+- **Veredicto:** ⏳ pendiente

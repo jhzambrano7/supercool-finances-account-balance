@@ -5,7 +5,7 @@ from dependency_injector import containers, providers
 from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repository import (
     SqlAccountRepository,
 )
-from modules.account_balance.adapters.outbound.repositories.sql.unit_of_work import (
+from modules.account_balance.adapters.outbound.repositories.sql.sql_unit_of_work import (
     SqlTransferUnitOfWork,
 )
 from modules.account_balance.application.use_cases.account_register import AccountRegister

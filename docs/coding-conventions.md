@@ -141,6 +141,16 @@ reconstituting a row the domain would refuse to *construct* fresh, e.g. a negati
 the mapping uses `reconstitute()` and never re-asserts an invariant the domain only enforces on the
 write path).
 
+### An adapter's file name carries the same technology prefix as its class
+
+**Rule:** `SqlAccountRepository` lives in `sql_account_repository.py`, not `account_repository.py`
+— the file name is the class name, lowercased with underscores, prefix included. The prefix is what
+lets a reader (or a directory listing) tell adapters for the same port apart before opening any of
+them; dropping it from the file while keeping it on the class means the two names disagree about
+what the file is. Applies uniformly across a directory once one adapter in it has set the pattern —
+a second, third or fourth adapter added later must match the first, not restart the naming from
+scratch.
+
 ### Log every exception the adapter catches; wrap only the ones you didn't expect
 
 **Rule:** `logger.exception(...)` fires unconditionally for every exception an adapter method catches
@@ -272,6 +282,7 @@ still default to `500` for this same catch-all — reconcile once that branch me
 | `FindAccountCriteria` | extensible Criteria, one dataclass per lookup shape | `application/gateways/models/find_accounts_criteria.py` |
 | `AccountDbo` | DBO naming, `from_domain`/`as_domain` colocated + unit-tested | `adapters/outbound/repositories/sql/dbos/models.py` |
 | `AccountRepositoryError` | `IntegrationError` wrapper, logged unconditionally, wrapped only when unrecognized | `adapters/outbound/repositories/sql/sql_account_repository.py` |
+| `SqlTransferRepository` / `SqlIdempotencyRepository` / `SqlTransferUnitOfWork` | file name carries the same `sql_` prefix as the class | `adapters/outbound/repositories/sql/sql_transfer_repository.py`, `sql_idempotency_repository.py`, `sql_unit_of_work.py` |
 | `AccountNotFoundError` / `AccountAlreadyExistsError` | structured body (see below), not a bare message string | `application/gateways/account_repository.py` |
 | `Base` (SQLAlchemy declarative) | one shared base, not one per module | `shared/adapters/outbound/repositories/sql/base.py` |
 | `AccountResponseDto` / `OpenAccountRequestDto` | DTO naming, `from_result` colocated + unit-tested | `adapters/inbound/api/dtos.py` |
