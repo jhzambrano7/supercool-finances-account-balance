@@ -25,7 +25,7 @@ class TestTypedIdentifiersAreNotInterchangeable:
     def test_different_identifier_types_never_compare_equal(self) -> None:
         """Same UUID, different identifier types: must not compare equal (G1)."""
         u = uuid4()
-        assert AccountId(u) != TransferId(u)
+        assert AccountId(u) != TransferId(u)  # type: ignore[comparison-overlap]  # exactly the property under test
 
 
 class TestAccountIdentifiersSupportDeterministicOrdering:

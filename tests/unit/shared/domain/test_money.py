@@ -43,7 +43,7 @@ class TestMoneyConstruction:
 
     def test_rejects_bool_because_it_is_secretly_an_int(self) -> None:
         with pytest.raises(InvalidAmountError):
-            Money(True, USD)  # type: ignore[arg-type]
+            Money(True, USD)  # bool is a subtype of int; no mypy error is expected here
 
     def test_rejects_a_bare_currency_code(self) -> None:
         with pytest.raises(InvalidCurrencyError):

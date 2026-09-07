@@ -37,14 +37,13 @@ repos:
         types_or: [python, pyi]
         require_serial: true
 
-      # Scoped to src/ so the gate stays quiet until there is code to type-check.
       - id: mypy
         name: mypy (strict)
         entry: uv run mypy
         language: system
-        files: ^src/.*\.py$
+        files: ^(src|tests)/.*\.py$
         pass_filenames: false
-        args: [src]
+        args: [src, tests]
         require_serial: true
 
       - id: commit-msg-convention
