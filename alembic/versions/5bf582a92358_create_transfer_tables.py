@@ -73,7 +73,15 @@ def upgrade() -> None:
         sa.Column("status", sa.String(length=20), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("caller_id", "idempotency_key"),
-        sa.ForeignKeyConstraint(["transfer_id"], ["transfers.transfer_id"]),
+        # Deferred to COMMIT, not checked per-statement: the use case reserves
+        # this row *before* the transfer row exists (T5 -- the reservation is
+        # what a losing concurrent request must collide with, before it ever
+        # touches an account), and only inserts the transfer afterward, both
+        # within the same transaction. An immediate FK would reject the
+        # reservation insert outright.
+        sa.ForeignKeyConstraint(
+            ["transfer_id"], ["transfers.transfer_id"], deferrable=True, initially="DEFERRED"
+        ),
     )
 
     # T8: seed the one FUNDING and one SETTLEMENT SYSTEM account. Both start

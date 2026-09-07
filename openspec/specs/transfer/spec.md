@@ -63,6 +63,19 @@ Numbered `T1`–`T9`, continuing the citation convention `AO1`–`AO6` establish
   bug must not silently replace a different transfer. `request_hash` is a stable hash (e.g. SHA-256
   over a canonical encoding) of `(source_account_id, destination_account_id, amount, currency)`.
 
+  **The reservation insert happens first, before any account is loaded or locked** — found, during
+  an independent review, to matter for more than ordering-as-documentation: when a losing concurrent
+  request's own retry would itself fail on the merits (the winner's debit already left exactly enough
+  balance for one application, not two), the loser must never reach that domain check at all. If the
+  idempotency write happened last (as this slice's first version had it), the loser would hit
+  `InsufficientFundsError` before ever attempting the insert its own race-recovery depends on. Putting
+  the reservation first means the unique-constraint collision — the only place two concurrent same-key
+  requests can actually collide — is unconditionally the first thing either one can fail on.
+  Consequently the use case's read-only idempotency *check* (PRD §5 step 2) runs before authorization
+  (§5 step 1) rather than after, as the PRD's own step list orders them: a replay is scoped to
+  `caller_id`, so it can only ever return a transfer that this same caller already passed
+  authorization for the first time — re-checking on replay would be redundant, not a gap.
+
 - **T4 — Idempotent replay returns the same status as the original creation (`201`), not `200`.**
   This is a deliberate departure from `AO3`'s `201`/`200` split for account-opening, and the two are
   not the same situation: `AO3`'s `200` marks "this call found something that already existed for a

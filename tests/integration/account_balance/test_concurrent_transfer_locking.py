@@ -97,3 +97,52 @@ async def test_two_concurrent_debits_of_the_same_account_serialize_instead_of_co
     # 100 - 60 (the winner) - 1 (this probe) = 39, never negative -- proves
     # the loser's debit was never applied, not merely that it returned 422.
     assert balance_response.status_code == 201
+
+
+async def test_a_losing_concurrent_request_replays_the_winner_against_real_postgres(
+    client: AsyncClient,
+) -> None:
+    """T5's race, against real concurrent connections, not a fake: the
+    account is funded with *exactly* enough for one withdrawal. Found by an
+    independent review that the pre-fix use case raised
+    `InsufficientFundsError` for the loser here instead of replaying the
+    winner -- the loser's `get_for_update` would observe the winner's
+    already-applied debit and fail the domain check before ever reaching the
+    idempotency insert its own recovery path depended on. Both requests share
+    one `Idempotency-Key`, so the correct outcome is `201, 201` with the same
+    `transfer_id`, not `201, 422`.
+    """
+    owner_id = str(uuid4())
+    open_response = await client.post(
+        "/accounts", json={"owner_id": owner_id, "purpose": "CHECKING", "currency": "USD"}
+    )
+    account_id = open_response.json()["account_id"]
+    await client.post(
+        "/transfers",
+        json={
+            "source_account_id": str(FUNDING_ACCOUNT_ID),
+            "destination_account_id": account_id,
+            "amount": 500,
+            "currency": "USD",
+        },
+        headers={"X-Caller-Id": owner_id, "Idempotency-Key": str(uuid4())},
+    )
+    shared_key = str(uuid4())
+
+    async def _withdraw() -> Response:
+        return await client.post(
+            "/transfers",
+            json={
+                "source_account_id": account_id,
+                "destination_account_id": str(SETTLEMENT_ACCOUNT_ID),
+                "amount": 500,
+                "currency": "USD",
+            },
+            headers={"X-Caller-Id": owner_id, "Idempotency-Key": shared_key},
+        )
+
+    first, second = await asyncio.gather(_withdraw(), _withdraw())
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["transfer_id"] == second.json()["transfer_id"]

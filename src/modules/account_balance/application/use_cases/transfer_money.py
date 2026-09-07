@@ -156,6 +156,32 @@ class TransferMoneyUseCase:
     async def _post_new_transfer(
         self, uow: TransferUnitOfWork, request: TransferMoney, request_hash: str
     ) -> Transfer:
+        transfer_id = TransferId(self._id_generator.next_id())
+        occurred_at = self._clock.now()
+
+        # T5: reserve the idempotency slot *before* touching any account --
+        # found by an independent review that reordering this to the end (as
+        # a first version of this use case did) breaks the race exactly when
+        # the retry would fail on its own merits (e.g. the winner's debit
+        # already exhausted the balance): the loser would reach that failure
+        # before ever attempting the insert this recovery depends on. The
+        # unique constraint on (caller_id, idempotency_key) is the only place
+        # two concurrent requests sharing a key can actually collide, so nothing
+        # else may run before this collision has a chance to happen. May raise
+        # IdempotencyRecordConflictError (T5) -- caught by execute(). The FK to
+        # `transfers.transfer_id` is deferred to commit for exactly this
+        # reason: this row is inserted before that one exists.
+        await uow.idempotency.add(
+            IdempotencyRecord(
+                caller_id=request.requested_by,
+                idempotency_key=request.idempotency_key,
+                request_hash=request_hash,
+                transfer_id=transfer_id,
+                status=_IDEMPOTENCY_STATUS_COMPLETED,
+                created_at=occurred_at,
+            )
+        )
+
         source = await uow.accounts.get(request.source_account_id)
         destination = await uow.accounts.get(request.destination_account_id)
         if source is None:
@@ -167,7 +193,6 @@ class TransferMoneyUseCase:
 
         source, destination = await self._lock_user_accounts(uow, source, destination)
 
-        transfer_id = TransferId(self._id_generator.next_id())
         posting = domain_posting.transfer(
             transfer_id=transfer_id,
             source=source,
@@ -175,7 +200,7 @@ class TransferMoneyUseCase:
             amount=request.amount,
             requested_by=request.requested_by,
             idempotency_key=request.idempotency_key,
-            occurred_at=self._clock.now(),
+            occurred_at=occurred_at,
             entry_ids=lambda: EntryId(self._id_generator.next_id()),
         )
 
@@ -183,17 +208,6 @@ class TransferMoneyUseCase:
         for account in posting.accounts:
             if account.account_type.is_user():
                 await uow.accounts.update(account)
-        # May raise IdempotencyRecordConflictError (T5) -- caught by execute().
-        await uow.idempotency.add(
-            IdempotencyRecord(
-                caller_id=request.requested_by,
-                idempotency_key=request.idempotency_key,
-                request_hash=request_hash,
-                transfer_id=transfer_id,
-                status=_IDEMPOTENCY_STATUS_COMPLETED,
-                created_at=posting.transfer.occurred_at,
-            )
-        )
 
         return posting.transfer
 

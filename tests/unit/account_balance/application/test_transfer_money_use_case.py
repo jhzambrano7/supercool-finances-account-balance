@@ -520,3 +520,48 @@ async def test_two_concurrent_requests_with_the_same_key_never_both_apply() -> N
     # The loser's own attempt must not have posted a second transfer: only
     # the winner's row (seeded ahead of time, simulating its commit) exists.
     assert len(database.transfers) == 1
+
+
+async def test_a_losing_concurrent_request_replays_even_when_underfunded() -> None:
+    """T5's harder case, found by an independent review: the account has
+    exactly enough balance for *one* application, not two. `source`'s
+    balance here is seeded at 0 -- what it already is *after* the winner's
+    debit -- standing in for the state a real loser's `get_for_update` would
+    actually observe under real concurrency. The loser must never reach that
+    read at all: the idempotency reservation has to be attempted, and lose,
+    before any account is touched. Before the fix this raised
+    `InsufficientFundsError` instead of replaying the winner.
+    """
+    database = _Database()
+    owner_a = OwnerId(uuid4())
+    owner_b = OwnerId(uuid4())
+    source = _open(
+        owner_id=owner_a, account_type=AccountType.USER, purpose=AccountPurpose.CHECKING
+    )  # balance=0, as if the winner's 500-debit already landed
+    destination = _open(
+        owner_id=owner_b, account_type=AccountType.USER, purpose=AccountPurpose.CHECKING
+    )
+    _seed(database, source, destination)
+    use_case = _use_case(database)
+    amount = Money(500, USD)
+    winner = _build_winner_transfer(
+        source=source, destination=destination, amount=amount, requested_by=owner_a, key="race"
+    )
+    database.transfers[winner.transfer_id] = winner
+    request = _request(
+        source=source, destination=destination, requested_by=owner_a, key="race", amount=500
+    )
+    database.conflicting_winner = IdempotencyRecord(
+        caller_id=owner_a,
+        idempotency_key=IdempotencyKey("race"),
+        request_hash=_request_hash(request),
+        transfer_id=winner.transfer_id,
+        status="COMPLETED",
+        created_at=winner.occurred_at,
+    )
+    database.force_idempotency_conflict_once = True
+
+    result = await use_case.execute(request)
+
+    assert result.transfer_id == winner.transfer_id
+    assert len(database.transfers) == 1
