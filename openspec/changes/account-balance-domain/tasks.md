@@ -79,7 +79,7 @@ G1 (id typing), PRD §5 step 3 (lock ordering), §6.3 (idempotency key bound).
 
 Depends on Work Units 1–2.
 
-- [ ] **T3.1 (test)** — Write `tests/unit/account_balance/domain/test_entry.py`:
+- [x] **T3.1 (test)** — Write `tests/unit/account_balance/domain/test_entry.py`:
       - Zero-amount entry raises `NonPositiveAmountError` (spec "Zero-amount entry is rejected").
       - Negative-amount entry raises `NonPositiveAmountError` (I3, not in spec's own scenario list
         verbatim but required by the requirement's "strictly positive" text — flagged as an obvious
@@ -93,7 +93,7 @@ Depends on Work Units 1–2.
         exists" — frozen dataclass semantics).
       Satisfies: spec "An Entry Is a Single, Directional, Strictly Positive Movement", "Entries Are
       Immutable and Append-Only In-Process"; design §3, §6 (I3, I6).
-- [ ] **T3.2 (impl)** — Implement `src/modules/account_balance/domain/entry.py`: `EntryDirection`
+- [x] **T3.2 (impl)** — Implement `src/modules/account_balance/domain/entry.py`: `EntryDirection`
       enum (string values), `Entry` frozen dataclass with `entry_id`, `transfer_id`, `account_id`,
       `direction`, `amount`, `occurred_at`; `__post_init__` guards positivity and timezone-awareness;
       `signed_amount` property. Satisfies: same as T3.1.
