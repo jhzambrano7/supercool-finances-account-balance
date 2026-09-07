@@ -379,3 +379,11 @@ Formato de cada entrada:
 - **Respuesta:** El sub-agente reportó que `account_repository.py` fue sobrescrito 3 veces por algo externo durante su trabajo, con un diseño roto y distinto (`FindAccountCriteria`, `AccountNotFoundError` inexistente) y un archivo espurio en `application/gateways/models/find_account_criteria.py`. Investigado antes de continuar: `ListAgents` confirmó una sesión par activa sobre el mismo repo (`supercool-finances-account-balance-4c`, abierta hace 3h, sin worktree aislado — mismo directorio de trabajo). El estado final committeado de `account_repository.py` se verificó correcto (un solo commit lo toca, sin archivo espurio, contenido revisado línea por línea). También aparecieron diffs sin commitear en `design.md`/`proposal.md` archivados — sólo reformateo cosmético de bloques de código (ruff-format-like: saltos de línea, wrap de firmas), sin cambio semántico.
 - **Pendiente de decisión del usuario:** si la sesión par es su propio trabajo en curso y qué hacer con esos diffs cosméticos antes de tocar más archivos compartidos.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 01:14 — Resolver el incidente de colisión y lanzar revisión fresca antes del PR
+
+<!-- id: 20260907-011400-a1fe3a40 -->
+- **Qué intentaba:** Cerrar el incidente de la sesión par y avanzar hacia el PR de la apertura de cuentas.
+- **Prompt:** (respuesta a la pregunta sobre la sesión par vía AskUserQuestion: "Sí, es mía, la cierro")
+- **Respuesta:** Confirmado que la colisión era la propia sesión par del usuario sobre el mismo working directory; la cierra. El estado final de `account_repository.py` ya estaba verificado correcto (un solo commit, sin archivo espurio). El reformateo cosmético en `design.md`/`proposal.md` archivados se commiteó tal cual (sin cambio semántico). Verificado independientemente antes de continuar: 147 tests reales (139 unit + 8 integración contra Postgres real vía testcontainers, confirmados uno por uno con `-v`), `pre-commit run --all-files` en verde. Lanzada una revisión adversarial en contexto fresco sobre todo el diff `main...feat/account-opening`, con foco en el manejo de la carrera de clave natural (AO4), semántica HTTP 201/200 (AO3), que `account_type` no sea aceptable desde el request (AO1), y que el dominio no se haya tocado.
+- **Veredicto:** ⏳ pendiente

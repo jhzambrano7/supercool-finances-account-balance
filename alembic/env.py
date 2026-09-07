@@ -22,11 +22,17 @@ if config.config_file_name is not None:
 # one `Base`, so autogenerate sees the whole module's schema.
 target_metadata = Base.metadata
 
-# `alembic.ini`'s `sqlalchemy.url` is the docker-compose default; an
-# explicit `DATABASE_URL` env var (same variable `Settings` reads) overrides
-# it, which is how integration tests point migrations at their own
-# testcontainers-provisioned PostgreSQL.
-if os.environ.get("DATABASE_URL"):
+# `alembic.ini`'s `sqlalchemy.url` is the docker-compose default. A
+# programmatic caller (integration tests, pointing migrations at their own
+# testcontainers-provisioned PostgreSQL) wins by passing the url through
+# `config.attributes` -- checked first, so it is never shadowed by whatever
+# `DATABASE_URL` happens to be set in the developer's own shell. Only when
+# no attribute override is given does an explicit `DATABASE_URL` env var
+# (the same variable `Settings` reads) override the ini default, for normal
+# non-test invocations of `alembic upgrade`.
+if "sqlalchemy.url" in config.attributes:
+    config.set_main_option("sqlalchemy.url", config.attributes["sqlalchemy.url"])
+elif os.environ.get("DATABASE_URL"):
     config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
 
 

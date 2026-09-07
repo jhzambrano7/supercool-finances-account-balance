@@ -52,6 +52,8 @@ class SqlAccountRepository(AccountRepository):
                 await session.commit()
             except IntegrityError as exc:
                 await session.rollback()
+                if not _violates_natural_key_constraint(exc):
+                    raise
                 raise AccountNaturalKeyConflictError(
                     f"account already exists for natural key (owner={account.owner_id}, "
                     f"purpose={account.purpose.value}, currency={account.currency})"
@@ -61,6 +63,19 @@ class SqlAccountRepository(AccountRepository):
         async with self._session_factory() as session:
             row = await session.get(AccountRow, account_id.value)
             return _to_domain(row) if row is not None else None
+
+
+_NATURAL_KEY_CONSTRAINT = "uq_accounts_owner_purpose_currency"
+
+
+def _violates_natural_key_constraint(exc: IntegrityError) -> bool:
+    """Narrows the catch in `add()` to AO4's own constraint (migration
+    `38ec8c622b3f`), not any `IntegrityError` -- a future constraint on this
+    table must surface as itself, not get silently relabelled as a natural-
+    key conflict the use case would then mishandle.
+    """
+    diag = getattr(exc.orig, "diag", None)
+    return getattr(diag, "constraint_name", None) == _NATURAL_KEY_CONSTRAINT
 
 
 def _to_row(account: Account) -> AccountRow:

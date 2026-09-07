@@ -28,7 +28,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 def _run_migrations(database_url: str) -> None:
     config = Config(str(_REPO_ROOT / "alembic.ini"))
-    config.set_main_option("sqlalchemy.url", database_url)
+    # `attributes`, not `set_main_option`: `env.py` checks this first so a
+    # `DATABASE_URL` in the developer's own shell can never shadow the
+    # testcontainers URL these migrations must actually run against.
+    config.attributes["sqlalchemy.url"] = database_url
     command.upgrade(config, "head")
 
 
