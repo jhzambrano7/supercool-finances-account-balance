@@ -3803,4 +3803,18 @@ Good, one accurate commit now covers both fixes. Let me sync the session docs (w
 
 Now pushing the branch and opening the PR.
 
+Everything is closed out. Summary:
+
+**Archive:** `account-balance-domain` SDD change archived to `openspec/changes/archive/`, with a corrected report (135 tests, not the agent's claimed 131/137; dropped an unsupported "ready for production" line).
+
+**Repo + PR:** Created private repo `jhzambrano7/supercool-finances-account-balance`, pushed `main`, built the account-opening slice on `feat/account-opening`, and opened **[PR #1](https://github.com/jhzambrano7/supercool-finances-account-balance/pull/1)**.
+
+**Account-opening slice:** documented in `openspec/specs/account-opening/spec.md` (AO1–AO6) instead of a full SDD cycle, then implemented: `AccountRepository` port, `OpenAccountUseCase`, async SQL adapter, first Alembic migration, `POST /accounts`, DI wiring, docker-compose, tests. Domain untouched.
+
+**Two things worth knowing about:**
+1. Mid-build, your other Claude Code session on this same repo caused a real write collision (a file got overwritten 3 times with a broken design) — you confirmed it was yours and are closing it. Final committed state was verified correct.
+2. A fresh, context-free reviewer caught one real, reproduced bug before merge: `alembic/env.py` let a `DATABASE_URL` env var silently hijack integration tests' migration target away from their testcontainers Postgres. I reproduced it, fixed it, and reproduced-then-confirmed-fixed. Also narrowed an overly-broad `IntegrityError` catch to its actual constraint. Both fixed and pushed; **147 tests passing, all gates green**.
+
+Two non-blocking follow-ups from the review are noted in the PR description, not fixed: the DI container's `wire()` re-patching global markers, and the integration test fixture not disposing its `AsyncEngine`.
+
 ---

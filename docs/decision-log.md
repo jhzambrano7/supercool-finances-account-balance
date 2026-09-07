@@ -403,3 +403,11 @@ Formato de cada entrada:
 - **Prompt:** (continuación directa del pedido original de este turno, sin nuevo prompt del usuario)
 - **Respuesta:** Pusheado `feat/account-opening` a `jhzambrano7/supercool-finances-account-balance` (privado, ya creado con `main` como base) y abierto el PR #1 contra `main`, con resumen de las dos piezas de trabajo (cierre del archive SDD + slice de apertura de cuentas), las decisiones no obvias (AO1–AO4), lo que encontró y corrigió la revisión fresca antes del PR, y el plan de test con números reales.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 01:35 — Arrancar transfer y revert como PRs en cascada
+
+<!-- id: 20260907-013510-a1fe3a40 -->
+- **Qué intentaba:** Confirmar la estrategia de cascada antes de tocar código, y entender el reordenamiento del conftest de integración que el usuario ya había hecho.
+- **Prompt:** "movi el test conf de integracipn para hacerlo reusable […] procede a implementar los casos de uso de transfer y revert, documentando la especificación, creando par de PRs en cascada […] Si tienes alguna pregunta, este es el momento"
+- **Respuesta:** Investigado antes de asumir nada: `tests/integration/account_balance/conftest.py` ya no existe, `tests/integration/conftest.py` (top-level, reusable) está commiteado y sincronizado con origin — confirmado que el commit que lo bundlea (`4bb680d`) ya está pusheado sin divergencia, así que fue una acción legítima del usuario en su otra sesión antes de cerrarla, no una colisión. Pregunté la estrategia de cascada (obligatorio antes de encadenar PRs): **feature-branch-chain** — cada PR apunta a la rama anterior, no a main, así el diff de cada uno queda acotado a su propio incremento. Plan: `feat/transfer` sobre `feat/account-opening` (PR #2 apuntando a esa rama), luego `feat/revert` sobre `feat/transfer` (PR #3 apuntando a esa).
+- **Veredicto:** ✅ aprobado — feature-branch-chain confirmado
