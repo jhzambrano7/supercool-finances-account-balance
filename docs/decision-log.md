@@ -278,3 +278,12 @@ Formato de cada entrada:
 - **Dos judgment calls del agente, verificados contra los documentos antes de aceptarlos:** `version >= 0` lanza `ValueError` plano porque ningún error de dominio está nombrado para eso en spec ni design (confirmado por grep); el orden de `close()` (cierre primero, vacío después) no contradice ningún escenario porque el spec nunca testea el orden en conflicto (confirmado leyendo los tres escenarios de cierre uno por uno).
 - **Lección:** que un sub-agente triara algo correctamente como "fuera de alcance de la unidad" no significa que esté bien dejarlo sin corregir — un límite de alcance para implementar no es un límite de alcance para verificar.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-06 23:29 — Restaurar ruff como formatter e integrar los cambios en Account
+
+<!-- id: 20260906-232911-a1fe3a40 -->
+- **Qué intentaba:** Retomar la unidad 5 (`Transfer`) tras haber movido cosas en `account.py` y en la config de VS Code.
+- **Prompt:** "sigamos con Transfer, moví par de cosas en la cuenta"
+- **Respuesta:** El diff traía dos cosas distintas. (1) `.vscode/settings.json` había quedado con `black` como formatter por defecto — contradice la decisión ya tomada de que el editor use exactamente lo que el gate valida; verificado en la práctica: `ruff-format` revirtió en el acto los saltos de línea que black había introducido, confirmando el ciclo de diffs falsos. Preguntado y restaurado a `ruff`. (2) En `account.py`, renombró `assert_operable` → `fail_if_not_active` — aceptado como decisión deliberada y correcta (un nombre `assert_*` lee como verificar un hecho que el llamador ya cree; el propósito del método es rechazar la transacción, así que nombrarlo por el fallo que produce es más preciso) y propagado a `design.md`, `proposal.md` y `tasks.md`, que todavía citaban el nombre viejo.
+- **Continuidad:** lanzado `sdd-apply` para la **unidad 5 (`Transfer`)**, con nota explícita del rename reciente para que no lo tome de memoria desactualizada de los documentos.
+- **Veredicto:** ⏳ pendiente

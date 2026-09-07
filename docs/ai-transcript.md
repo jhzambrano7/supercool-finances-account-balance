@@ -23,7 +23,7 @@ Notes on what is included:
 - Text injected automatically by tooling (system reminders, hook output) is
   stripped, since it was not written by the user.
 
-**Turns recorded:** 34
+**Turns recorded:** 35
 
 ---
 
@@ -2483,7 +2483,7 @@ Te aviso cuando termine y lo verifico igual que la tajada anterior.
 </task-notification>
 ```
 
-<details><summary>Tool calls (16)</summary>
+<details><summary>Tool calls (17)</summary>
 
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== tests completos ==="; uv run pytest -q 2>&1 | tail -12 echo "==…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance cat src/modules/account_balance/domain/account.py
@@ -2501,6 +2501,7 @@ Te aviso cuando termine y lo verifico igual que la tajada anterior.
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest -q 2>&1 | tail -5 git add .pre-commit-config.yaml tests/uni…
 - `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git commit -q -F - <<'MSG' build(tooling): extend the mypy gate to tests,…
 - `mcp__plugin_engram_engram__mem_save`
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p='docs/decision-log.md' s=open(p).read() s=s.replace(""…
 
 </details>
 
@@ -2531,5 +2532,73 @@ Corro todo una vez más con los fixes de mypy adentro y commiteo:
 Único fallo esperado. Gates verdes con tests incluidos ahora.
 
 Ahora la memoria de sesión y el log de decisiones:
+
+`Account` en el repo. **60 commits**, único fallo el rojo esperado.
+
+## Lo verifiqué de verdad, no por reporte
+
+Abrí una REPL y ejecuté las cinco propiedades que sostienen todo el diseño:
+
+```
+reconstitute(-80 USD)  → OK, sin excepción       (la más propensa a romperse por reflejo)
+open()                 → siempre 0/ACTIVE/v=0
+original tras .debit() → sigue en 100            (inmutabilidad probada, no leída)
+debit(150) sobre 100   → InsufficientFundsError
+debit_for_reversal(150) sobre 100 → -50, sin excepción
+```
+
+Y leí `account.py` completo en vez de confiar en el resumen del diff.
+
+## Lo que triaron como "fuera de alcance" y sí corregí
+
+El agente reportó dos hallazgos de mypy como "preexistentes, en archivos que no toqué" y los dejó ahí. Verificándolos encontré algo más de fondo: **el gate de mypy nunca reviza `tests/`**, por una decisión mía de hace 60 commits ("que se quede callado hasta que haya código que tipar"). Esa premisa ya caducó — hay 52 archivos de test con lógica real. Lo amplié, y sólo aparecieron dos hallazgos en todo el árbol: uno trivial, y otro interesante — mypy marcaba `AccountId(u) != TransferId(u)` como comparación imposible, que es **exactamente la propiedad que ese test existe para demostrar**. Los corregí con comentario explicando por qué, no los silencié a ciegas.
+
+La lección que me llevo: que un sub-agente triara algo correctamente como fuera de alcance de *implementar* no significa que esté bien dejarlo sin corregir. Un límite de alcance para implementación no es un límite de alcance para verificación.
+
+## Lo que más me gustó de la implementación
+
+**T4.9**, el segundo test de arquitectura: recorre el AST de `account.py` y falla ante cualquier `self.x = `, `self.x +=` u `object.__setattr__`. Convierte "`Account` nunca muta" de convención de estilo en **garantía estructural verificable** — si alguien agrega un método nuevo con una mutación por descuido, este test lo agarra sin que nadie tenga que acordarse de revisarlo en code review.
+
+Y las dos propiedades con Hypothesis: **P3** genera hasta 30 movimientos aleatorios entre un pool de 4 cuentas y verifica que la suma del pool queda en exactamente cero — ningún movimiento crea ni destruye dinero, sobre secuencias que la máquina inventa, no que alguien escribió a mano. Es el tipo de test que el criterio de éxito #1 del PRD pedía y que un test de ejemplo no puede dar.
+
+Dos judgment calls del agente los verifiqué contra spec y design antes de aceptarlos — ambos correctos: `version >= 0` no tiene error de dominio nombrado en ningún lado, y el orden de `close()` no contradice ningún escenario porque el spec nunca testea el orden en conflicto.
+
+Sigue la unidad 5, `Transfer` — ahí vive I1 como neteo por moneda. ¿Seguimos?
+
+---
+
+## Turn 35 — 2026-09-07 04:29:11.456 UTC
+
+### Prompt
+
+```text
+sigamos con Transfer, moví par de cosas en la cuenta
+```
+
+<details><summary>Tool calls (7)</summary>
+
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance git status --porcelain=v1 -uall echo "=== diff completo ===" git diff -- …
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance echo "=== ¿assert_operable sigue referenciado en otro lado? ===" rg -n 'a…
+- `AskUserQuestion`
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance python3 - <<'PY' p = '.vscode/settings.json'; s = open(p).read() s = s.re…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pytest -q 2>&1 | tail -3 git diff --stat src/modules/account_balan…
+- `Bash` — cd /Users/jhz7/work-spaces/mine/supercool-finances-account-balance uv run pre-commit run --all-files 2>&1 | tail -8 git add src/modules/acco…
+- `Agent` — Implement **Work Unit 5 only** — `Transfer` — of the account balance domain. Do NOT start Work Unit 6 (`posting.py` / `transfer` / `revert`)…
+
+</details>
+
+### Response
+
+El settings.json cambió el formatter a black, que contradice lo que decidimos (ruff como único formatter, black deshabilitado explícitamente para no chocar con el gate). Reviso qué más tocaste antes de seguir con `Transfer`:
+
+Dos cambios reales, más un ruido de formato. Verifico el nombre nuevo contra el resto del repo antes de tocar nada:
+
+Confirmado el problema que anticipé: **el formatter de black y el gate de ruff ya están en desacuerdo**. `ruff-format` acaba de revertir los saltos de línea que black introdujo. Cada vez que guardés con black, el commit los va a deshacer — es exactamente el desajuste editor-vs-gate que cerramos hace unos commits.
+
+Ahora integro los dos cambios reales que hiciste en `account.py`. El rename `assert_operable` → `fail_if_not_active` está bien y lo propago a los documentos; el reformateo de black ya lo deshizo ruff:
+
+Único fallo el esperado. Ahora sí, gates finales y commits:
+
+Ahora sí, arranco la unidad 5. Le paso el contexto de todo lo corregido este turno para que no lo vea como sorpresa:
 
 ---
