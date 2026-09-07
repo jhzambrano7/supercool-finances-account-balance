@@ -159,7 +159,7 @@ without `__hash__` sets `__hash__` to `None` — both are stated because both ar
 ### 4.1 `open()` vs `reconstitute()` (D8)
 
 Both funnel through `__init__`, which validates unconditionally: `purpose.account_type is
-account_type` (`AccountPurposeMismatchError`), `balance.currency == currency`
+account_type` (`InvalidAccountPurposeError`), `balance.currency == currency`
 (`CurrencyMismatchError`), `version >= 0`. The raw constructor stays guarded — the named classmethods
 are the ergonomic path, not the guarantee.
 
@@ -526,7 +526,7 @@ redefined. Class is a domain fact — whose fault is it — not an HTTP concern.
 | `AccountNotOperableError` | Client | status (or, for `close()`, account type) forbids the operation |
 | `AccountNotEmptyError` † | Client | `close()` on a non-zero balance (PRD §7.2) |
 | `AccountOwnershipError` | Client | G5 — the requester does not own the account |
-| `AccountPurposeMismatchError` † | Client | `purpose.account_type is not account_type` (PRD §4.4) |
+| `InvalidAccountPurposeError` † | Client | `purpose.account_type is not account_type` (PRD §4.4) |
 | `InvalidIdempotencyKeyError` † | Client | empty, blank, or over 255 characters |
 | `UnbalancedTransferError` | Internal | I1 violated at construction — **if this fires in production it is our bug** (PRD §11.1) |
 | `EntryAccountMismatchError` | Internal | an entry for another account reached `credit`/`debit` |
