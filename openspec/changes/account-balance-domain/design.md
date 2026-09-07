@@ -445,6 +445,46 @@ reversal per transfer" is a question about other rows and is carried to persiste
 
 ---
 
+### 5.3 Where the boundary is — `transfer` is a domain service, not a use case
+
+Worth stating because the parameter list invites the opposite reading. `transfer` lives in
+`domain/posting.py`: it performs no I/O, reads no clock, generates no identifier, and loads nothing.
+It receives aggregates that are already in memory and returns their successors. That is *why* it
+takes eight arguments — D6 forbids the domain from reaching for ambient state, so every value it
+needs has to arrive as a parameter.
+
+The use case is the layer that supplies them. Its own input is small, and is the shape the client
+actually sends:
+
+```
+TransferMoney
+    amount: Money                       # the currency travels inside it
+    source_account_id: AccountId
+    destination_account_id: AccountId
+    idempotency_key: IdempotencyKey
+    requested_by: OwnerId
+```
+
+Everything else is the use case's work, not the client's and not the domain's:
+
+| Concern | Belongs to |
+| --- | --- |
+| Authorization — which legs to check (PRD §9.1) | Use case. The domain supplies `Account.assert_owned_by`; it does not decide when to call it |
+| Idempotency lookup and short-circuit | Use case |
+| Loading the accounts, and locking the `USER` ones in id order (PRD §5, §5.3) | Use case / repository |
+| `transfer_id`, `entry_ids` | Use case, via the id generator |
+| `occurred_at` | Use case, via a clock |
+| Persisting the `Posting` and the idempotency record in one transaction | Use case |
+
+**The client never supplies `transfer_id`.** Its handle for deduplication is the idempotency key
+(PRD §6); an id chosen by the client would be a second, competing identity for the same operation.
+
+The use-case layer is designed separately. This section exists only so the domain signature is read
+as what it is — a pure function over aggregates — rather than as a service that should be fetching
+its own data.
+
+---
+
 ## 6. Invariant enforcement map
 
 | ID | Enforced by | Raises |
