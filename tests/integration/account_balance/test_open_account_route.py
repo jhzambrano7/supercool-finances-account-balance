@@ -8,6 +8,7 @@ from dependency_injector import providers
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from modules.shared.adapters.config.dependencies import SharedDependencies
 from modules.shared.adapters.config.settings import Settings
 from modules.shared.adapters.inbound.api.app import create_app
 
@@ -17,10 +18,11 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def app(postgres_url: str) -> Iterator[FastAPI]:
     application = create_app()
-    container = application.container  # type: ignore[attr-defined]
-    container.settings.override(providers.Object(Settings(database_url=postgres_url)))
+    # Settings/engine/session_factory are process-wide (SharedDependencies),
+    # not owned by AccountBalanceContainer — overridden at their real source.
+    SharedDependencies.settings.override(providers.Object(Settings(database_url=postgres_url)))
     yield application
-    container.settings.reset_override()
+    SharedDependencies.settings.reset_override()
 
 
 @pytest.fixture

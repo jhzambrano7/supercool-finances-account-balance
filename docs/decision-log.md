@@ -470,3 +470,31 @@ Formato de cada entrada:
 - **Respuesta:** Verificado el hallazgo real antes de aceptarlo: `Account.__eq__` es por identidad (compara sólo `account_id`, diseño de dominio deliberado y preexistente), así que `assert dbo.as_domain() == account` no probaba nada del resto de los campos. Corregido a asserts por campo individual, confirmado con mutación real (cambié la moneda en `as_domain()`, el test ahora sí falla). El otro hallazgo (duplicación de logging en `add()`) lo había extraído a un helper `_wrap_unexpected` — el usuario no lo quiso, revertido a la forma original duplicada tal cual estaba, manteniendo sólo el fix del test.
 - **151 tests, gates verdes.**
 - **Veredicto:** 🔁 ajustado — rechazó el refactor de deduplicación, aprobó el fix del test
+
+## 2026-09-07 13:09 — Mover settings/engine/session_factory a SharedDependencies
+
+<!-- id: 20260907-130924-a1fe3a40 -->
+- **Qué intentaba:** El usuario señaló que `settings`/`engine`/`session_factory`, definidos dentro de `AccountBalanceContainer`, no tienen nada de específico a ese módulo y deberían vivir en `SharedDependencies`.
+- **Prompt:** "todo esto [settings/engine/session_factory en AccountBalanceContainer] En el container de account balance debería estar en shared"
+- **Respuesta:** Verificado antes de mover: `create_engine`/`create_session_factory` ya sólo dependían de `Settings` (que ya vivía en shared) — nada atado a account_balance. Movido `engine.py` al scaffold vacío ya existente en `shared/adapters/outbound/repositories/sql/`, y los tres providers a `SharedDependencies`, compuestos por `AccountBalanceContainer` igual que ya hacía `id_generator`. El test de integración que hacía `container.settings.override(...)` pasó a `SharedDependencies.settings.override(...)`, overrideando en la fuente real. Verificado empíricamente (no sólo argumentado) que la composición comparte un único singleton y no dos: los mismos tests de integración contra Postgres real siguen pasando, probando que el override llega hasta el repositorio real a través de la cadena `AccountBalanceContainer -> SharedDependencies.session_factory`.
+- **Incidente menor:** el primer intento de commit falló en mypy por un `__pycache__`/`.mypy_cache` obsoleto apuntando a la ruta vieja de `engine.py` — no era un bug real, confirmado limpiando caches y re-corriendo en verde.
+- **151 tests, gates verdes.**
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 13:29 — Incidente de edición concurrente: restaurar @override
+
+<!-- id: 20260907-132951-a1fe3a40 -->
+- **Qué intentaba:** Reportar al usuario que su otra sesión seguía editando archivos en este mismo directorio, concurrente con mi trabajo, y que ya se había colado en un commit mío.
+- **Prompt:** "Quitaste el override de los métodos del adapter, por uqé?"
+- **Respuesta:** Confirmado: no fue una decisión mía, se cayó al reescribir `sql_account_repository.py` completo para arreglar las importaciones rotas del ejemplo original. Restaurado `@override` (de `typing`) en `find`/`add`, tal como estaba en el ejemplo original del usuario. Mientras corregía, el archivo volvió a cambiar en disco a mitad de mi edición — confirmé que la otra sesión estaba editando el mismo archivo en tiempo real, y pausé para no seguir pisándonos.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 13:30 — Corregir el orden del logging según instrucción explícita del usuario
+
+<!-- id: 20260907-133055-a1fe3a40 -->
+- **Qué intentaba:** Resolver la ambigüedad sobre el orden de `logger.exception()` en `add()` — yo había asumido que loggear antes del chequeo de constraint era un bug reintroducido por la sesión concurrente.
+- **Prompt:** "El log de la excepción va arriba tal y como está"
+- **Respuesta:** Corregido mi propio malentendido: no era un bug, era una decisión deliberada del usuario que yo había revertido sin preguntar en una ronda anterior. `logger.exception()` va **antes** del chequeo de `_violates_natural_key_constraint`, incondicional para todo `IntegrityError` — el log es una auditoría completa de violaciones de integridad, no un filtro de sólo lo no reconocido; lo que cambia según se reconozca o no es qué se **lanza** después (el error tipado propio vs. el wrapper), no si se loggea. Corregido el código (con comentario que ahora explica el porqué real) y **corregida la sección de convenciones en `docs/coding-conventions.md`**, que documentaba la regla al revés. Reconciliada además toda la historia local: usé `git reset --soft` al último commit realmente pusheado (`d953fa5`) para descartar los commits locales contaminados por la edición concurrente, preservando todo el contenido correcto en el working tree — nada se perdió, sólo se limpió el historial no publicado.
+- **También aceptado**, verificado que funciona: el cambio de `testcontainers.postgres` a `testcontainers.community.postgres` en `conftest.py` (de la misma edición concurrente) — corrige el warning de deprecación que veníamos arrastrando toda la sesión.
+- **151 tests, gates verdes.**
+- **Veredicto:** ✅ aprobado — corrigió mi malentendido sobre el orden del logging
