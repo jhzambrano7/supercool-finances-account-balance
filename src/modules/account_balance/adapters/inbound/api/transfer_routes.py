@@ -47,15 +47,14 @@ async def create_transfer(
         Provide[AccountBalanceContainer.transfer_money_use_case]
     ),
 ) -> TransferResponse:
-    request = TransferMoney(
-        source_account_id=AccountId(payload.source_account_id),
-        destination_account_id=AccountId(payload.destination_account_id),
-        amount=Money(payload.amount, Currency(payload.currency)),
-        idempotency_key=IdempotencyKey(idempotency_key),
-        requested_by=caller_id,
-    )
-
     try:
+        request = TransferMoney(
+            source_account_id=AccountId(payload.source_account_id),
+            destination_account_id=AccountId(payload.destination_account_id),
+            amount=Money(payload.amount, Currency(payload.currency)),
+            idempotency_key=IdempotencyKey(idempotency_key),
+            requested_by=caller_id,
+        )
         transfer = await use_case.execute(request)
     except _FORBIDDEN_ERRORS as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
