@@ -240,7 +240,7 @@ Depends on Work Units 1–4 (Transfer's `__post_init__` uses `Entry` and referen
 its guards produce errors from Work Unit 1; it does not import `Account` itself per design §1, but
 tests construct `Entry`/`AccountId` fixtures that mirror account state).
 
-- [ ] **T5.1 (test)** — Write `tests/unit/account_balance/domain/test_transfer.py`:
+- [x] **T5.1 (test)** — Write `tests/unit/account_balance/domain/test_transfer.py`:
       - Two balanced legs (`DEBIT 100 USD` on A, `CREDIT 100 USD` on B) construct successfully (spec
         "Two balanced legs pass").
       - An unbalanced pair (`DEBIT 100 USD`, `CREDIT 90 USD`) raises `UnbalancedTransferError` (spec
@@ -267,13 +267,13 @@ tests construct `Entry`/`AccountId` fixtures that mirror account state).
       Positive", "Source and Destination Must Differ", "Source and Destination Currencies Must
       Match", "A Transfer Is Frozen and Carries No Status", "A Transfer Carries Idempotency Key and
       Requester Provenance"; design §5, §5 guard table, §6 (I1, I3, I4, I5, I7).
-- [ ] **T5.2 (test) — PROPERTY-BASED (design §9.1 P2)** — Write `test_transfer_properties.py`:
+- [x] **T5.2 (test) — PROPERTY-BASED (design §9.1 P2)** — Write `test_transfer_properties.py`:
       for any generated set of entries (including synthetic four-leg, two-currency sets),
       `Transfer.__post_init__` succeeds **iff** every currency present nets to zero. Mark explicitly
       as a property test testing the general I1 form ahead of FX existing. Satisfies: design §9.1 row
       P2; spec "A Transfer Nets to Zero, Per Currency" (the general per-currency form, stated in the
       spec's own requirement text, not only in design).
-- [ ] **T5.3 (impl)** — Implement `src/modules/account_balance/domain/transfer.py`: `Transfer` frozen
+- [x] **T5.3 (impl)** — Implement `src/modules/account_balance/domain/transfer.py`: `Transfer` frozen
       dataclass and its `__post_init__` guard sequence exactly as design §5 orders them (positivity →
       self-transfer → shape/malformed → timestamp → I1 netting). Satisfies: same as T5.1/T5.2.
 
