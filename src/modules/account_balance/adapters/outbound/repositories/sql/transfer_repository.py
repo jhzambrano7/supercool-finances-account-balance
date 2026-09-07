@@ -1,10 +1,14 @@
 from collections.abc import Callable, Sequence
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.account_balance.adapters.outbound.repositories.sql.models import EntryRow, TransferRow
-from modules.account_balance.application.gateways.transfer_repository import TransferRepository
+from modules.account_balance.application.gateways.transfer_repository import (
+    TransferAlreadyReversedConflictError,
+    TransferRepository,
+)
 from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.identifiers import (
     AccountId,
@@ -16,6 +20,8 @@ from modules.account_balance.domain.identifiers import (
 from modules.account_balance.domain.posting import Posting
 from modules.account_balance.domain.transfer import Transfer
 from modules.shared.domain.money import Currency, Money
+
+_REVERSES_CONSTRAINT = "uq_transfers_reverses"
 
 
 class SqlTransferRepository(TransferRepository):
@@ -38,7 +44,14 @@ class SqlTransferRepository(TransferRepository):
             # work has no dependency to sort by and may emit both inserts in
             # the same batch, in either order.
             session.add(_transfer_to_row(posting.transfer))
-            await session.flush()
+            try:
+                await session.flush()
+            except IntegrityError as exc:
+                if not _violates_reverses_constraint(exc):
+                    raise
+                raise TransferAlreadyReversedConflictError(
+                    f"transfer {posting.transfer.reverses} already has a reversal"
+                ) from exc
             session.add_all(_entry_to_row(entry) for entry in posting.transfer.entries)
             await session.flush()
 
@@ -55,6 +68,17 @@ class SqlTransferRepository(TransferRepository):
                 )
             ).all()
             return _to_domain(row, entry_rows)
+
+
+def _violates_reverses_constraint(exc: IntegrityError) -> bool:
+    """Narrows the catch in `add()` to R4's own partial unique index
+
+    (migration `cf910528c0f8`), not any `IntegrityError` -- mirrors AO4's
+    `_violates_natural_key_constraint` and T5's
+    `_violates_idempotency_constraint`.
+    """
+    diag = getattr(exc.orig, "diag", None)
+    return getattr(diag, "constraint_name", None) == _REVERSES_CONSTRAINT
 
 
 def _transfer_to_row(transfer: Transfer) -> TransferRow:

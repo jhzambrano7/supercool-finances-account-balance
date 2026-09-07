@@ -11,6 +11,7 @@ from modules.account_balance.adapters.outbound.repositories.sql.unit_of_work imp
     SqlTransferUnitOfWork,
 )
 from modules.account_balance.application.use_cases.open_account import OpenAccountUseCase
+from modules.account_balance.application.use_cases.revert_transfer import RevertTransferUseCase
 from modules.account_balance.application.use_cases.transfer_money import TransferMoneyUseCase
 from modules.shared.adapters.config.dependencies import SharedDependencies
 from modules.shared.adapters.config.settings import Settings
@@ -46,6 +47,16 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
 
     transfer_money_use_case = providers.Factory(
         TransferMoneyUseCase,
+        unit_of_work_factory=transfer_unit_of_work.provider,
+        id_generator=SharedDependencies.id_generator,
+        clock=SharedDependencies.clock,
+    )
+
+    # Shares `transfer_unit_of_work`'s provider (R3: same unit of work, same
+    # three repositories, same idempotency mechanism as `transfer` -- no
+    # parallel infrastructure for this slice).
+    revert_transfer_use_case = providers.Factory(
+        RevertTransferUseCase,
         unit_of_work_factory=transfer_unit_of_work.provider,
         id_generator=SharedDependencies.id_generator,
         clock=SharedDependencies.clock,
