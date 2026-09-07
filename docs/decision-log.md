@@ -453,3 +453,11 @@ Formato de cada entrada:
 - **Prompt:** "procede, si no nos sirve, montamos la skill"
 - **Respuesta:** Extendido `docs/coding-conventions.md` con una sección nueva "Repository & Adapter Conventions": colección persistente (find/get/add, sin find_by_x), Criteria extensible + traductor en el adapter, DBOs con mapping propio + test unitario obligatorio, wrapper de excepciones con logging sólo en lo no reconocido (con el ejemplo real del bug de orden que se corrigió), y la regla de layering por clase base (no por archivo) que explica el bug de dominio importando de aplicación que apareció en la práctica. Incluida una tabla "Applied so far" y el hueco explícito no resuelto (AccountNotFoundError duplicado en transfer/revert).
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 12:47 — Pushear el refactor de repositorio y lanzar revisión
+
+<!-- id: 20260907-124753-a1fe3a40 -->
+- **Qué intentaba:** Subir el refactor + documento de convenciones al PR #1 y correr una tercera revisión sobre el estado actualizado.
+- **Prompt:** "subelo al PR, y corre una revisión"
+- **Respuesta:** Pusheado `feat/account-opening` (3 commits nuevos: fix de consistencia del ejemplo, doc de convenciones, sync de sesión). Lanzada una tercera revisión fresca, con contexto explícito de las dos rondas previas limpias y de los dos bugs que el propio documento de convenciones dice haber encontrado y corregido (inversión de dependencia dominio→aplicación, logging de una carrera ya manejada) — pidiendo verificarlos contra el código real, no aceptar la afirmación del documento.
+- **Veredicto:** ⏳ pendiente
