@@ -1099,3 +1099,10 @@ Formato de cada entrada:
 - **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
 - **Respuesta:** Corrí ruff/mypy strict/pytest yo mismo (229 tests verdes) y confirmé cada cambio leyendo el código real: nombre del spec corregido, hash movido a `RevertTransferRequest.hash()`, `AuthorizationGateway`+`FixedAdminAuthorizationGateway` contra `ADMIN_PRINCIPAL_ID` fijo documentado en README (403 mapeado), y `PrincipalId(OwnerId)` -- subclase deliberada de `OwnerId`, no de `EntityId`, para satisfacer `IdempotencyRecord.caller_id: OwnerId` por Liskov sin ensanchar esa infraestructura compartida. Publiqué las 4 respuestas en los hilos del PR. Limpié los dos worktrees ya verificados (account-reads y este).
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 00:18 — Resolver el nuevo comentario de revisión en PR #3 (log-before-raise)
+<!-- id: 20260908-001848-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "comentarios nuevos al PR, resuélvelos" -- revisé los 3 PRs abiertos (#3, #4, #5) y encontré 1 comentario nuevo sin resolver.
+- **Prompt:** "comentarios nuevos al PR, resuélvelos"
+- **Respuesta:** El único comentario nuevo estaba en PR #3: `FixedAdminAuthorizationGateway` lanzaba `UnauthorizedPrincipalError` sin loguear antes, rompiendo la misma convención que ya se había corregido dos veces antes en la sesión (PR #4, y el gap original de este mismo PR). Corregido en un worktree temporal: logger inyectado, `warning` antes de lanzar (un rechazo de reversión es security-relevant). 229 tests, ruff, mypy strict verdes. Commit `9b8f7b2` pusheado a `feat/revert`, respondido en el hilo del PR.
+- **Veredicto:** ⏳ pendiente
