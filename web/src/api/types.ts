@@ -31,6 +31,21 @@ export interface TransferRequest {
   currency: string
 }
 
+/** `POST /deposits`'s body -- no `source_account_id`: the platform's `FUNDING` account for
+ * `currency` is resolved server-side, never supplied by the caller. */
+export interface DepositRequest {
+  destination_account_id: string
+  amount: number
+  currency: string
+}
+
+/** `POST /withdrawals`'s body -- the deposit request's mirror image. */
+export interface WithdrawalRequest {
+  source_account_id: string
+  amount: number
+  currency: string
+}
+
 export interface EntryResponse {
   entry_id: string
   account_id: string

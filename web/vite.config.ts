@@ -11,6 +11,8 @@ export default defineConfig({
     proxy: {
       '/accounts': 'http://localhost:8000',
       '/transfers': 'http://localhost:8000',
+      '/deposits': 'http://localhost:8000',
+      '/withdrawals': 'http://localhost:8000',
     },
   },
 })

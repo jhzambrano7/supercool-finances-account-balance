@@ -1,13 +1,26 @@
 import { useState } from 'react'
 import { listRegisteredAccounts } from '../accounts/registry'
-import { ApiError, createTransfer, retryTransfer } from '../api/client'
+import {
+  ApiError,
+  createDeposit,
+  createTransfer,
+  createWithdrawal,
+  retryDeposit,
+  retryTransfer,
+  retryWithdrawal,
+} from '../api/client'
 import type { DescribedError } from '../api/errors'
-import { FUNDING_ACCOUNT_ID, SETTLEMENT_ACCOUNT_ID } from '../api/seededAccounts'
+import {
+  clearPendingOperation,
+  loadPendingOperation,
+  mintIdempotencyKey,
+  savePendingOperation,
+  type PendingOperation,
+} from '../api/idempotency'
 import type { TransferResponse } from '../api/types'
 import { Receipt } from '../components/Receipt'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Tabs } from '../components/Tabs'
-import { clearPendingTransfer, loadPendingTransfer, mintIdempotencyKey, savePendingTransfer, type PendingTransfer } from '../api/idempotency'
 import { formatMinorUnits, parseAmountToMinorUnits } from '../money/money'
 import type { Currency } from '../money/money'
 import { truncateId } from '../identity/identity'
@@ -28,11 +41,33 @@ const MODES: { id: Mode; label: string }[] = [
 
 const CURRENCY: Currency = 'USD'
 
+async function submit(pending: PendingOperation, headers: { callerId: string; idempotencyKey: string }): Promise<TransferResponse> {
+  switch (pending.kind) {
+    case 'transfer':
+      return createTransfer(pending.body, headers)
+    case 'deposit':
+      return createDeposit(pending.body, headers)
+    case 'withdrawal':
+      return createWithdrawal(pending.body, headers)
+  }
+}
+
+async function resubmit(pending: PendingOperation, headers: { callerId: string; idempotencyKey: string }): Promise<TransferResponse> {
+  switch (pending.kind) {
+    case 'transfer':
+      return retryTransfer(pending.body, headers)
+    case 'deposit':
+      return retryDeposit(pending.body, headers)
+    case 'withdrawal':
+      return retryWithdrawal(pending.body, headers)
+  }
+}
+
 /**
- * One screen, three tabs -- Transfer, Deposit, Withdraw -- because all three are one
- * `POST /transfers` and pretending otherwise would mean three near-identical forms
- * (docs/web-ui-plan.md §5.4). The two SYSTEM constants are hard-coded here, mirroring
- * `seeded_accounts.py`, because there is no discovery endpoint.
+ * One screen, three tabs -- Transfer, Deposit, Withdraw -- backed by three distinct endpoints
+ * (`/transfers`, `/deposits`, `/withdrawals`, openspec/specs/transfer/spec.md, "The design,
+ * settled"). Deposit/Withdraw no longer need the platform's `FUNDING`/`SETTLEMENT` account id at
+ * all -- the backend resolves it -- so this screen only ever asks for the customer's own account.
  */
 export function MoveMoneyScreen({ ownerId, onSwitchIdentity }: Props) {
   const [mode, setMode] = useState<Mode>('transfer')
@@ -41,23 +76,13 @@ export function MoveMoneyScreen({ ownerId, onSwitchIdentity }: Props) {
   const [counterpartyId, setCounterpartyId] = useState('')
   const [amountInput, setAmountInput] = useState('')
   const [amountError, setAmountError] = useState<string | null>(null)
-  const [pending, setPending] = useState<PendingTransfer | null>(null)
-  const [interrupted, setInterrupted] = useState<PendingTransfer | null>(() => loadPendingTransfer())
+  const [pending, setPending] = useState<PendingOperation | null>(null)
+  const [interrupted, setInterrupted] = useState<PendingOperation | null>(() => loadPendingOperation())
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<DescribedError | null>(null)
   const [receipt, setReceipt] = useState<TransferResponse | null>(null)
 
   const myAccounts = listRegisteredAccounts(ownerId)
-
-  function sourceIdFor(mode: Mode): string {
-    if (mode === 'deposit') return FUNDING_ACCOUNT_ID
-    return myAccountId
-  }
-  function destinationIdFor(mode: Mode): string {
-    if (mode === 'withdraw') return SETTLEMENT_ACCOUNT_ID
-    if (mode === 'deposit') return myAccountId
-    return counterpartyId
-  }
 
   function resetForm() {
     setStep('form')
@@ -74,23 +99,40 @@ export function MoveMoneyScreen({ ownerId, onSwitchIdentity }: Props) {
       setAmountError(parsed.error)
       return
     }
-    const source = sourceIdFor(mode)
-    const destination = destinationIdFor(mode)
-    if (!source || !destination) {
-      setAmountError('Both accounts are required.')
+    if (!myAccountId || (mode === 'transfer' && !counterpartyId)) {
+      setAmountError(mode === 'transfer' ? 'Both accounts are required.' : 'An account is required.')
       return
     }
     setAmountError(null)
+
     const key = mintIdempotencyKey()
-    const body = {
-      source_account_id: source,
-      destination_account_id: destination,
-      amount: parsed.value,
-      currency: CURRENCY,
-    }
-    const pendingTransfer: PendingTransfer = { key, body, callerId: ownerId, createdAt: new Date().toISOString() }
-    savePendingTransfer(pendingTransfer)
-    setPending(pendingTransfer)
+    const base = { key, callerId: ownerId, createdAt: new Date().toISOString() }
+    const operation: PendingOperation =
+      mode === 'transfer'
+        ? {
+            ...base,
+            kind: 'transfer',
+            body: {
+              source_account_id: myAccountId,
+              destination_account_id: counterpartyId,
+              amount: parsed.value,
+              currency: CURRENCY,
+            },
+          }
+        : mode === 'deposit'
+          ? {
+              ...base,
+              kind: 'deposit',
+              body: { destination_account_id: myAccountId, amount: parsed.value, currency: CURRENCY },
+            }
+          : {
+              ...base,
+              kind: 'withdrawal',
+              body: { source_account_id: myAccountId, amount: parsed.value, currency: CURRENCY },
+            }
+
+    savePendingOperation(operation)
+    setPending(operation)
     setStep('confirm')
   }
 
@@ -99,8 +141,8 @@ export function MoveMoneyScreen({ ownerId, onSwitchIdentity }: Props) {
     setSubmitting(true)
     setError(null)
     try {
-      const transfer = await createTransfer(pending.body, { callerId: pending.callerId, idempotencyKey: pending.key })
-      clearPendingTransfer()
+      const transfer = await submit(pending, { callerId: pending.callerId, idempotencyKey: pending.key })
+      clearPendingOperation()
       setReceipt(transfer)
       setStep('receipt')
     } catch (err) {
@@ -116,8 +158,8 @@ export function MoveMoneyScreen({ ownerId, onSwitchIdentity }: Props) {
     setSubmitting(true)
     setError(null)
     try {
-      const transfer = await retryTransfer(interrupted.body, { callerId: interrupted.callerId, idempotencyKey: interrupted.key })
-      clearPendingTransfer()
+      const transfer = await resubmit(interrupted, { callerId: interrupted.callerId, idempotencyKey: interrupted.key })
+      clearPendingOperation()
       setInterrupted(null)
       setReceipt(transfer)
       setStep('receipt')
@@ -130,12 +172,12 @@ export function MoveMoneyScreen({ ownerId, onSwitchIdentity }: Props) {
   }
 
   function discardInterrupted() {
-    clearPendingTransfer()
+    clearPendingOperation()
     setInterrupted(null)
   }
 
   function editForm() {
-    clearPendingTransfer()
+    clearPendingOperation()
     setPending(null)
     setStep('form')
   }
@@ -149,8 +191,8 @@ export function MoveMoneyScreen({ ownerId, onSwitchIdentity }: Props) {
       {interrupted && (
         <div className="banner banner--info stack">
           <div>
-            A transfer was in flight when this page last closed. Retry it? It carries the same retry
-            code, so if it already posted, you&apos;ll just see the original.
+            A {interrupted.kind} was in flight when this page last closed. Retry it? It carries the
+            same retry code, so if it already posted, you&apos;ll just see the original.
           </div>
           <div className="row">
             <button className="btn-primary" disabled={submitting} onClick={resumeInterrupted}>
@@ -183,38 +225,22 @@ export function MoveMoneyScreen({ ownerId, onSwitchIdentity }: Props) {
 
           {step === 'form' && (
             <div className="card stack">
-              {mode !== 'deposit' && (
-                <div className="field">
-                  <label>{mode === 'transfer' ? 'From (my account)' : 'From (my account)'}</label>
-                  <select value={myAccountId} onChange={(e) => setMyAccountId(e.target.value)}>
-                    <option value="">Select an account…</option>
-                    {myAccounts.map((a) => (
-                      <option key={a.accountId} value={a.accountId}>
-                        {truncateId(a.accountId)} · {a.purpose ?? '?'} · {a.currency ?? '?'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div className="field">
+                <label>{mode === 'withdraw' ? 'From (my account)' : mode === 'deposit' ? 'To (my account)' : 'From (my account)'}</label>
+                <select value={myAccountId} onChange={(e) => setMyAccountId(e.target.value)}>
+                  <option value="">Select an account…</option>
+                  {myAccounts.map((a) => (
+                    <option key={a.accountId} value={a.accountId}>
+                      {truncateId(a.accountId)} · {a.purpose ?? '?'} · {a.currency ?? '?'}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
               {mode === 'transfer' && (
                 <div className="field">
                   <label>To (another customer&apos;s account)</label>
                   <input value={counterpartyId} onChange={(e) => setCounterpartyId(e.target.value)} placeholder="account uuid" />
-                </div>
-              )}
-
-              {mode === 'deposit' && (
-                <div className="field">
-                  <label>To (my account)</label>
-                  <select value={myAccountId} onChange={(e) => setMyAccountId(e.target.value)}>
-                    <option value="">Select an account…</option>
-                    {myAccounts.map((a) => (
-                      <option key={a.accountId} value={a.accountId}>
-                        {truncateId(a.accountId)} · {a.purpose ?? '?'} · {a.currency ?? '?'}
-                      </option>
-                    ))}
-                  </select>
                 </div>
               )}
 
@@ -238,9 +264,25 @@ export function MoveMoneyScreen({ ownerId, onSwitchIdentity }: Props) {
           {step === 'confirm' && pending && (
             <div className="card stack">
               <div>
-                Move <strong className="amount tabular">{formatMinorUnits(pending.body.amount, CURRENCY)}</strong> from{' '}
-                <span className="mono">{truncateId(pending.body.source_account_id)}</span> to{' '}
-                <span className="mono">{truncateId(pending.body.destination_account_id)}</span>
+                {pending.kind === 'transfer' && (
+                  <>
+                    Move <strong className="amount tabular">{formatMinorUnits(pending.body.amount, CURRENCY)}</strong> from{' '}
+                    <span className="mono">{truncateId(pending.body.source_account_id)}</span> to{' '}
+                    <span className="mono">{truncateId(pending.body.destination_account_id)}</span>
+                  </>
+                )}
+                {pending.kind === 'deposit' && (
+                  <>
+                    Deposit <strong className="amount tabular">{formatMinorUnits(pending.body.amount, CURRENCY)}</strong> into{' '}
+                    <span className="mono">{truncateId(pending.body.destination_account_id)}</span>
+                  </>
+                )}
+                {pending.kind === 'withdrawal' && (
+                  <>
+                    Withdraw <strong className="amount tabular">{formatMinorUnits(pending.body.amount, CURRENCY)}</strong> from{' '}
+                    <span className="mono">{truncateId(pending.body.source_account_id)}</span>
+                  </>
+                )}
               </div>
               <div className="help-text">
                 Safe to wait — this carries a retry code, so a timeout won&apos;t post it twice.

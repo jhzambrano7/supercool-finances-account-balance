@@ -127,6 +127,17 @@ export function describeHttpError(status: number, rawDetail: unknown): Described
     }
   }
 
+  if (status === 503) {
+    // CurrencyNotOperationalError: a currency with no seeded FUNDING/SETTLEMENT account.
+    // Distinct from a generic 5xx -- retrying will not seed the missing account.
+    return {
+      status,
+      title: 'This currency is not operational yet.',
+      detail: detail ?? 'The platform has not seeded a funding/settlement account for it — this is a configuration gap, not something a retry fixes.',
+      recovery: 'report',
+    }
+  }
+
   if (status >= 500) {
     return {
       status,
