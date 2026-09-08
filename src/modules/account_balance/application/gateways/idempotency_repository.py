@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from modules.account_balance.domain.identifiers import IdempotencyKey, OwnerId, TransferId
-from modules.shared.application.errors import ResourceAlreadyExistsError
+from modules.shared.application.errors import IntegrationError, ResourceAlreadyExistsError
 
 
 class IdempotencyRecordConflictError(ResourceAlreadyExistsError):
@@ -34,14 +35,35 @@ class IdempotencyRecord:
     Deliberately does not carry a response body (PRD §6.1): a replay
     reconstructs its result from `TransferRepository.get(transfer_id)`
     instead, the same read path any other query would use.
+
+    It carries no `status` either. A failed attempt never leaves a row
+    behind: the insert happens inside the same transaction as the transfer,
+    so a rollback releases the key. Every record that exists to be read is
+    therefore a completed one, and a column saying so could only ever hold
+    one value.
     """
 
     caller_id: OwnerId
     idempotency_key: IdempotencyKey
     request_hash: str
     transfer_id: TransferId
-    status: str
     created_at: datetime
+
+
+class IdempotencyRepositoryError(IntegrationError):
+    """An unrecognized failure crossed this port's boundary (point 4 of the
+    adapter conventions: no third-party exception leaks past a repository).
+
+    The sibling of `AccountRepositoryError`, same shape and same reason.
+    """
+
+    def __init__(self, operation: str, cause: Exception, metadata: dict[str, Any]) -> None:
+        super().__init__(
+            code=f"IDEMPOTENCY_REPOSITORY_ERROR.{operation}",
+            cause=cause,
+            message=f"An error occurred while performing the {operation} operation",
+            metadata=metadata,
+        )
 
 
 class IdempotencyRepository(ABC):

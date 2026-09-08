@@ -110,10 +110,39 @@ class AccountRepository(ABC):
 
         `SYSTEM` accounts are never locked (T6, T7) -- the return type
         itself now says a `SYSTEM` account is not a possible result, rather
-        than only a docstring promising callers won't ask for one. Callers
-        determine `USER`-ness from an unlocked `find`/`get` first (via
-        `FindAccountByAccountId`), then lock only those ids, sorted by
-        `AccountId`, before calling this.
+        than only a docstring promising callers won't ask for one.
+
+        For a single lockable leg -- a deposit or a withdrawal, where exactly
+        one side is a `USER` account -- this is the whole job and ordering
+        does not arise. Locking two or more ids goes through
+        `get_many_for_update`, which owns the ordering itself.
+
+        No production caller yet: `TransferMoney._lock_user_accounts` calls
+        `get_many_for_update` unconditionally today, single id included,
+        since one adapter call handles both shapes. Kept deliberately --
+        the explicit `deposit`/`withdraw` operations (`openspec/specs/
+        transfer/spec.md`'s "Known gap") are the intended callers, each
+        locking exactly one id and with no second leg to ever reason about
+        ordering against.
+        """
+
+    @abstractmethod
+    async def get_many_for_update(
+        self, account_ids: tuple[AccountId, ...]
+    ) -> tuple[UserAccount, ...]:
+        """Locks several `USER` accounts at once (`SELECT ... FOR UPDATE`), for the lifetime of
+        the caller's transaction.
+
+        **Sorts the ids itself.** T6's deadlock avoidance depends on every
+        transaction taking row locks in the same order, and that is this
+        method's responsibility, not the caller's: a caller that has to
+        remember to sort is a caller that will eventually forget, and the
+        resulting deadlock would surface far from the omission. Pass the ids
+        in whatever order you have them.
+
+        Returns only the `USER` accounts that exist, so the result may be
+        shorter than the input; it is never longer, and never contains a
+        `SYSTEM` account (T6, T7).
         """
 
     @abstractmethod

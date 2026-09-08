@@ -7,8 +7,8 @@ from modules.account_balance.adapters.inbound.api.dtos import (
     TransferRequestDto,
     TransferResponseDto,
 )
+from modules.account_balance.application.gateways.account_repository import AccountNotFoundError
 from modules.account_balance.application.use_cases.transfer_money import (
-    AccountNotFoundError,
     IdempotencyConflictError,
     SystemToSystemTransferNotAllowedError,
     TransferMoney,

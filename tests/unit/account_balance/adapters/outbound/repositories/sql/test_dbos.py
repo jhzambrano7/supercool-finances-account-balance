@@ -5,7 +5,7 @@ coverage through an integration test hitting a real database).
 
 from uuid import uuid4
 
-from modules.account_balance.adapters.outbound.repositories.sql.dbos.models import AccountDbo
+from modules.account_balance.adapters.outbound.repositories.sql.dbos.account_dbo import AccountDbo
 from modules.account_balance.domain.account import (
     AccountPurpose,
     AccountStatus,
@@ -81,11 +81,10 @@ def test_as_domain_reconstitutes_a_non_zero_balance_without_re_asserting_it() ->
     assert account.version == 3
 
 
-def test_as_domain_builds_a_system_account_with_the_overridden_balance() -> None:
-    """T7: a `SYSTEM` row's own `balance_amount` column is never trusted -- the caller (the
-    repository) computes the real value from entries and passes it in; `as_domain()` must use it
-    over whatever the stored column happens to hold, and must not thread `status`/`version`
-    through (`SystemAccount` has neither)."""
+def test_as_domain_builds_a_system_account_that_carries_no_balance() -> None:
+    """T7: a `SYSTEM` row's `balance_amount`/`status`/`version` columns are read by nothing --
+    `SystemAccount` has none of the three. The columns stay populated (seeded, forever-zero)
+    rather than nullable, so this asserts they are *ignored*, not that they are absent."""
     account_id = AccountId(uuid4())
     owner_id = OwnerId(uuid4())
     dbo = AccountDbo(
@@ -94,15 +93,19 @@ def test_as_domain_builds_a_system_account_with_the_overridden_balance() -> None
         account_type=AccountType.SYSTEM.value,
         purpose=AccountPurpose.FUNDING.value,
         currency="USD",
-        balance_amount=0,  # seeded, forever-zero, and deliberately ignored below
+        # Deliberately non-zero: if `as_domain()` ever grew a balance back,
+        # this value is what would leak through, so the assertion below is a
+        # real regression guard rather than a tautology against zero.
+        balance_amount=-300,
         status=AccountStatus.ACTIVE.value,
         version=0,
     )
 
-    account = dbo.as_domain(balance_amount=-300)
+    account = dbo.as_domain()
 
     assert isinstance(account, SystemAccount)
     assert account.account_id == account_id
     assert account.owner_id == owner_id
     assert account.purpose is AccountPurpose.FUNDING
-    assert account.balance == Money(-300, USD)
+    assert account.currency == USD
+    assert not hasattr(account, "balance")

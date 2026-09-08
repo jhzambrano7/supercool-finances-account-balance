@@ -14,17 +14,6 @@ from modules.shared.adapters.config.dependencies import SharedDependencies
 
 
 class AccountBalanceContainer(containers.DeclarativeContainer):
-    # `DependenciesContainer` avoids the deep-copy fork a plain
-    # `providers.Container` reference would cause: it proxies to whatever
-    # container `.override(SharedDependencies)` points it at, instead of
-    # copying `SharedDependencies`'s provider graph. It cannot carry a
-    # working default -- pre-filling it with named providers at class-
-    # definition time (e.g. `session_factory=SharedDependencies.session_
-    # factory`) gets deep-copied away by this container's own instantiation
-    # just the same (verified empirically). Every real construction site
-    # must therefore call `.shared.override(SharedDependencies)` itself --
-    # use `build_account_balance_container()` below rather than
-    # instantiating this class directly, so that call lives in one place.
     shared: SharedDependencies = providers.DependenciesContainer()  # type: ignore[assignment]
 
     logger = providers.Singleton(logging.getLogger, "modules.account_balance")
@@ -54,6 +43,7 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
     # rolls back).
     transfer_money = providers.Factory(
         provides=TransferMoney,
+        logger=logger,
         unit_of_work_factory=transfer_unit_of_work.provider,
         id_generator=shared.id_generator,
         clock=shared.clock,

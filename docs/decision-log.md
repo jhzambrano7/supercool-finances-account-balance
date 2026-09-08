@@ -840,3 +840,127 @@ Formato de cada entrada:
 - **Prompt:** "sube los cambios"
 - **Respuesta:** Con mi propia verificación (gates + spot-check del diseño) ya hecha en el turno anterior, el usuario optó por saltar la ronda extra de judgment-day y subir directo. Commiteado el split completo y pusheado a `origin/feat/transfer`.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 19:53 — Aclarar por qué el PR no tiene endpoints separados de depósito/retiro
+
+<!-- id: 20260907-195306-a1fe3a40 -->
+- **Qué intentaba:** El usuario notó que el PR menciona depósitos/retiros pero no los encuentra como funcionalidad propia.
+- **Prompt:** "El PR menciona que implementa depósitos y retiros, no los veo, alguna razón?"
+- **Respuesta:** Verificado, no asumido: no faltan, son el mismo `POST /transfers` diferenciado sólo por qué patas son USER/SYSTEM (T1 del spec, ya documentado en el propio summary del PR). Confirmado con grep que sólo existen dos rutas POST en total, y que `test_deposit_is_authorized_by_destination`/`test_withdraw_is_authorized_by_source` ejercitan exactamente esas dos formas sobre ese único endpoint.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 19:54 — Confirmar que el caller necesita conocer los IDs de cuentas SYSTEM de antemano
+
+<!-- id: 20260907-195445-a1fe3a40 -->
+- **Qué intentaba:** El usuario preguntó si el diseño (depósito/retiro = mismo endpoint, diferenciado por tipo de cuenta) implica que el caller debe conocer los IDs de las cuentas SYSTEM.
+- **Prompt:** "Eso implica que el caller debe conocer los IDs de cuentas system?"
+- **Respuesta:** Confirmado con evidencia, no supuesto: `TransferRequestDto` no tiene campo `type`, sólo IDs crudos; `FUNDING_ACCOUNT_ID`/`SETTLEMENT_ACCOUNT_ID` son UUIDs fijos sembrados por la migración, sin ningún endpoint de discovery. Grep en PRD y en el spec de transfer sin una sola mención de cómo un cliente real debería obtenerlos. Es un gap real de la API, no abordado en ningún documento existente -- se lo confirmé como hallazgo, sin arreglarlo (no pedido).
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 19:57 — Registrar la secuencia: terminar la revisión del PR antes de operaciones explícitas de depósito/retiro
+
+<!-- id: 20260907-195729-a1fe3a40 -->
+- **Qué intentaba:** El usuario confirmó que el gap de IDs de cuentas SYSTEM es de implementación (a resolver), pero fijó el orden: primero termina su revisión del PR actual, después pide endpoints/casos de uso explícitos de depósito y retiro (reemplazando o complementando el `POST /transfers` genérico).
+- **Prompt:** "Es un GAP de implementación, vamos a resolver primero la revisión de este PR (te indico cuando termine) y quiero operaciones explicitas con sus casos de uso de depósito y retiro"
+- **Respuesta:** Reconocida la restricción activa: sin tocar código hasta que el usuario avise que terminó de revisar el PR. Anotado el próximo pedido para cuando retomemos: operaciones explícitas (endpoints + casos de uso propios) para depósito y retiro, en vez de -- o adicional a -- el `POST /transfers` genérico que hoy exige que el caller conozca los UUIDs de FUNDING/SETTLEMENT.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 19:58 — Documentar en el spec la intención de operaciones explícitas de depósito/retiro
+
+<!-- id: 20260907-195807-a1fe3a40 -->
+- **Qué intentaba:** Reflejar en `openspec/specs/transfer/spec.md` la intención de agregar operaciones explícitas de depósito/retiro, sin tocar código (el usuario sigue revisando el PR).
+- **Prompt:** "MIentras, ve ajustando la spec para que refleje esa intención"
+- **Respuesta:** Agregada una nota "Known gap, planned but not yet designed" en la sección Purpose, mismo estilo que los gaps ya documentados en `coding-conventions.md`: explica que el gap no es sólo del dominio (que ya dice "no hay concepto separado") sino de la superficie de entrada (`TransferRequestDto` sin campo `type`, sin discovery de FUNDING/SETTLEMENT), y deja registrado el plan -- operaciones explícitas con sus propios use cases, delante del mismo `transfer()`/persistencia ya especificado, sin reemplazarlo. Deliberadamente no diseñé la forma futura todavía (no fue lo pedido). Sólo Markdown, sin cambios de código.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 20:07 — Confirmar empíricamente el gap de cuentas SYSTEM por moneda
+
+<!-- id: 20260907-200702-a1fe3a40 -->
+- **Qué intentaba:** El usuario planteó la posible necesidad de cuentas SYSTEM por moneda y pidió mi lectura del problema.
+- **Prompt:** "Veo un posible reto, la potencial necesidad de tener cuentas system por moneda. Dame tu insight"
+- **Respuesta:** No es potencial, está vivo: lo probé con un test temporal contra el stack real -- abrir una cuenta EUR devuelve **201**, depositar en ella devuelve **422** (`source (USD), destination (EUR) and amount (EUR) currencies must all match`). El sistema emite cuentas que no puede fondear nunca, porque las dos cuentas SYSTEM están sembradas USD-only mientras `Currency` valida sólo la forma ISO-4217. Distinguido explícitamente de FX (PRD §3, diferido): esto es coexistencia sin conversión, y el modelo **ya se comprometió** con ella del lado USER (la clave natural incluye `currency`, o sea la moneda es parte de la identidad de la cuenta) -- sólo el lado SYSTEM no siguió. Argumentado que cuentas SYSTEM por moneda no es workaround sino lo que exige la partida doble (una cuenta contable está denominada en una sola moneda; `Account.__post_init__` ya lo codifica), y que se resuelve gratis con las operaciones explícitas de depósito/retiro ya planeadas: en cuanto `deposit` es un caso de uso, tiene que *resolver* la cuenta de funding por moneda en vez de leer una constante, y el patrón Criteria ya existe para eso. Dos propiedades a favor: la constraint `(owner_id, purpose, currency)` ya admite `PLATFORM_OWNER_ID+FUNDING+EUR` sin migrar nada, y el enfoque convierte "moneda soportada" en un hecho operacional (la plataforma tiene funding/settlement en ella) en vez de un whitelist hardcodeado. Recomendado el orden: definir primero si `POST /accounts` debe rechazar monedas no servibles (un guard en la entrada), y recién después ensanchar el seed -- no al revés.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 20:19 — Documentar la decisión: `Currency` como enum cerrado (USD/MXN/COP) + cuentas SYSTEM por moneda
+
+<!-- id: 20260907-201943-a1fe3a40 -->
+- **Qué intentaba:** Registrar la decisión del usuario sobre el alcance de monedas, sin implementarla todavía (sigue vigente la restricción de no tocar código hasta que termine la revisión del PR).
+- **Prompt:** "Documenta, acotamos la solución a cuentas en USD, MXN y COP, actualizamos el modelo de currency a un enum de forma que, si se requere soportar una moneda adicional, se requiere ajustar el enum y crear las cuentas system necesarias. Documenta esa decisión"
+- **Respuesta:** Documentado en dos lugares, cada uno con el alcance que le toca. En `openspec/specs/account-balance/spec.md` (el spec de dominio, donde vive `Currency`): fila nueva en la tabla de Domain Types, requirement nuevo "The Supported Currencies Are a Closed Set, Enumerated in the Domain" con sus dos escenarios, y la nota de estado actualizada a "specified, not yet built". El requirement deja explícito que agregar una moneda son **dos pasos acoplados a propósito** (enum + cuentas `FUNDING`/`SETTLEMENT` sembradas en esa moneda), porque eso convierte "moneda soportada" en un hecho operacional en vez de un string validado, y hace imposible repetir la omisión que originó la decisión. También separé explícitamente esto del diferimiento de PRD §3: aquello difiere *cross-currency* (FX, conversión); esto es *coexistencia sin conversión*, que el modelo ya había asumido del lado cliente al hacer de `currency` parte de la clave natural. En `openspec/specs/transfer/spec.md`: extendida la nota de known gap con la segunda mitad del problema (los IDs SYSTEM no son sólo fijos, son fijos *USD*), apuntando a la decisión del spec de dominio y anotando que la resolución por moneda (`FindAccountByPurposeAndCurrency`) es aditiva sobre el patrón Criteria existente y no requiere cambiar la constraint, porque `(owner_id, purpose, currency)` ya admite una fila `FUNDING` por moneda. Sólo Markdown, sin código.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 20:24 — Registrar la alternativa de admin API + currency abierto como diferida, no rechazada
+
+<!-- id: 20260907-202408-a1fe3a40 -->
+- **Qué intentaba:** El usuario propuso una alternativa (exponer APIs de admin para registrar cuentas SYSTEM, lo que permitiría mantener `Currency` como modelo abierto) y la marcó explícitamente fuera de alcance por ahora.
+- **Prompt:** "como propuesta, podemos considerar exponer APIs para el registro de esas cuentas por parte de una admin de la plataforma, eso nos llevaría a mantener currency como modelo abierto y no enum. Pero por ahora fuera de scope."
+- **Respuesta:** Documentada en el requirement de `Currency` como "Considered and deferred", con el razonamiento real y no sólo la mención: la alternativa es **mejor** en el estado final (la existencia de las cuentas `FUNDING`/`SETTLEMENT` pasa a ser la única fuente de verdad de "moneda soportada", colapsa los dos pasos acoplados en uno, y elimina el enum como segundo lugar donde se escribe el mismo hecho; agregar una moneda pasa a ser una operación y no un deploy). Se difiere por una razón ajena a monedas: el servicio no tiene superficie administrativa alguna -- toda la autenticación de PRD §9.1 es un header simulado para clientes, y un endpoint que crea cuentas SYSTEM de la plataforma necesita un límite de privilegio real, que es trabajo mayor y separado. Dejado escrito que cuando esa superficie exista, el enum debería **disolverse** en la query que hoy está sustituyendo, no mantenerse en paralelo.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 20:47 — Triagear los 15 comentarios de la revisión del PR #2 antes de tocar código
+
+<!-- id: 20260907-204740-a1fe3a40 -->
+- **Qué intentaba:** El usuario terminó su revisión como reviewer del PR #2 y pidió proceder; leer y clasificar las observaciones antes de implementar.
+- **Prompt:** "Procede a revisar el PR"
+- **Respuesta:** Extraídos los 15 comentarios inline vía `gh api .../pulls/2/comments` y leído el código exacto de cada punto (incluidos los `diff_hunk` de los ambiguos, para anclar bien qué línea señalan). Clasificados: 9 mecánicos (borrar comentario de `shared`, borrar `__all__` barrel, log-before-raise en 3 sitios de aplicación, `user_ids`→`account_ids`, sacar `status` de `IdempotencyRecord`, un archivo por DBO, y logging+wrapper `IntegrationError` faltantes en `sql_transfer_repository`/`sql_idempotency_repository` -- estos dos exactamente lo que el juez de la Ronda 3 ya había marcado y yo reporté como pendiente, ahora confirmados por el usuario); 2 con peso de diseño pero claros (`TransferRepository.add()` no debería recibir un `Posting` sino que la aplicación llame a cada repo con lo suyo; `get_for_update` gana un hermano que recibe tupla y ordena dentro del adapter, para no depender de que el caller recuerde ordenar); y **1 bloqueante que no adiviné**: el comentario "eliminar" ancla exactamente en `_system_balance`, cuyo borrado contradice el requirement T7 y rompe un test de integración, pero encaja con lo que el usuario dijo antes sobre no querer balance materializado de cuentas SYSTEM -- y su consecuencia coherente sería sacar `balance` de `SystemAccount` por completo. Preguntado eso antes de romper nada; no toqué código en este turno.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 20:56 — Decidir que las cuentas SYSTEM no tienen balance, y documentar la visión de snapshots
+
+<!-- id: 20260907-205643-a1fe3a40 -->
+- **Qué intentaba:** Resolver la pregunta bloqueante sobre `_system_balance` y dejar registrada la visión del usuario sobre cómo se materializaría ese valor si algún día se necesitara.
+- **Prompt:** "Sobre borrar _system_balance es justo porque no vei un caso de uso que demande materializar ese valor... Un proceso scheduled toma 'fotos' del balance... solo necesario si se requere ese valor materializado, no estamos allí ahora."
+- **Respuesta:** Decisión tomada: una cuenta SYSTEM **no tiene balance en ningún lado** -- ni campo en `SystemAccount`, ni columna mantenida, ni valor computado on-read. Reescrito el requirement T7 completo en `openspec/specs/transfer/spec.md` (antes decía "se computa como SUM(entries) al leer"), dejando explícito por qué se revirtió: ningún caso de uso pedía el valor materializado, se pagaba un `SUM` sobre una tabla append-only que sólo crece, y el costo sube para siempre mientras el valor sigue sin usarse. Documentada la visión del usuario como sub-sección propia ("If a materialized SYSTEM balance is ever needed: snapshots, not a live SUM"): proceso scheduled que toma fotos periódicas, cada corrida materializa sólo las entries desde el snapshot anterior, leer cuesta un snapshot + la cola acotada -- y explícitamente fuera del request path, así no reintroduce la contención sobre la fila SYSTEM que T6 existe para evitar. Anotado que se escribe para que la ausencia de balance se lea como decisión deliberada con camino conocido, no como omisión a "arreglar" reintroduciendo el SUM vivo. Actualizada también la tabla de Domain Types del spec de dominio, que todavía describía `Account` como una sola clase con balance, para reflejar el split ADT.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 20:58 — Delegar la implementación de los 15 comentarios de la revisión
+
+<!-- id: 20260907-205830-a1fe3a40 -->
+- **Qué intentaba:** Ejecutar el lote completo de la revisión del PR #2 con las decisiones ya cerradas.
+- **Prompt:** "vas"
+- **Respuesta:** Delegado a un fork (hereda todo el contexto de las decisiones) con el trabajo ordenado en 5 batches por dependencia: (1) `SystemAccount` pierde `balance` y con él `credit`/`debit`/`debit_for_reversal` -- `posting.py` narrowea con `isinstance` y `Posting.accounts` pasa a ser `tuple[UserAccount, ...]`; `_system_balance` eliminado; los tests que asertan comportamiento ya inexistente se borran (no se debilitan) y el property test P4 migra a `UserAccount` con saldo inicial suficiente para que I2 nunca dispare, preservando la identidad contable que realmente prueba. (2) Puertos: `TransferRepository.add(transfer)` en vez de `Posting`, y `get_many_for_update(tuple[AccountId, ...])` que ordena **dentro del adapter** con `ORDER BY` explícito, para que el caller no tenga que acordarse. (3) `status` fuera de `IdempotencyRecord`, incluida la columna -- editando la migración de este mismo PR en vez de apilar un drop, porque no hay historia publicada que preservar. (4) Los gaps de convención que tanto el juez de la Ronda 3 como el usuario marcaron: logger + wrapper `IntegrationError` en los dos adapters que no lo tenían, log-before-raise en los 3 sitios de aplicación (con `Logger` inyectado en `TransferMoney`), rename `user_ids`→`account_ids`, borrar el `__all__` barrel y el comentario del container. (5) Un archivo por DBO, sin re-exports en `__init__.py` (coherente con el rechazo a barrel files), cuidando que `alembic/env.py` importe los cuatro módulos y no sólo uno, porque de eso depende el registro en `Base.metadata`. Explícitamente fuera: los comentarios #14/#15, que son etiquetas del reviewer para el split futuro en operaciones explícitas.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 21:04 — Levantar un subagente a planificar el sitio web de operaciones
+
+<!-- Qué intentaba: correr en paralelo con la implementación de la revisión, sin tocar archivos que el otro fork ya está editando (src/, tests/, alembic/, los specs, coding-conventions.md) -->
+
+<!-- id: 20260907-210438-a1fe3a40 -->
+- **Qué intentaba:** El usuario pidió un subagente que planifique (no construya) un sitio web simple para transferencia/depósito/retiro/reversión/histórico, con el look and feel de EFEX.
+- **Prompt:** "Levanta un subagente que vaya planificando un web site... apalancate en el site de EFEX para el look and feel"
+- **Respuesta:** Lanzado un agente fresco (no fork -- no necesita mi contexto de implementación, sí necesita partir de cero e investigar) con instrucción explícita de tocar un solo archivo nuevo (`docs/web-ui-plan.md`) para no pisar al fork que ya está editando `src/`/`tests/`/specs en paralelo. Instruido a verificar el contrato real de la API contra el código (no confiar en mi resumen), señalar sin inventar los 4 gaps de API que el sitio va a necesitar y que hoy no existen (histórico de movimientos, balance de cuenta, reversión, listado de cuentas del usuario) con su contrato mínimo propuesto, ir a buscar el sitio real de EFEX y ser honesto sobre qué es observado vs inferido si no es alcanzable, y entregar un documento de decisión (qué está decidido/asumido/bloqueado), no un mockup.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 21:13 — Verificar el plan del sitio web entregado por el subagente
+
+<!-- id: 20260907-211309-a1fe3a40 -->
+- **Qué intentaba:** Confirmar que el subagente de planificación del sitio web hizo lo pedido antes de reportarlo.
+- **Prompt:** (notificación de fin del subagente; sin prompt nuevo del usuario)
+- **Respuesta:** Un solo archivo nuevo (`docs/web-ui-plan.md`, 789 líneas), nada más tocado -- confirmado con `git status`. Estructura cubre todo lo pedido: identidad sin login, regla de minor units, idempotency keys desde el cliente, pantallas con sus estados bloqueados, los 4 gaps de API como contratos concretos, paleta/tipografía de EFEX con cada línea etiquetada observado/inferido, stack propuesto, y orden de fases. Encontró 5 puntos donde mi brief estaba desactualizado o incompleto (el enum de currency decidido-no-construido, el mapeo real de `DomainError`→400 vs lo que el spec dice, dos formas distintas de body en 422, ausencia de CORS no mencionada en mi brief, y que `POST /accounts` no pide `X-Caller-Id` en absoluto) -- todos verificados contra el código, no asumidos. Dejó una decisión explícitamente para un humano (el exponente de COP: ISO 4217 dice 2, la práctica colombiana es 0) en vez de resolverla en silencio.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 21:17 — Verificar la implementación de los 15 comentarios, independientemente del reporte del fork
+
+<!-- id: 20260907-211732-a1fe3a40 -->
+- **Qué intentaba:** El fork de la revisión terminó; verificar por mi cuenta antes de creerle, como en cada iteración anterior de esta sesión.
+- **Prompt:** (notificación de fin del fork; sin prompt nuevo del usuario)
+- **Respuesta:** Corrí gates yo mismo (no confié en el reporte): ruff/mypy strict limpios (116 archivos), **188 tests, 3 corridas + una con el Postgres local parado**. Leí y confirmé el código real de los puntos más delicados: `SystemAccount` sin balance/credit/debit tal cual se decidió; `posting.py` narrowea con `isinstance` antes de aplicar cada pata, ambos `Entry` siempre se escriben; `get_many_for_update` ordena con `ORDER BY` explícito dentro de una sola sentencia `IN(...)`, `_lock_user_accounts` ya no ordena nada por su cuenta; la migración de `idempotency_records` quedó con 4 columnas de verdad (sin `status`); los 4 DBOs separados en sus propios archivos y `alembic/env.py` importa los 4 (verificado, no asumido). Las dos desviaciones que el fork reportó (sacar `debit_for_reversal` de `SystemAccount` en vez de mantenerlo, y actualizar el fitness test a un solo `def:` site) están bien razonadas y las confirmé en el código -- consecuencia correcta de que Batch 1 le sacó el balance a SystemAccount.
+- **Encontré por mi cuenta, fuera del alcance del fork:** un párrafo en `docs/coding-conventions.md` ("Tell, Don't Ask") seguía citando `OverdraftPolicy.assert_allows(...)`, una clase que ya no existe desde el split ADT (commit anterior, fuera del batch de este fork). Lo corregí yo mismo -- costo proporcional, mismo archivo que ya estaba verificando, regla que el propio doc establece ("fix it in that file if the cost is proportional").
+- **Encontré y NO toqué, para preguntar primero:** `get_for_update` (singular, no la nueva `get_many_for_update`) ya no tiene ningún caller en código de producción -- `_lock_user_accounts` usa exclusivamente la versión plural ahora, incluso para el caso de una sola pata. El método sigue vivo sólo porque sus propios tests lo llaman. Es código muerto real, no lo borré sin preguntar.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 21:21 — Mantener get_for_update, documentando por qué no tiene caller todavía
+
+<!-- id: 20260907-212154-a1fe3a40 -->
+- **Qué intentaba:** El usuario decidió mantener `get_for_update` (singular) pese a no tener caller en producción hoy.
+- **Prompt:** "lo mantenemos, se usará en breve para depósitos y retiros"
+- **Respuesta:** Agregada una nota al docstring del puerto explicando por qué no tiene caller de producción hoy (`_lock_user_accounts` usa `get_many_for_update` incluso para una sola pata) y quién lo va a usar pronto (las operaciones explícitas de depósito/retiro, cada una lockeando exactamente un id) -- para que un futuro lector no lo confunda con código muerto a borrar. Sin borrar nada. Gates verdes, 188 tests.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 21:22 — Commitear y pushear la respuesta a la revisión del PR + el plan del sitio web
+
+<!-- id: 20260907-212249-a1fe3a40 -->
+- **Qué intentaba:** Subir todo el trabajo pendiente: los 15 comentarios de revisión implementados y verificados, más el plan del sitio web.
+- **Prompt:** "commitea y sube los cambios"
+- **Respuesta:** Dos commits separados por concern: (1) la respuesta completa a la revisión del PR (los 5 batches + mis dos hallazgos propios: el fix de `OverdraftPolicy` colgante en las convenciones y la nota de docstring sobre `get_for_update`), (2) el plan del sitio web (`docs/web-ui-plan.md`), sin relación con el otro cambio. Gates corridos antes de cada uno.
+- **Veredicto:** ⏳ pendiente

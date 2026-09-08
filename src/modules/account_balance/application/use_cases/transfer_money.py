@@ -1,6 +1,7 @@
 import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
+from logging import Logger
 
 from modules.account_balance.application.gateways.account_repository import AccountNotFoundError
 from modules.account_balance.application.gateways.idempotency_repository import (
@@ -25,20 +26,6 @@ from modules.shared.application.errors import ApplicationError
 from modules.shared.application.services.clock import Clock
 from modules.shared.application.services.id_generator import IdGenerator
 from modules.shared.domain.money import Money
-
-_IDEMPOTENCY_STATUS_COMPLETED = "COMPLETED"
-
-# Re-exported so a route can catch this without importing the port module
-# directly -- the same `AccountNotFoundError` `account-opening`'s own
-# AccountRepository.get() raises, not a second, transfer-local type for the
-# same fact (an id the client sent resolves to nothing).
-__all__ = [
-    "AccountNotFoundError",
-    "IdempotencyConflictError",
-    "SystemToSystemTransferNotAllowedError",
-    "TransferMoney",
-    "TransferMoneyRequest",
-]
 
 
 class IdempotencyConflictError(ApplicationError):
@@ -117,10 +104,12 @@ class TransferMoney:
     def __init__(
         self,
         *,
+        logger: Logger,
         unit_of_work_factory: Callable[[], TransferUnitOfWork],
         id_generator: IdGenerator,
         clock: Clock,
     ) -> None:
+        self._logger = logger
         self._new_unit_of_work = unit_of_work_factory
         self._id_generator = id_generator
         self._clock = clock
@@ -163,11 +152,20 @@ class TransferMoney:
         Never a silent replacement.
         """
         if existing.request_hash != request_hash:
+            self._logger.warning(
+                "idempotency key %s reused with a different payload by caller %s",
+                existing.idempotency_key,
+                existing.caller_id,
+            )
             raise IdempotencyConflictError(
                 caller_id=existing.caller_id, idempotency_key=existing.idempotency_key
             )
         transfer = await uow.transfers.get(existing.transfer_id)
         if transfer is None:  # pragma: no cover -- defensive: the record names a real transfer
+            self._logger.error(
+                "idempotency record references transfer %s, which does not exist",
+                existing.transfer_id,
+            )
             raise RuntimeError(
                 f"idempotency record references transfer {existing.transfer_id}, not found"
             )
@@ -197,7 +195,6 @@ class TransferMoney:
                 idempotency_key=request.idempotency_key,
                 request_hash=request_hash,
                 transfer_id=transfer_id,
-                status=_IDEMPOTENCY_STATUS_COMPLETED,
                 created_at=occurred_at,
             )
         )
@@ -226,38 +223,48 @@ class TransferMoney:
             entry_ids=lambda: EntryId(self._id_generator.next_id()),
         )
 
-        await uow.transfers.add(posting)
+        # Each repository is handed its own part of the posting: the transfer
+        # (which owns its entries) to the transfer repository, the advanced
+        # accounts to the account repository. `posting.accounts` holds only
+        # `UserAccount`s -- a `SYSTEM` leg has no balance to persist (T7) --
+        # so there is nothing left to filter here.
+        await uow.transfers.add(posting.transfer)
         for account in posting.accounts:
-            if isinstance(account, UserAccount):
-                await uow.accounts.update(account)
+            await uow.accounts.update(account)
 
         return posting.transfer
 
     async def _lock_user_accounts(
         self, uow: TransferUnitOfWork, source: Account, destination: Account
     ) -> tuple[Account, Account]:
-        """T6: locks the `USER`-typed leg(s), sorted by `AccountId`, in that order.
+        """T6: locks the `USER`-typed leg(s).
 
-        This is the deterministic ordering that keeps a concurrent A->B and
-        B->A transfer from deadlocking. A `SYSTEM` leg is never locked and
-        keeps the unlocked snapshot already loaded above -- its balance is
-        never persisted (T7), so re-reading it under lock would buy nothing.
+        The lock *ordering* that keeps a concurrent A->B and B->A transfer
+        from deadlocking is the adapter's job, not this method's --
+        `get_many_for_update` sorts what it is given. A `SYSTEM` leg is never
+        locked and keeps the unlocked snapshot already loaded above: it has
+        no balance to persist (T7), so re-reading it under lock would buy
+        nothing.
         """
-        user_ids = sorted(
+        account_ids = tuple(
             {
                 account.account_id
                 for account in (source, destination)
                 if isinstance(account, UserAccount)
             }
         )
-        for account_id in user_ids:
-            locked = await uow.accounts.get_for_update(account_id)
-            if locked is None:  # pragma: no cover -- defensive: already read unlocked above
+        locked_accounts = await uow.accounts.get_many_for_update(account_ids)
+        locked_by_id = {account.account_id: account for account in locked_accounts}
+
+        for account_id in account_ids:
+            if account_id not in locked_by_id:  # pragma: no cover -- defensive: read unlocked above
+                self._logger.error(
+                    "account %s vanished between the unlocked read and the lock", account_id
+                )
                 raise AccountNotFoundError(FindAccountByAccountId(account_id))
-            if locked.account_id == source.account_id:
-                source = locked
-            if locked.account_id == destination.account_id:
-                destination = locked
+
+        source = locked_by_id.get(source.account_id, source)
+        destination = locked_by_id.get(destination.account_id, destination)
         return source, destination
 
     def _assert_authorized(self, *, source: Account, destination: Account, caller: OwnerId) -> None:

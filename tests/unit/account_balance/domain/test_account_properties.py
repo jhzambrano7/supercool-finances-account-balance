@@ -14,7 +14,7 @@ from hypothesis import strategies as st
 
 from modules.account_balance.domain.account import (
     AccountPurpose,
-    SystemAccount,
+    AccountStatus,
     UserAccount,
 )
 from modules.account_balance.domain.entry import Entry, EntryDirection
@@ -94,33 +94,47 @@ class TestPropertyP3TransferSequencesNeverGoNegativeAndConserve:
         assert sum((account.balance.amount for account in pool), start=0) == 0
 
 
+_P4_MAX_MOVES = 30
+_P4_MAX_AMOUNT = 1_000
+# Enough that no generated sequence can reach zero: every move is at most
+# `_P4_MAX_AMOUNT` and there are at most `_P4_MAX_MOVES` of them, so a run of
+# nothing but debits still lands above zero. I2 therefore never fires, which
+# is the point -- this property is about the accounting identity, not I2.
+_P4_OPENING_BALANCE = _P4_MAX_MOVES * _P4_MAX_AMOUNT
+
+
 class TestPropertyP4BalanceEqualsSumOfSignedAmounts:
-    """P4: after any sequence of entries applied to one `Account`, its balance equals the sum of
-    `signed_amount` over every entry actually applied to it. Uses a `SYSTEM` account so no move
-    is ever refused by the overdraft policy — the property is about the accounting identity, not
-    I2."""
+    """P4: after any sequence of entries applied to one `UserAccount`, its balance equals its
+    opening balance plus the sum of `signed_amount` over every entry actually applied to it.
+
+    Reconstituted with a large opening balance rather than using a `SYSTEM` account, which is how
+    this test previously dodged the overdraft policy: a `SystemAccount` has no balance at all
+    (T7), so it can no longer stand in for "an account no debit is refused on".
+    """
 
     @given(
         st.lists(
             st.tuples(
                 st.sampled_from([EntryDirection.DEBIT, EntryDirection.CREDIT]),
-                st.integers(min_value=1, max_value=1_000),
+                st.integers(min_value=1, max_value=_P4_MAX_AMOUNT),
             ),
-            max_size=30,
+            max_size=_P4_MAX_MOVES,
         )
     )
     def test_balance_equals_sum_of_applied_signed_amounts(
         self, moves: list[tuple[EntryDirection, int]]
     ) -> None:
-        account: SystemAccount | UserAccount = SystemAccount(
+        account = UserAccount.reconstitute(
             account_id=AccountId(uuid4()),
             owner_id=OwnerId(uuid4()),
-            purpose=AccountPurpose.FUNDING,
+            purpose=AccountPurpose.CHECKING,
             currency=USD,
-            balance=Money.zero(USD),
+            balance=Money(_P4_OPENING_BALANCE, USD),
+            status=AccountStatus.ACTIVE,
+            version=0,
         )
 
-        expected = Money.zero(USD)
+        expected = Money(_P4_OPENING_BALANCE, USD)
         for direction, amount in moves:
             entry = _entry(
                 account_id=account.account_id, direction=direction, amount=Money(amount, USD)

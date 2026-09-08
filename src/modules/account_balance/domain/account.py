@@ -249,71 +249,35 @@ class UserAccount:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class SystemAccount:
-    """A `SYSTEM` account (`FUNDING`/`SETTLEMENT`, PRD §4.1): always `ACTIVE`, never closed, never
-    locked (T6) — there is no `status`/`version`/`close()`/`is_closable()` here, not because they
-    are unused but because neither concept applies: nothing can ever close this account (no
-    method exists to try), and its optimistic-lock `version` is never persisted (T7 — `update()`
-    must never be called for a `SYSTEM` account, so nothing ever reads or increments a real one).
+    """A `SYSTEM` account (`FUNDING`/`SETTLEMENT`, PRD §4.1): identity, owner, purpose, currency —
+    and nothing else.
 
-    `balance` here is whatever the caller constructed it with. `credit()`/`debit()` still apply
-    (unlimited — no floor or ceiling, unlike `UserAccount.debit()`) because a posting must be able
-    to compute *some* resulting balance for this leg while applying it in-process (design §5.1);
-    the repository is the one place that computes the persisted value fresh as `SUM(entries)` on
-    every read (T7) rather than trusting any single in-memory snapshot.
+    No `balance` (T7: a `SYSTEM` account has no balance anywhere — not a field, not a maintained
+    column, not a value computed on read; nothing in this service ever asks for one, and the
+    ledger's `Entry` rows remain the authoritative record either way). No `status`, because
+    nothing can ever close this account — there is no method to try. No `version`, because it is
+    never persisted: `update()` is never called for a `SYSTEM` account, so there is no optimistic
+    lock to carry.
+
+    With no balance there is nothing for `credit()`/`debit()` to compute, so neither exists here.
+    A transfer still writes both `Entry` legs — `posting.transfer()` applies only the `USER` legs
+    to their accounts (design §5.1).
     """
 
     account_id: AccountId
     owner_id: OwnerId
     purpose: AccountPurpose
     currency: Currency
-    balance: Money
 
     def __post_init__(self) -> None:
         if not self.purpose.matches_type(AccountType.SYSTEM):
             raise InvalidAccountPurposeError(
                 f"{self.purpose.value} does not belong to {AccountType.SYSTEM.value} (PRD §4.4)"
             )
-        if self.balance.currency != self.currency:
-            raise CurrencyMismatchError(
-                f"account currency {self.currency} does not match balance currency "
-                f"{self.balance.currency}"
-            )
 
     @property
     def account_type(self) -> AccountType:
         return AccountType.SYSTEM
-
-    def credit(self, entry: Entry) -> SystemAccount:
-        """Increases the balance — no floor or ceiling."""
-        resulting = self._validated_balance(entry, required_direction=EntryDirection.CREDIT)
-        return replace(self, balance=resulting)
-
-    def debit(self, entry: Entry) -> SystemAccount:
-        """No floor — a `SYSTEM` account has unlimited overdraft by design (PRD §4.1)."""
-        resulting = self._validated_balance(entry, required_direction=EntryDirection.DEBIT)
-        return replace(self, balance=resulting)
-
-    def debit_for_reversal(self, entry: Entry) -> SystemAccount:
-        """Identical to `debit()` — there is no floor to route around either way. Kept as its own
-        named method (not an alias) because `posting.py::revert` calls it by name polymorphically
-        on whatever `source` is, and the architecture fitness test
-        `test_debit_for_reversal_is_referenced_only_in_definition_and_revert` audits `def:` sites
-        per class, not per alias target."""
-        return self.debit(entry)
-
-    def _validated_balance(self, entry: Entry, required_direction: EntryDirection) -> Money:
-        """Same preflight as `UserAccount`, minus the operability check — a `SYSTEM` account has
-        no status, it is never anything other than operable."""
-        if entry.account_id != self.account_id:
-            raise EntryAccountMismatchError(
-                f"entry {entry.entry_id} targets account {entry.account_id}, not {self.account_id}"
-            )
-        if entry.direction is not required_direction:
-            raise EntryDirectionMismatchError(
-                f"entry {entry.entry_id} has direction {entry.direction.value}, "
-                f"expected {required_direction.value}"
-            )
-        return self.balance + entry.signed_amount
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, SystemAccount):

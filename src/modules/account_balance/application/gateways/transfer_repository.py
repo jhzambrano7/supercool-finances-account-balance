@@ -1,8 +1,25 @@
 from abc import ABC, abstractmethod
+from typing import Any
 
 from modules.account_balance.domain.identifiers import TransferId
-from modules.account_balance.domain.posting import Posting
 from modules.account_balance.domain.transfer import Transfer
+from modules.shared.application.errors import IntegrationError
+
+
+class TransferRepositoryError(IntegrationError):
+    """An unrecognized failure crossed this port's boundary (point 4 of the
+    adapter conventions: no third-party exception leaks past a repository).
+
+    The sibling of `AccountRepositoryError`, same shape and same reason.
+    """
+
+    def __init__(self, operation: str, cause: Exception, metadata: dict[str, Any]) -> None:
+        super().__init__(
+            code=f"TRANSFER_REPOSITORY_ERROR.{operation}",
+            cause=cause,
+            message=f"An error occurred while performing the {operation} operation",
+            metadata=metadata,
+        )
 
 
 class TransferRepository(ABC):
@@ -12,8 +29,14 @@ class TransferRepository(ABC):
     """
 
     @abstractmethod
-    async def add(self, posting: Posting) -> None:
-        """Persists `posting.transfer` and every one of its entries.
+    async def add(self, transfer: Transfer) -> None:
+        """Persists the transfer and every one of its entries.
+
+        Takes a `Transfer`, not a `Posting`: a `Transfer` already owns its
+        `Entry` legs, which is the whole of what this repository writes. The
+        accounts a `Posting` also carries belong to `AccountRepository` --
+        the use case holds the `Posting` and hands each repository the part
+        that is its own.
 
         Does not commit -- the enclosing `TransferUnitOfWork` commits once,
         atomically, alongside the account balance updates and the

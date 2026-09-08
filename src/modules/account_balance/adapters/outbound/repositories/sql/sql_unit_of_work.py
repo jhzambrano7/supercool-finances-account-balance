@@ -64,8 +64,8 @@ class SqlTransferUnitOfWork(TransferUnitOfWork):
         self._session = session
         bound = cast(Callable[[], AsyncSession], lambda: _KeptOpenSession(session))
         self.accounts = SqlAccountRepository(self._logger, bound)
-        self.transfers = SqlTransferRepository(bound)
-        self.idempotency = SqlIdempotencyRepository(bound)
+        self.transfers = SqlTransferRepository(self._logger, bound)
+        self.idempotency = SqlIdempotencyRepository(self._logger, bound)
         return self
 
     async def __aexit__(

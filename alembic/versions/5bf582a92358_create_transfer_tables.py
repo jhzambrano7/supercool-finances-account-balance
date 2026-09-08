@@ -70,7 +70,10 @@ def upgrade() -> None:
         sa.Column("idempotency_key", sa.String(length=255), nullable=False),
         sa.Column("request_hash", sa.String(length=64), nullable=False),
         sa.Column("transfer_id", sa.UUID(), nullable=False),
-        sa.Column("status", sa.String(length=20), nullable=False),
+        # No `status` column: a failed attempt never leaves a row behind (the
+        # insert shares the transfer's transaction, so a rollback releases the
+        # key), which means every row that exists is a completed one and the
+        # column could only ever hold a single value.
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("caller_id", "idempotency_key"),
         # Deferred to COMMIT, not checked per-statement: the use case reserves

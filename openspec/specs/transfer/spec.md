@@ -8,6 +8,34 @@ concept for them). It covers the use case, the simulated authentication this sli
 the persistence it requires. `transfer()` itself — the domain service, I1–I7 — is already specified
 in `openspec/specs/account-balance/spec.md` and is not repeated here.
 
+**Known gap, planned but not yet designed: explicit `deposit`/`withdraw` operations.** "No separate
+domain concept" (above) is true of the domain service, but today it is also true of the *inbound*
+surface — `POST /transfers`'s body (`TransferRequestDto`) takes only raw `source_account_id`/
+`destination_account_id` UUIDs, with no `type` field distinguishing a deposit from an ordinary
+transfer. A deposit is `source_account_id = FUNDING_ACCOUNT_ID`, a withdrawal is
+`destination_account_id = SETTLEMENT_ACCOUNT_ID` — fixed, platform-seeded UUIDs
+(`adapters/config/seeded_accounts.py`) with no discovery endpoint exposing them. A caller performing
+either operation must already know these ids out of band (today, only this codebase's own tests do).
+The plan is explicit `deposit`/`withdraw` operations — their own endpoints and their own use cases,
+stating intent ("deposit into account Y") rather than requiring the caller to know a platform-internal
+account id — sitting in front of the same underlying `transfer()`/persistence this document specifies,
+not replacing it. Not designed yet; this note exists so the gap is recorded before it is closed, not
+discovered again from scratch.
+
+**One `SYSTEM` account per supported currency, resolved by the operation, not by the caller.** The
+same gap has a second half: `FUNDING_ACCOUNT_ID`/`SETTLEMENT_ACCOUNT_ID` are not merely fixed ids,
+they are fixed *`USD`* ids (migration `5bf582a92358` seeds both with `"currency": "USD"`), so an
+account opened in any other currency can be created but never funded — I4 refuses the deposit, and
+the failure is permanent rather than transient. The currency side of this is now decided: `Currency`
+becomes a closed enum over `USD`/`MXN`/`COP`, and each supported currency requires its own `FUNDING`
+and `SETTLEMENT` accounts (see `openspec/specs/account-balance/spec.md`, "The Supported Currencies
+Are a Closed Set"). That decision is what makes the explicit operations resolvable: a `deposit` use
+case looks up the `FUNDING` account *for the target account's currency* — a new
+`FindAccountByPurposeAndCurrency` criteria, additive to the existing Criteria pattern — instead of
+reading one global constant. The natural key `(owner_id, purpose, currency)` already permits exactly
+one `FUNDING` row per currency under `PLATFORM_OWNER_ID` and already forbids duplicates, so no
+constraint change is needed: the schema was right, only the seed was narrow.
+
 Source of truth: `docs/prd.md` §5 (the critical path), §6 (idempotency), §9.1 (authorization).
 Carries forward the constraints `openspec/changes/archive/2026-09-07-account-balance-domain/design.md`
 §5.3 and §8 already placed on this layer before any of it was written.
@@ -224,18 +252,47 @@ coverage, not proven by a unit test.)*
 - THEN one succeeds, the other observes the post-lock balance and is rejected by I2
   (`InsufficientFundsError`, mapped to `422`) rather than both succeeding
 
-### Requirement: A `SYSTEM` Account's Balance Is Never Read From Or Written To Its Stored Column
+### Requirement: A `SYSTEM` Account Has No Balance At All
 
-A `SYSTEM` account's balance MUST be computed as the sum of its entries' signed amounts at read time,
-and no write to its `accounts.balance_amount` column MUST occur during posting (T7, PRD §5.3).
+A `SYSTEM` account MUST NOT carry a balance: not in the domain (`SystemAccount` has no `balance`
+field), not as a maintained column (`accounts.balance_amount` stays at its seeded zero and is never
+read for a `SYSTEM` row), and not as a value computed on read. No write to `balance_amount` MUST
+occur for a `SYSTEM` row during posting (T7, PRD §5.3).
 
-#### Scenario: A `SYSTEM` account's balance reflects its entries, not a maintained column
+*(Revised. The original T7 said the balance was to be computed as `SUM(signed entries)` at read
+time. It was built that way, then removed: **no use case ever demanded the materialized value.**
+Nothing in this service reads a `SYSTEM` account's balance — not the transfer path, which needs only
+the account's existence, currency and id to build its legs; not the API, which exposes no endpoint
+returning one. Computing it on every read was answering a question nobody asked, and paying for it
+with a `SUM` over an append-only table that only ever grows — the cost rises forever while the value
+stays unused. Its absence is now the requirement, rather than a smaller implementation of it.)*
 
-- GIVEN the `SYSTEM` funding account has received no direct writes to `balance_amount` beyond its
-  seeded zero, but has posted three deposits totaling 300 as its debited leg
-- WHEN its balance is computed
-- THEN it equals -300 (three debits, from the `SYSTEM` account's perspective as the source), not
-  whatever `balance_amount` happens to still hold
+**The platform's position is still fully derivable — it is just not stored.** Every movement writes
+its `Entry` rows, so the sum is always reconstructible from the ledger; what changed is that nothing
+reconstructs it on the request path. This is the ordinary bookkeeping distinction between the journal
+(authoritative, append-only) and a balance (a derived read model), and v1 simply does not need the
+read model.
+
+#### If a materialized `SYSTEM` balance is ever needed: snapshots, not a live `SUM`
+
+Recorded here because it is a decision already taken about the *shape* of that future work, not a
+possibility to rediscover. A scheduled process takes periodic snapshots of the balance; each run
+materializes only the entries posted since the previous snapshot and updates it. Reading the current
+balance then costs one snapshot row plus the small, bounded tail of entries after it — instead of a
+`SUM` over the entire history that grows without limit. The request path stays out of it either way:
+the snapshot is maintained asynchronously, never inside a transfer's transaction, so it introduces
+none of the `SYSTEM`-row contention T6 exists to avoid.
+
+Not built, and not to be built until something actually requires the value. The point of writing it
+down is that the absence of a balance today is a deliberate scoping decision with a known way
+forward, not an oversight to be "fixed" by reintroducing the live `SUM` this requirement removed.
+
+#### Scenario: Posting a transfer never writes the `SYSTEM` leg's stored balance
+
+- GIVEN a deposit whose source is the `SYSTEM` funding account
+- WHEN the transfer is posted
+- THEN entries are written for both legs, the `USER` account's `balance_amount` is updated, and the
+  `SYSTEM` account's row is not written at all
 
 ### Requirement: Domain Errors Map To Stable HTTP Statuses
 

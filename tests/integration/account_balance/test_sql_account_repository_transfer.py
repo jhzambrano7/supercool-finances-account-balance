@@ -1,6 +1,6 @@
 """Integration tests for the transfer-specific `AccountRepository` behaviour (T6, T7, T9) against a
-real PostgreSQL: `get_for_update`, `update`, and a `SYSTEM` account's balance being computed from
-its entries rather than read from `balance_amount`."""
+real PostgreSQL: `get_for_update`, `get_many_for_update`, `update`, and a `SYSTEM` account loading
+with no balance at all."""
 
 import logging
 from collections.abc import Callable
@@ -12,8 +12,8 @@ from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from modules.account_balance.adapters.config.seeded_accounts import FUNDING_ACCOUNT_ID
-from modules.account_balance.adapters.outbound.repositories.sql.dbos.models import (
-    EntryDbo,
+from modules.account_balance.adapters.outbound.repositories.sql.dbos.entry_dbo import EntryDbo
+from modules.account_balance.adapters.outbound.repositories.sql.dbos.transfer_dbo import (
     TransferDbo,
 )
 from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repository import (
@@ -87,9 +87,13 @@ async def _post_funding_entry(
         await session.commit()
 
 
-async def test_get_computes_system_balance_from_entries_not_the_stored_column(
+async def test_a_system_account_loads_without_a_balance(
     session_factory: Callable[[], AsyncSession],
 ) -> None:
+    """T7: a `SYSTEM` account has no balance anywhere -- entries posted against it change nothing
+    about the account itself, because there is no field for them to change. Previously this test
+    asserted the opposite (a `SUM(entries)` computed on read); the computation was removed once it
+    turned out no use case ever consumed the value."""
     repository = _repository(session_factory)
     account_id = AccountId(FUNDING_ACCOUNT_ID)
 
@@ -100,11 +104,7 @@ async def test_get_computes_system_balance_from_entries_not_the_stored_column(
 
     assert funding is not None
     assert funding.account_type.is_system()
-    # Two debits totaling 300 against the funding account (its own
-    # perspective as the source of every deposit, spec's own worked example)
-    # -- -300, never whatever the seeded, forever-zero `balance_amount`
-    # column holds.
-    assert funding.balance.amount == -300
+    assert not hasattr(funding, "balance")
 
 
 async def test_get_for_update_locks_a_user_account(
@@ -118,6 +118,43 @@ async def test_get_for_update_locks_a_user_account(
 
     assert locked is not None
     assert locked.account_id == account.account_id
+
+
+async def test_get_many_for_update_sorts_regardless_of_the_order_it_is_given(
+    session_factory: Callable[[], AsyncSession],
+) -> None:
+    """T6: the deadlock-avoidance ordering is the adapter's promise, not the caller's discipline.
+    Passing the same two ids in both orders must lock them in the same (sorted) order both times --
+    that identity is what makes a concurrent A->B and B->A pair safe."""
+    repository = _repository(session_factory)
+    first = _open_user_account(owner_id=OwnerId(uuid4()))
+    second = _open_user_account(owner_id=OwnerId(uuid4()))
+    await repository.add(first)
+    await repository.add(second)
+    ascending = sorted([first.account_id, second.account_id])
+    descending = tuple(reversed(ascending))
+
+    locked_from_sorted = await repository.get_many_for_update(tuple(ascending))
+    locked_from_reversed = await repository.get_many_for_update(descending)
+
+    assert [a.account_id for a in locked_from_sorted] == ascending
+    assert [a.account_id for a in locked_from_reversed] == ascending
+
+
+async def test_get_many_for_update_skips_system_accounts(
+    session_factory: Callable[[], AsyncSession],
+) -> None:
+    """T6, T7: a `SYSTEM` account is never locked, so it is filtered out rather than returned --
+    the result is shorter than the input, which is why the port documents it that way."""
+    repository = _repository(session_factory)
+    user_account = _open_user_account(owner_id=OwnerId(uuid4()))
+    await repository.add(user_account)
+
+    locked = await repository.get_many_for_update(
+        (user_account.account_id, AccountId(FUNDING_ACCOUNT_ID))
+    )
+
+    assert [a.account_id for a in locked] == [user_account.account_id]
 
 
 async def test_get_for_update_never_returns_a_system_account(

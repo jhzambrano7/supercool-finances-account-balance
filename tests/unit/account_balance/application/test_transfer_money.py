@@ -7,6 +7,7 @@ database transaction (locking itself is integration-only, per the spec's own
 note).
 """
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -16,7 +17,10 @@ from uuid import uuid4
 
 import pytest
 
-from modules.account_balance.application.gateways.account_repository import AccountRepository
+from modules.account_balance.application.gateways.account_repository import (
+    AccountNotFoundError,
+    AccountRepository,
+)
 from modules.account_balance.application.gateways.idempotency_repository import (
     IdempotencyRecord,
     IdempotencyRecordConflictError,
@@ -30,7 +34,6 @@ from modules.account_balance.application.gateways.models.find_accounts_criteria 
 from modules.account_balance.application.gateways.transfer_repository import TransferRepository
 from modules.account_balance.application.gateways.unit_of_work import TransferUnitOfWork
 from modules.account_balance.application.use_cases.transfer_money import (
-    AccountNotFoundError,
     IdempotencyConflictError,
     SystemToSystemTransferNotAllowedError,
     TransferMoney,
@@ -53,7 +56,6 @@ from modules.account_balance.domain.identifiers import (
     OwnerId,
     TransferId,
 )
-from modules.account_balance.domain.posting import Posting
 from modules.account_balance.domain.transfer import Transfer
 from modules.shared.application.services.clock import Clock
 from modules.shared.application.services.id_generator import IdGenerator
@@ -119,6 +121,19 @@ class _FakeAccountRepository(AccountRepository):
             return None
         return account
 
+    async def get_many_for_update(
+        self, account_ids: tuple[AccountId, ...]
+    ) -> tuple[UserAccount, ...]:
+        """Sorts, exactly as the real adapter does -- the ordering is the port's promise (T6), so a
+        fake that returned them unordered would let a caller depend on an order the real
+        implementation does not actually guarantee it inherits."""
+        locked = [
+            account
+            for account_id in sorted(account_ids)
+            if isinstance(account := self._database.accounts.get(account_id), UserAccount)
+        ]
+        return tuple(locked)
+
     async def update(self, account: UserAccount) -> None:
         self._staged[account.account_id] = account
 
@@ -128,8 +143,8 @@ class _FakeTransferRepository(TransferRepository):
         self._database = database
         self._staged = staged
 
-    async def add(self, posting: Posting) -> None:
-        self._staged[posting.transfer.transfer_id] = posting.transfer
+    async def add(self, transfer: Transfer) -> None:
+        self._staged[transfer.transfer_id] = transfer
 
     async def get(self, transfer_id: TransferId) -> Transfer | None:
         return self._staged.get(transfer_id) or self._database.transfers.get(transfer_id)
@@ -198,6 +213,7 @@ def _unit_of_work_factory(database: _Database) -> Callable[[], _FakeUnitOfWork]:
 def _use_case(database: _Database, *, occurred_at: datetime | None = None) -> TransferMoney:
     fixed = occurred_at or datetime(2026, 9, 7, 12, 0, tzinfo=__import__("datetime").UTC)
     return TransferMoney(
+        logger=logging.getLogger(__name__),
         unit_of_work_factory=_unit_of_work_factory(database),
         id_generator=IdGenerator(),
         clock=_FakeClock(fixed),
@@ -212,9 +228,8 @@ def _open(
     balance: int = 0,
 ) -> Account:
     """`balance` reconstitutes a pre-funded account -- `UserAccount.open()` always forces a zero
-    balance, and a `USER` account debited by these tests needs enough on hand to satisfy I2. A
-    `SYSTEM` account's balance is irrelevant to the use case (T7: never read from or written to
-    this column), so it is left at zero unless a test says otherwise."""
+    balance, and a `USER` account debited by these tests needs enough on hand to satisfy I2. It is
+    ignored for a `SYSTEM` account, which has no balance at all (T7)."""
     account_id = AccountId(uuid4())
     if account_type.is_system():
         return SystemAccount(
@@ -222,7 +237,6 @@ def _open(
             owner_id=owner_id,
             purpose=purpose,
             currency=USD,
-            balance=Money(balance, USD),
         )
     if balance == 0:
         return UserAccount.open(
@@ -524,7 +538,6 @@ async def test_two_concurrent_requests_with_the_same_key_never_both_apply() -> N
         idempotency_key=IdempotencyKey("race"),
         request_hash=request.hash(),
         transfer_id=winner.transfer_id,
-        status="COMPLETED",
         created_at=winner.occurred_at,
     )
     database.force_idempotency_conflict_once = True
@@ -571,7 +584,6 @@ async def test_a_losing_concurrent_request_replays_even_when_underfunded() -> No
         idempotency_key=IdempotencyKey("race"),
         request_hash=request.hash(),
         transfer_id=winner.transfer_id,
-        status="COMPLETED",
         created_at=winner.occurred_at,
     )
     database.force_idempotency_conflict_once = True

@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -42,19 +41,6 @@ def _open_user_account(*, account_id: AccountId | None = None) -> UserAccount:
         owner_id=_owner_id(),
         purpose=AccountPurpose.CHECKING,
         currency=USD,
-    )
-
-
-def _open_system_account(*, account_id: AccountId | None = None) -> SystemAccount:
-    """Not "opened" through a factory -- `SystemAccount` has none (T8: those rows come from the
-    migration's own seed insert, never through domain code) -- constructed directly instead,
-    with a zero balance to match what `UserAccount.open()` forces for the same reason (G1)."""
-    return SystemAccount(
-        account_id=account_id or _account_id(),
-        owner_id=_owner_id(),
-        purpose=AccountPurpose.FUNDING,
-        currency=USD,
-        balance=Money.zero(USD),
     )
 
 
@@ -180,19 +166,6 @@ class TestDebit:
 
         assert debited.balance == Money.zero(USD)
 
-    def test_system_debit_has_no_floor(self) -> None:
-        account = _open_system_account()
-
-        debited = account.debit(
-            _entry(
-                account_id=account.account_id,
-                direction=EntryDirection.DEBIT,
-                amount=Money(1_000, USD),
-            )
-        )
-
-        assert debited.balance == Money(-1_000, USD)
-
     def test_entry_for_a_different_account_raises_entry_account_mismatch(self) -> None:
         account = _open_user_account()
         with pytest.raises(EntryAccountMismatchError):
@@ -237,11 +210,8 @@ class TestDebit:
 
 
 class TestCredit:
-    @pytest.mark.parametrize("open_account", [_open_user_account, _open_system_account])
-    def test_credit_increases_any_accounts_balance(
-        self, open_account: Callable[[], UserAccount | SystemAccount]
-    ) -> None:
-        account = open_account()
+    def test_credit_increases_the_balance(self) -> None:
+        account = _open_user_account()
 
         credited = account.credit(
             _entry(
@@ -474,13 +444,26 @@ class TestClose:
             account.close()
         assert account.status is AccountStatus.ACTIVE
 
-    def test_system_accounts_have_no_close_operation(self) -> None:
-        """design §4.5: previously an `AccountNotClosableError` a `SYSTEM` account raised at
-        runtime -- now there is no `close()`/`is_closable()` on `SystemAccount` to call at all, a
-        type-level guarantee instead of a caught exception (the same ADT split this whole module
-        exists to demonstrate)."""
-        assert not hasattr(SystemAccount, "close")
-        assert not hasattr(SystemAccount, "is_closable")
+    def test_system_accounts_have_no_balance_bearing_operations(self) -> None:
+        """The ADT split states as types what used to be runtime refusals or dead computation.
+
+        `close()`/`is_closable()`: previously an `AccountNotClosableError` raised at runtime for a
+        `SYSTEM` account (design §4.5) -- now there is nothing to call. `balance`, `credit()`,
+        `debit()`, `debit_for_reversal()`, `status`, `version`: a `SYSTEM` account has no balance
+        anywhere (T7), so it has no state for any of them to advance. Both facts are checked here
+        rather than through a raise, because the point is that the calls no longer type-check.
+        """
+        for absent in (
+            "close",
+            "is_closable",
+            "balance",
+            "credit",
+            "debit",
+            "debit_for_reversal",
+            "status",
+            "version",
+        ):
+            assert not hasattr(SystemAccount, absent), f"SystemAccount should not define {absent}"
 
     def test_returns_a_new_account_and_leaves_the_receiver_untouched(self) -> None:
         account = _open_user_account()
