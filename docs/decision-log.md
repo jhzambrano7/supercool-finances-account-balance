@@ -971,3 +971,10 @@ Formato de cada entrada:
 - **Prompt:** "Quiero que inicies dos tareas en paralelo: 1. depósitos y retiros [...] 2. Construye la web [...] usa react [...] No debe llevar pruebas automatizadas"
 - **Respuesta:** Comité los dos edits de spec pendientes (currency USD-only + diseño depósito/retiro) en una rama nueva `feat/deposit-withdraw` (off `main`), creé otra rama limpia `feat/web-ui` (off `main`), y lancé dos agentes fork con `isolation: "worktree"` — uno implementa el backend con el rigor de siempre (ruff/mypy strict/pytest, GitNexus impact-analysis), el otro construye React en `web/` sin pruebas automatizadas por instrucción explícita. Ninguno mergea ni abre PR por su cuenta.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 22:30 — Verificar independientemente ambos agentes en paralelo antes de reportar
+<!-- id: 20260907-223039-a1fe3a40 -->
+- **Qué intentaba:** No confiar en el self-report de los dos forks (backend depósito/retiro, web UI) y confirmar sus resultados con mis propias manos.
+- **Prompt:** (notificaciones de finalización de ambos agentes, sin mensaje nuevo del usuario)
+- **Respuesta:** Entré a los worktrees dejados por cada fork y corrí las verificaciones yo mismo: `feat/deposit-withdraw` → ruff + mypy strict + pytest completo (206 tests, todo verde); `feat/web-ui` → confirmé ausencia de dependencias de testing, build real (`tsc -b && vite build`) limpio, proxy de Vite a `localhost:8000`, y el scope `web` agregado en `scripts/check_commit_msg.py`. Ambas ramas quedaron pusheadas a origin sin PR ni merge.
+- **Veredicto:** ⏳ pendiente
