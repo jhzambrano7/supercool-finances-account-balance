@@ -9,10 +9,10 @@ from modules.account_balance.adapters.inbound.api.dtos import (
     WithdrawalRequestDto,
 )
 from modules.account_balance.application.gateways.account_repository import AccountNotFoundError
-from modules.account_balance.application.use_cases.deposit import Deposit, DepositRequest
-from modules.account_balance.application.use_cases.system_account_resolver import (
+from modules.account_balance.application.services.system_account_resolver import (
     CurrencyNotOperationalError,
 )
+from modules.account_balance.application.use_cases.deposit import Deposit, DepositRequest
 from modules.account_balance.application.use_cases.transfer_money import (
     IdempotencyConflictError,
     SystemToSystemTransferNotAllowedError,

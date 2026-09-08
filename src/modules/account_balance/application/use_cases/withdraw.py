@@ -1,9 +1,7 @@
 from dataclasses import dataclass
-from logging import Logger
 
-from modules.account_balance.application.gateways.account_repository import AccountRepository
-from modules.account_balance.application.use_cases.system_account_resolver import (
-    resolve_system_account,
+from modules.account_balance.application.services.system_account_resolver import (
+    SystemAccountResolver,
 )
 from modules.account_balance.application.use_cases.transfer_money import (
     TransferMoney,
@@ -39,20 +37,16 @@ class Withdraw:
     def __init__(
         self,
         *,
-        account_repository: AccountRepository,
+        system_account_resolver: SystemAccountResolver,
         transfer_money: TransferMoney,
-        logger: Logger,
     ) -> None:
-        self._account_repository = account_repository
+        self._system_account_resolver = system_account_resolver
         self._transfer_money = transfer_money
-        self._logger = logger
 
     async def execute(self, request: WithdrawRequest) -> Transfer:
-        settlement_account = await resolve_system_account(
-            repository=self._account_repository,
+        settlement_account = await self._system_account_resolver.resolve(
             purpose=AccountPurpose.SETTLEMENT,
             currency=request.amount.currency,
-            logger=self._logger,
         )
         return await self._transfer_money.execute(
             TransferMoneyRequest(

@@ -24,10 +24,11 @@ from modules.account_balance.application.gateways.models.find_accounts_criteria 
 )
 from modules.account_balance.application.gateways.transfer_repository import TransferRepository
 from modules.account_balance.application.gateways.unit_of_work import TransferUnitOfWork
-from modules.account_balance.application.use_cases.deposit import Deposit, DepositRequest
-from modules.account_balance.application.use_cases.system_account_resolver import (
+from modules.account_balance.application.services.system_account_resolver import (
     CurrencyNotOperationalError,
+    SystemAccountResolver,
 )
+from modules.account_balance.application.use_cases.deposit import Deposit, DepositRequest
 from modules.account_balance.application.use_cases.transfer_money import TransferMoney
 from modules.account_balance.domain.account import (
     Account,
@@ -160,9 +161,11 @@ def _transfer_money(database: _Database) -> TransferMoney:
 
 def _deposit(database: _Database) -> Deposit:
     return Deposit(
-        account_repository=_FakeAccountRepository(database),
+        system_account_resolver=SystemAccountResolver(
+            repository=_FakeAccountRepository(database),
+            logger=logging.getLogger(__name__),
+        ),
         transfer_money=_transfer_money(database),
-        logger=logging.getLogger(__name__),
     )
 
 
