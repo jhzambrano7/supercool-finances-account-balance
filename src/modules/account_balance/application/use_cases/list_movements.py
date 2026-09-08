@@ -29,10 +29,12 @@ class ListMovements:
         account = await self._account_repository.get(criteria=FindAccountByAccountId(account_id))
         if account.owner_id != caller_id:
             raise AccountOwnershipError(f"account {account_id} is not owned by {caller_id}")
-        assert isinstance(account, UserAccount), (
-            "the ownership check above already excludes a SYSTEM account "
-            "(its owner is PLATFORM_OWNER_ID, never a real caller)"
-        )
+        if not isinstance(account, UserAccount):  # pragma: no cover -- defensive, mirrors AO4
+            raise RuntimeError(
+                f"account {account_id} passed the ownership check but is not a UserAccount -- "
+                "the ownership check above should already exclude a SYSTEM account (its owner "
+                "is PLATFORM_OWNER_ID, never a real caller)"
+            )
         return await self._movement_repository.find_by_account(
             account_id=account_id, limit=limit, cursor=cursor
         )
