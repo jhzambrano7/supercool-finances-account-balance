@@ -1261,3 +1261,10 @@ Formato de cada entrada:
 - **Respuesta:** Confirmé build limpio, sin test deps, y el orden correcto de los matches de error en `errors.ts` (verificado contra el mensaje real de `AccountNotEmptyError`, que es superstring del de `AccountNotClosableError`). Confirmé el filtro de cuentas CLOSED en `MoveMoneyScreen` y que `MovementHistoryScreen` queda sin filtrar a propósito. Abrí el PR #8 cubriendo backend + web como un solo feature completo.
 - **Veredicto:** ⏳ pendiente
 <!-- skip: 20260908-162044-a1fe3a40 -->
+
+## 2026-09-08 16:35 — Resolver los 3 comentarios de revisión en PR #8
+<!-- id: 20260908-163506-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "resuelve los comentarios del PR" para PR #8 (cerrar cuenta).
+- **Prompt:** "resuelve los comentarios del PR"
+- **Respuesta:** Encontré 3 comentarios reales, ninguno stale esta vez: (1) `closeError` no se reseteaba al cambiar de identidad -- corregido en el mismo `useEffect`; (2) `close()` sólo refrescaba en éxito, dejando la fila stale tras un 422 por depósito concurrente -- movido a `finally`; (3) el test de concurrencia extraía `account_id` sin verificar que el open hubiera dado 201 -- agregado el assert. Verifiqué build limpio y gates verdes antes de commitear (commit `fd5e659`), respondí los 3 hilos.
+- **Veredicto:** ⏳ pendiente
