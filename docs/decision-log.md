@@ -1036,3 +1036,10 @@ Formato de cada entrada:
 - **Prompt:** "mergealo a main"
 - **Respuesta:** `gh pr merge --merge` falló por un conflicto real (no espurio) en `docs/decision-log.md`: dos entradas de la sesión pre-compactación (incidente `git checkout main --.`, decisión de acotar Currency a USD) habían quedado sólo en `feat/deposit-withdraw` y nunca llegaron a `main`. Las incorporé en orden cronológico correcto vía merge local, sin tocar código (0 conflictos ahí). Corrí ruff/mypy strict/pytest sobre el árbol ya mergeado (206 tests verdes) antes de completar el commit y pushear. PR #4 quedó `MERGED`. Limpié el worktree del fork ya mergeado.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:05 — Actualizar la web UI para usar /deposits y /withdrawals reales
+<!-- id: 20260907-230512-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "vamos con el PR de la web, ya con los EPs de depósito y retiro podemos incrementar la implementación" -- reemplazar el hack de IDs de cuentas SYSTEM hardcodeadas en el frontend por los endpoints reales, ahora que PR #4 está en main.
+- **Prompt:** "vamos con el PR de la web, ya con los EPs de depósito y retiro podemos incrementar la implementación"
+- **Respuesta:** Lancé un fork en worktree aislado sobre `feat/web-ui`: agrega `createDeposit`/`createWithdrawal` al cliente, generaliza `PendingTransfer` (acoplado hoy a la forma de `TransferRequest`) para soportar las tres formas de body, actualiza `MoveMoneyScreen.tsx` para que Deposit/Withdraw ya no inyecten IDs de cuentas SYSTEM a mano, y borra `seededAccounts.ts` (su propio docstring pedía borrarlo el día que estos endpoints existieran). Sigue sin pruebas automatizadas, con verificación manual de golden-path contra un backend real.
+- **Veredicto:** ⏳ pendiente
