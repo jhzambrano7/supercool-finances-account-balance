@@ -1168,3 +1168,10 @@ Formato de cada entrada:
 - **Prompt:** "nos queda el PR web, pásate a ese branch, actualiza con main, integra los EPs de lectura recier mergeados a main"
 - **Respuesta:** Cambié a `feat/web-ui`, mergeé `main` (limpio, sin conflictos esta vez), gates de backend verdes, pusheado. Lancé un fork para reemplazar el registro `localStorage`/hack de replay en `AccountsScreen.tsx` por `GET /accounts` real, actualizar `MoveMoneyScreen.tsx`/`OpenAccountScreen.tsx` para dejar de depender de `registry.ts` (a borrar), y construir un histórico de movimientos real con `GET /accounts/{id}/movements` reemplazando el placeholder. Sin pruebas automatizadas, con verificación manual de golden-path.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 00:46 — Verificar y cerrar el fork de listado/histórico en la web UI
+<!-- id: 20260908-004646-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente el fork que integró los endpoints reales de lectura en la web UI antes de darlo por bueno.
+- **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
+- **Respuesta:** Confirmé en el worktree: `registry.ts` borrado sin referencias, build (`tsc -b && vite build`) limpio, sin dependencias de testing. `AccountsScreen.tsx` sin banner/hack, `MovementHistoryScreen.tsx` nueva con paginación por cursor. Commit `a8ed239` ya en origin. Limpié el worktree.
+- **Veredicto:** ⏳ pendiente
