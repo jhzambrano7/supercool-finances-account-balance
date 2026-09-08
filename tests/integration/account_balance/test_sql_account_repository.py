@@ -18,7 +18,7 @@ from modules.account_balance.application.gateways.models.find_accounts_criteria 
     FindAccountByAccountId,
     FindAccountByOwnerAndPurposeAndCurrency,
 )
-from modules.account_balance.domain.account import Account, AccountPurpose, AccountType
+from modules.account_balance.domain.account import AccountPurpose, UserAccount
 from modules.account_balance.domain.identifiers import AccountId, OwnerId
 from modules.shared.domain.money import Currency
 
@@ -34,11 +34,10 @@ def _repository(session_factory: Callable[[], AsyncSession]) -> SqlAccountReposi
 
 def _open_user_account(
     *, owner_id: OwnerId, purpose: AccountPurpose = AccountPurpose.CHECKING
-) -> Account:
-    return Account.open(
+) -> UserAccount:
+    return UserAccount.open(
         account_id=AccountId(uuid4()),
         owner_id=owner_id,
-        account_type=AccountType.USER,
         purpose=purpose,
         currency=USD,
     )
@@ -58,7 +57,7 @@ async def test_add_then_find_by_natural_key_criteria_round_trips(
         )
     )
 
-    assert found is not None
+    assert isinstance(found, UserAccount)
     assert found.account_id == account.account_id
     assert found.owner_id == owner_id
     assert found.balance.is_zero

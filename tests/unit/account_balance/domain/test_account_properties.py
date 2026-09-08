@@ -13,10 +13,9 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from modules.account_balance.domain.account import (
-    Account,
     AccountPurpose,
-    AccountStatus,
-    AccountType,
+    SystemAccount,
+    UserAccount,
 )
 from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.errors import InsufficientFundsError
@@ -27,11 +26,10 @@ USD = Currency("USD")
 _POOL_SIZE = 4
 
 
-def _open_user_account() -> Account:
-    return Account.open(
+def _open_user_account() -> UserAccount:
+    return UserAccount.open(
         account_id=AccountId(uuid4()),
         owner_id=OwnerId(uuid4()),
-        account_type=AccountType.USER,
         purpose=AccountPurpose.CHECKING,
         currency=USD,
     )
@@ -114,14 +112,13 @@ class TestPropertyP4BalanceEqualsSumOfSignedAmounts:
     def test_balance_equals_sum_of_applied_signed_amounts(
         self, moves: list[tuple[EntryDirection, int]]
     ) -> None:
-        account = Account.open(
+        account: SystemAccount | UserAccount = SystemAccount(
             account_id=AccountId(uuid4()),
             owner_id=OwnerId(uuid4()),
-            account_type=AccountType.SYSTEM,
             purpose=AccountPurpose.FUNDING,
             currency=USD,
+            balance=Money.zero(USD),
         )
-        assert account.status is AccountStatus.ACTIVE
 
         expected = Money.zero(USD)
         for direction, amount in moves:

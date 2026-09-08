@@ -12,7 +12,7 @@ from uuid import uuid4
 from hypothesis import given
 from hypothesis import strategies as st
 
-from modules.account_balance.domain.account import Account, AccountPurpose, AccountType
+from modules.account_balance.domain.account import AccountPurpose, UserAccount
 from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.identifiers import (
     AccountId,
@@ -27,11 +27,10 @@ from modules.shared.domain.money import Currency, Money
 USD = Currency("USD")
 
 
-def _account_with_balance(balance: Money) -> Account:
-    account = Account.open(
+def _account_with_balance(balance: Money) -> UserAccount:
+    account = UserAccount.open(
         account_id=AccountId(uuid4()),
         owner_id=OwnerId(uuid4()),
-        account_type=AccountType.USER,
         purpose=AccountPurpose.CHECKING,
         currency=USD,
     )

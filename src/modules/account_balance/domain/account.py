@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, replace
-from enum import Enum, auto
+from enum import Enum
 from typing import Self
 
 from modules.account_balance.domain.entry import Entry, EntryDirection
@@ -18,28 +20,8 @@ from modules.shared.domain.errors import CurrencyMismatchError
 from modules.shared.domain.money import Currency, Money
 
 
-class OverdraftPolicy(Enum):
-    """Whether an account's balance may cross zero, and under which method.
-
-    Never persisted — derived from `AccountType` on every read — so it uses
-    `auto()` rather than the string values the persisted enums below use.
-    """
-
-    FORBIDDEN = auto()
-    UNLIMITED = auto()
-
-    def assert_allows(self, resulting_balance: Money, *, account_id: AccountId) -> None:
-        """Raises `InsufficientFundsError` (I2) when the policy forbids crossing zero.
-
-        The message deliberately carries no amount (PRD §11.4) — only the
-        account id, which is a structured field the caller may log alongside.
-        """
-        if self is OverdraftPolicy.FORBIDDEN and resulting_balance.is_negative:
-            raise InsufficientFundsError(f"account {account_id} balance would go negative")
-
-
 class AccountType(Enum):
-    """`USER` or `SYSTEM` (PRD §4.1) — drives the overdraft policy.
+    """`USER` or `SYSTEM` (PRD §4.1).
 
     String values, not `auto()`: this is persisted, so a reordering of the
     members must not silently reinterpret a stored row.
@@ -47,12 +29,6 @@ class AccountType(Enum):
 
     USER = "USER"
     SYSTEM = "SYSTEM"
-
-    @property
-    def overdraft_policy(self) -> OverdraftPolicy:
-        if self is AccountType.USER:
-            return OverdraftPolicy.FORBIDDEN
-        return OverdraftPolicy.UNLIMITED
 
     def is_user(self) -> bool:
         return self is AccountType.USER
@@ -95,18 +71,16 @@ class AccountStatus(Enum):
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class Account:
-    """An immutable entity: identity is `account_id`, never balance or status.
+class UserAccount:
+    """A `USER` account: real, persisted `balance`/`version` (§4, §4.2). Every behaviour that
+    changes state returns a new instance — nothing here mutates `self` (design §9.3).
 
-    `eq=False` because the generated dataclass equality would be by value,
-    and two loads of the same account with different balances are the *same*
-    account. Every behaviour that changes state returns a new instance —
-    nothing here mutates `self` (design §4, §4.2).
+    `eq=False` because the generated dataclass equality would be by value, and two loads of the
+    same account with different balances are the *same* account.
     """
 
     account_id: AccountId
     owner_id: OwnerId
-    account_type: AccountType
     purpose: AccountPurpose
     currency: Currency
     balance: Money
@@ -114,9 +88,9 @@ class Account:
     version: int
 
     def __post_init__(self) -> None:
-        if not self.purpose.matches_type(self.account_type):
+        if not self.purpose.matches_type(AccountType.USER):
             raise InvalidAccountPurposeError(
-                f"{self.purpose.value} does not belong to {self.account_type.value} (PRD §4.4)"
+                f"{self.purpose.value} does not belong to {AccountType.USER.value} (PRD §4.4)"
             )
         if self.balance.currency != self.currency:
             raise CurrencyMismatchError(
@@ -126,13 +100,16 @@ class Account:
         if self.version < 0:
             raise ValueError(f"version must be >= 0, got {self.version}")
 
+    @property
+    def account_type(self) -> AccountType:
+        return AccountType.USER
+
     @classmethod
     def open(
         cls,
         *,
         account_id: AccountId,
         owner_id: OwnerId,
-        account_type: AccountType,
         purpose: AccountPurpose,
         currency: Currency,
     ) -> Self:
@@ -144,7 +121,6 @@ class Account:
         return cls(
             account_id=account_id,
             owner_id=owner_id,
-            account_type=account_type,
             purpose=purpose,
             currency=currency,
             balance=Money.zero(currency),
@@ -158,7 +134,6 @@ class Account:
         *,
         account_id: AccountId,
         owner_id: OwnerId,
-        account_type: AccountType,
         purpose: AccountPurpose,
         currency: Currency,
         balance: Money,
@@ -167,14 +142,13 @@ class Account:
     ) -> Self:
         """Restores an account exactly as stored — never re-derives its state.
 
-        Deliberately does not re-assert a non-negative `USER` balance: a
-        reversal legitimately leaves one negative (PRD §7.3), and refusing to
-        load it would make the debt unrecoverable (design §4.1).
+        Deliberately does not re-assert a non-negative balance: a reversal
+        legitimately leaves one negative (PRD §7.3), and refusing to load it
+        would make the debt unrecoverable (design §4.1).
         """
         return cls(
             account_id=account_id,
             owner_id=owner_id,
-            account_type=account_type,
             purpose=purpose,
             currency=currency,
             balance=balance,
@@ -182,21 +156,22 @@ class Account:
             version=version,
         )
 
-    def credit(self, entry: Entry) -> Account:
-        """Increases the balance, for `USER` and `SYSTEM` accounts alike — no floor or ceiling."""
+    def credit(self, entry: Entry) -> UserAccount:
+        """Increases the balance — no ceiling."""
         resulting = self._validated_balance(entry, required_direction=EntryDirection.CREDIT)
         return replace(self, balance=resulting, version=self.version + 1)
 
-    def debit(self, entry: Entry) -> Account:
-        """The ordinary debit path — refuses to drive a `USER` account below zero (I2)."""
+    def debit(self, entry: Entry) -> UserAccount:
+        """The ordinary debit path — refuses to drive the balance below zero (I2)."""
         resulting = self._validated_balance(entry, required_direction=EntryDirection.DEBIT)
-        self.account_type.overdraft_policy.assert_allows(resulting, account_id=self.account_id)
+        if resulting.is_negative:
+            raise InsufficientFundsError(f"account {self.account_id} balance would go negative")
         return replace(self, balance=resulting, version=self.version + 1)
 
-    def debit_for_reversal(self, entry: Entry) -> Account:
-        """The sole path that may drive a `USER` account below zero (I2, §7.3).
+    def debit_for_reversal(self, entry: Entry) -> UserAccount:
+        """The sole path that may drive the balance below zero (I2, §7.3).
 
-        Does not consult `OverdraftPolicy` at all — that is the entire
+        Does not check for a negative result at all — that is the entire
         difference from `debit()`. Referenced only here and in
         `posting.py::revert` (design §4.3's architecture test).
         """
@@ -211,19 +186,16 @@ class Account:
         if owner_id != self.owner_id:
             raise AccountOwnershipError(f"account {self.account_id} is not owned by {owner_id}")
 
-    def close(self) -> Account:
-        """Refuses unless USER-typed, ACTIVE, and exactly zero balance (§7.2).
+    def close(self) -> UserAccount:
+        """Refuses unless ACTIVE and exactly zero balance (§7.2).
 
         Checked in the order the spec states the requirement: closability
-        first (`AccountNotClosableError` — nothing branches differently
-        between "already closed" and "SYSTEM"), then balance
-        (`AccountNotEmptyError` — the one refusal a caller can act on by
-        emptying the account first).
+        first (`AccountNotClosableError`), then balance (`AccountNotEmptyError`
+        — the one refusal a caller can act on by emptying the account first).
         """
         if not self.is_closable():
             raise AccountNotClosableError(
-                f"account {self.account_id} cannot be closed "
-                f"(status={self.status.value}, type={self.account_type.value})"
+                f"account {self.account_id} cannot be closed (status={self.status.value})"
             )
         if not self.balance.is_zero:
             raise AccountNotEmptyError(
@@ -235,8 +207,9 @@ class Account:
         return self.status.is_active()
 
     def is_closable(self) -> bool:
-        """`ACTIVE` and `USER`-typed — `SYSTEM` accounts and closed ones never qualify (§7.2)."""
-        return self.is_active() and not self.account_type.is_system()
+        """`ACTIVE` — a `SYSTEM` account is a different type and was never closable to begin
+        with; there is no longer a second condition to check here (§7.2)."""
+        return self.is_active()
 
     def fail_if_not_active(self) -> None:
         """An account whose status is not `ACTIVE` refuses debits and credits (§7.2)."""
@@ -266,9 +239,89 @@ class Account:
         return self.balance + entry.signed_amount
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Account):
+        if not isinstance(other, UserAccount):
             return NotImplemented
         return self.account_id == other.account_id
 
     def __hash__(self) -> int:
         return hash(self.account_id)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class SystemAccount:
+    """A `SYSTEM` account (`FUNDING`/`SETTLEMENT`, PRD §4.1): always `ACTIVE`, never closed, never
+    locked (T6) — there is no `status`/`version`/`close()`/`is_closable()` here, not because they
+    are unused but because neither concept applies: nothing can ever close this account (no
+    method exists to try), and its optimistic-lock `version` is never persisted (T7 — `update()`
+    must never be called for a `SYSTEM` account, so nothing ever reads or increments a real one).
+
+    `balance` here is whatever the caller constructed it with. `credit()`/`debit()` still apply
+    (unlimited — no floor or ceiling, unlike `UserAccount.debit()`) because a posting must be able
+    to compute *some* resulting balance for this leg while applying it in-process (design §5.1);
+    the repository is the one place that computes the persisted value fresh as `SUM(entries)` on
+    every read (T7) rather than trusting any single in-memory snapshot.
+    """
+
+    account_id: AccountId
+    owner_id: OwnerId
+    purpose: AccountPurpose
+    currency: Currency
+    balance: Money
+
+    def __post_init__(self) -> None:
+        if not self.purpose.matches_type(AccountType.SYSTEM):
+            raise InvalidAccountPurposeError(
+                f"{self.purpose.value} does not belong to {AccountType.SYSTEM.value} (PRD §4.4)"
+            )
+        if self.balance.currency != self.currency:
+            raise CurrencyMismatchError(
+                f"account currency {self.currency} does not match balance currency "
+                f"{self.balance.currency}"
+            )
+
+    @property
+    def account_type(self) -> AccountType:
+        return AccountType.SYSTEM
+
+    def credit(self, entry: Entry) -> SystemAccount:
+        """Increases the balance — no floor or ceiling."""
+        resulting = self._validated_balance(entry, required_direction=EntryDirection.CREDIT)
+        return replace(self, balance=resulting)
+
+    def debit(self, entry: Entry) -> SystemAccount:
+        """No floor — a `SYSTEM` account has unlimited overdraft by design (PRD §4.1)."""
+        resulting = self._validated_balance(entry, required_direction=EntryDirection.DEBIT)
+        return replace(self, balance=resulting)
+
+    def debit_for_reversal(self, entry: Entry) -> SystemAccount:
+        """Identical to `debit()` — there is no floor to route around either way. Kept as its own
+        named method (not an alias) because `posting.py::revert` calls it by name polymorphically
+        on whatever `source` is, and the architecture fitness test
+        `test_debit_for_reversal_is_referenced_only_in_definition_and_revert` audits `def:` sites
+        per class, not per alias target."""
+        return self.debit(entry)
+
+    def _validated_balance(self, entry: Entry, required_direction: EntryDirection) -> Money:
+        """Same preflight as `UserAccount`, minus the operability check — a `SYSTEM` account has
+        no status, it is never anything other than operable."""
+        if entry.account_id != self.account_id:
+            raise EntryAccountMismatchError(
+                f"entry {entry.entry_id} targets account {entry.account_id}, not {self.account_id}"
+            )
+        if entry.direction is not required_direction:
+            raise EntryDirectionMismatchError(
+                f"entry {entry.entry_id} has direction {entry.direction.value}, "
+                f"expected {required_direction.value}"
+            )
+        return self.balance + entry.signed_amount
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, SystemAccount):
+            return NotImplemented
+        return self.account_id == other.account_id
+
+    def __hash__(self) -> int:
+        return hash(self.account_id)
+
+
+Account = UserAccount | SystemAccount

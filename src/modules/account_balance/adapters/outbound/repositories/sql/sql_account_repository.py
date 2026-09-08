@@ -22,7 +22,7 @@ from modules.account_balance.application.gateways.account_repository import (
 from modules.account_balance.application.gateways.models.find_accounts_criteria import (
     FindAccountCriteria,
 )
-from modules.account_balance.domain.account import Account, AccountType
+from modules.account_balance.domain.account import Account, AccountType, UserAccount
 from modules.account_balance.domain.entry import EntryDirection
 from modules.account_balance.domain.identifiers import AccountId
 
@@ -61,6 +61,10 @@ class SqlAccountRepository(AccountRepository):
 
     @override
     async def add(self, account: Account) -> None:
+        # AO1: only `AccountRegister` calls `add()`, and it never opens a
+        # `SYSTEM` account -- those rows exist only via the migration's own
+        # seed insert (T8), never through this port.
+        assert isinstance(account, UserAccount), "add() is only ever called with a USER account"
         dbo = AccountDbo.from_domain(account)
         try:
             async with self._session_factory() as session:
@@ -88,7 +92,7 @@ class SqlAccountRepository(AccountRepository):
             ) from exc
 
     @override
-    async def get_for_update(self, account_id: AccountId) -> Account | None:
+    async def get_for_update(self, account_id: AccountId) -> UserAccount | None:
         try:
             async with self._session_factory() as session:
                 dbo = await session.scalar(
@@ -102,7 +106,11 @@ class SqlAccountRepository(AccountRepository):
                     )
                     .with_for_update()
                 )
-                return dbo.as_domain() if dbo is not None else None
+                if dbo is None:
+                    return None
+                account = dbo.as_domain()
+                assert isinstance(account, UserAccount), "excluded SYSTEM rows in the WHERE clause"
+                return account
         except Exception as exc:
             self._logger.exception("unexpected error locking account %s", account_id)
             raise AccountRepositoryError(
@@ -112,7 +120,7 @@ class SqlAccountRepository(AccountRepository):
             ) from exc
 
     @override
-    async def update(self, account: Account) -> None:
+    async def update(self, account: UserAccount) -> None:
         try:
             async with self._session_factory() as session:
                 await session.execute(

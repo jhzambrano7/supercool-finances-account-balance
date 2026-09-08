@@ -19,7 +19,7 @@ from modules.account_balance.domain.account import (
     Account,
     AccountPurpose,
     AccountStatus,
-    AccountType,
+    UserAccount,
 )
 from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.errors import (
@@ -46,15 +46,13 @@ EUR = Currency("EUR")
 def _open_account(
     *,
     account_id: AccountId | None = None,
-    account_type: AccountType = AccountType.USER,
     purpose: AccountPurpose = AccountPurpose.CHECKING,
     currency: Currency = USD,
     balance: Money | None = None,
-) -> Account:
-    account = Account.open(
+) -> UserAccount:
+    account = UserAccount.open(
         account_id=account_id or AccountId(uuid4()),
         owner_id=OwnerId(uuid4()),
-        account_type=account_type,
         purpose=purpose,
         currency=currency,
     )

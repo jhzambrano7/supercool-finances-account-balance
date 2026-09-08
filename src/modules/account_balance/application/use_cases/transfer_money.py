@@ -12,7 +12,7 @@ from modules.account_balance.application.gateways.models.find_accounts_criteria 
 )
 from modules.account_balance.application.gateways.unit_of_work import TransferUnitOfWork
 from modules.account_balance.domain import posting as domain_posting
-from modules.account_balance.domain.account import Account
+from modules.account_balance.domain.account import Account, UserAccount
 from modules.account_balance.domain.identifiers import (
     AccountId,
     EntryId,
@@ -228,7 +228,7 @@ class TransferMoney:
 
         await uow.transfers.add(posting)
         for account in posting.accounts:
-            if account.account_type.is_user():
+            if isinstance(account, UserAccount):
                 await uow.accounts.update(account)
 
         return posting.transfer
@@ -247,7 +247,7 @@ class TransferMoney:
             {
                 account.account_id
                 for account in (source, destination)
-                if account.account_type.is_user()
+                if isinstance(account, UserAccount)
             }
         )
         for account_id in user_ids:
@@ -266,9 +266,9 @@ class TransferMoney:
         Computed from the two accounts' *types* -- not a fixed "caller owns
         the source" assumption, which would wrongly block every deposit.
         """
-        if source.account_type.is_user():
+        if isinstance(source, UserAccount):
             source.assert_owned_by(caller)
-        elif destination.account_type.is_user():
+        elif isinstance(destination, UserAccount):
             destination.assert_owned_by(caller)
         else:
             raise SystemToSystemTransferNotAllowedError(

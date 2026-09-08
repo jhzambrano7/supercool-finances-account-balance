@@ -12,7 +12,7 @@ from modules.account_balance.adapters.inbound.api.dtos import (
     TransferResponseDto,
 )
 from modules.account_balance.application.use_cases.account_register import OpenAccountResult
-from modules.account_balance.domain.account import Account, AccountPurpose, AccountType
+from modules.account_balance.domain.account import AccountPurpose, UserAccount
 from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.identifiers import (
     AccountId,
@@ -28,10 +28,9 @@ USD = Currency("USD")
 
 
 def test_from_result_maps_every_field() -> None:
-    account = Account.open(
+    account = UserAccount.open(
         account_id=AccountId(uuid4()),
         owner_id=OwnerId(uuid4()),
-        account_type=AccountType.USER,
         purpose=AccountPurpose.CHECKING,
         currency=USD,
     )

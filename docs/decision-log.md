@@ -807,3 +807,36 @@ Formato de cada entrada:
 - **Prompt:** "sube los cambios al PR"
 - **Respuesta:** Revisé el diff antes de tocar nada -- refactor limpio, autocontenido, consistente entre `transfer_money.py` y su test. Corrí gates (ruff, mypy strict) y la suite completa (3 corridas + una con el Postgres local parado, 188 verdes) antes de commitear cualquier cosa que no escribí yo. Commiteado y pusheado.
 - **Veredicto:** ⏳ pendiente
+<!-- skip: 20260907-190631-a1fe3a40 -->
+
+## 2026-09-07 19:14 — Diseñar el split ADT UserAccount/SystemAccount, sin implementar todavía
+
+<!-- id: 20260907-191410-a1fe3a40 -->
+- **Qué intentaba:** El usuario planteó una limitación real del aggregate `Account`: la existencia de `balance` depende del tipo de cuenta, y pidió modelarlo con una estructura ADT.
+- **Prompt:** "veo limitante del aggregate, la existencia de balance depende del tipo de cuenta, entonces debes agregar la estructura ADT que permita modelar esa restricción"
+- **Respuesta:** Verificado con evidencia concreta antes de diseñar: en `transfer_money.py:230-232`, el `balance`/`version` post-`credit()`/`debit()` de una cuenta SYSTEM se computa y se descarta sin persistir (`if account.account_type.is_user(): update(...)`) -- cómputo puro desperdiciado, y el propio docstring de `_lock_user_accounts` ya lo admite ("re-reading it under lock would buy nothing"). Propuesto un split real: `UserAccount`/`SystemAccount` como `Account = UserAccount | SystemAccount` (mismo patrón que `FindAccountCriteria`), moviendo `balance`/`version`/`credit`/`debit`/`close` sólo a `UserAccount` -- `SystemAccount` no los tendría en absoluto, no como no-ops. Esto obliga a reestructurar `posting.transfer()`/`revert()` (hoy llaman `.credit()`/`.debit()` polimórficamente sin importar el tipo) para que sólo produzcan `UserAccount`s a persistir, eliminando los 3 branches `if is_user()` dispersos en el use case. Alcance real: `domain/account.py`, `domain/posting.py`, `application/use_cases/transfer_money.py` y `account_register.py`, el puerto `AccountRepository`, `AccountDbo`, y ~10 archivos de test. No implementado -- presentado el diseño concreto, a la espera de confirmación antes de tocar tantos archivos.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 19:18 — Usar GitNexus para impacto, corregir mi propio diseño, delegar la implementación
+
+<!-- id: 20260907-191847-a1fe3a40 -->
+- **Qué intentaba:** Ejecutar el split ADT `UserAccount`/`SystemAccount` aprobado, usando GitNexus para determinar el impacto real antes de tocar código.
+- **Prompt:** "démosle, dispones de gitnexus por cierto, apalancate para determinar impacto de cambios y demás"
+- **Respuesta:** Reindexé el repo (`gitnexus analyze`, estaba desactualizado) y corrí `impact(Account, upstream)` -- confirmó 8 dependientes directos + 9 transitivos, sin sorpresas fuera de lo que ya había mapeado a mano. **Me equivoqué en mi propio diseño inicial** y lo corregí antes de implementar: había propuesto que `SystemAccount` no tuviera `credit()`/`debit()` en absoluto -- un grep de cada call site reveló que `test_account.py` tiene `test_system_debit_has_no_floor` y un test parametrizado (`_open_user_account`/`_open_system_account`) que exigen explícitamente que `.credit()`/`.debit()` funcionen igual en ambos tipos, con overdraft ilimitado para SYSTEM. Corregido: ambos tipos comparten `credit`/`debit`/`debit_for_reversal` (comportamiento real, ya probado); lo que SÍ se saca de `SystemAccount` es `status`/`version`/`close`/`is_closable` (SYSTEM siempre está ACTIVE, nunca se cierra, su versión nunca se persiste). También encontré que `test_architecture.py` tiene un fitness test (`test_debit_for_reversal_is_referenced_only_in_definition_and_revert`) que verifica por AST el `def:Account.debit_for_reversal` exacto -- necesita actualizarse a dos definiciones (`UserAccount`/`SystemAccount`). Dado el tamaño (~9 archivos de código + ~10 de test), delegué la implementación mecánica a un fork mío (hereda todo este análisis, no lo repite) con el diseño final ya cerrado y cada archivo/test especificado. Corriendo en background.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 19:36 — Verificar el split ADT terminado por el fork, independientemente de su propio reporte
+
+<!-- id: 20260907-193634-a1fe3a40 -->
+- **Qué intentaba:** El fork delegado terminó de implementar `UserAccount`/`SystemAccount`; verificar por mi cuenta antes de confiar en su reporte.
+- **Prompt:** (notificación de fin del fork; sin prompt nuevo del usuario)
+- **Respuesta:** Leí `domain/account.py` completo -- coincide exactamente con el diseño acordado, incluida la solución elegante para `SystemAccount.debit_for_reversal` (delega a `debit()` en vez de duplicar código, pero sigue siendo su propio `def:` nombrado para no romper el fitness test de arquitectura). Corrí gates yo mismo, sin confiar en el reporte: ruff/mypy strict limpios, **188 tests, 3 corridas + una con el Postgres local parado**, todas limpias. Verificado sin `OverdraftPolicy` colgante, sin `Account.open(` viejo colgante (todo migrado a `UserAccount.open(`), el fitness test de `debit_for_reversal` actualizado exactamente como se pidió. Revisé también los 2 puntos donde el fork dice haber contradicho el brief (`AccountDbo.from_domain(account: UserAccount)` en vez del `NotImplementedError` especulativo, y un segundo sitio de construcción SYSTEM en `test_account_properties.py` que mi grep original no había cazado) -- ambos correctos y bien razonados. 23 archivos, 448(+)/197(-). Nada commiteado todavía.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 19:52 — Commitear y pushear el split ADT UserAccount/SystemAccount
+
+<!-- id: 20260907-195206-a1fe3a40 -->
+- **Qué intentaba:** El usuario decidió no correr una revisión adversarial extra y pidió subir los cambios directamente.
+- **Prompt:** "sube los cambios"
+- **Respuesta:** Con mi propia verificación (gates + spot-check del diseño) ya hecha en el turno anterior, el usuario optó por saltar la ronda extra de judgment-day y subir directo. Commiteado el split completo y pusheado a `origin/feat/transfer`.
+- **Veredicto:** ⏳ pendiente

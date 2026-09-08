@@ -25,7 +25,7 @@ from modules.account_balance.adapters.outbound.repositories.sql.sql_unit_of_work
 from modules.account_balance.application.gateways.models.find_accounts_criteria import (
     FindAccountByAccountId,
 )
-from modules.account_balance.domain.account import Account, AccountPurpose, AccountType
+from modules.account_balance.domain.account import AccountPurpose, UserAccount
 from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.identifiers import AccountId, EntryId, OwnerId, TransferId
 from modules.shared.domain.money import Currency, Money
@@ -40,11 +40,10 @@ def _repository(session_factory: Callable[[], AsyncSession]) -> SqlAccountReposi
     return SqlAccountRepository(_logger, session_factory)
 
 
-def _open_user_account(*, owner_id: OwnerId) -> Account:
-    return Account.open(
+def _open_user_account(*, owner_id: OwnerId) -> UserAccount:
+    return UserAccount.open(
         account_id=AccountId(uuid4()),
         owner_id=owner_id,
-        account_type=AccountType.USER,
         purpose=AccountPurpose.CHECKING,
         currency=USD,
     )
@@ -162,6 +161,6 @@ async def test_update_persists_a_user_accounts_new_balance_and_version(
         await uow.accounts.update(credited)
 
     reloaded = await account_repository.find(criteria=FindAccountByAccountId(account.account_id))
-    assert reloaded is not None
+    assert isinstance(reloaded, UserAccount)
     assert reloaded.balance.amount == 750
     assert reloaded.version == 1

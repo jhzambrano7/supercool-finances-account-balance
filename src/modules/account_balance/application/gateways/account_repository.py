@@ -4,7 +4,7 @@ from typing import Any
 from modules.account_balance.application.gateways.models.find_accounts_criteria import (
     FindAccountCriteria,
 )
-from modules.account_balance.domain.account import Account, AccountPurpose
+from modules.account_balance.domain.account import Account, AccountPurpose, UserAccount
 from modules.account_balance.domain.identifiers import AccountId, OwnerId
 from modules.shared.application.errors import (
     IntegrationError,
@@ -103,28 +103,28 @@ class AccountRepository(ABC):
         """
 
     @abstractmethod
-    async def get_for_update(self, account_id: AccountId) -> Account | None:
+    async def get_for_update(self, account_id: AccountId) -> UserAccount | None:
         """Returns the `USER` account for this id, locked (`SELECT ... FOR
         UPDATE`) for the lifetime of the caller's transaction (T6, PRD §5
         step 3).
 
-        `SYSTEM` accounts are never locked (T6, T7) -- callers must not
-        invoke this for an id known to be a `SYSTEM` account; behaviour for
-        one is unspecified (implementations return `None`, matching "not
-        found" for this method's purpose, rather than silently locking
-        infrastructure nothing needs locked). Callers determine `USER`-ness
-        from an unlocked `find`/`get` first (via `FindAccountByAccountId`),
-        then lock only those ids, sorted by `AccountId`, before calling this.
+        `SYSTEM` accounts are never locked (T6, T7) -- the return type
+        itself now says a `SYSTEM` account is not a possible result, rather
+        than only a docstring promising callers won't ask for one. Callers
+        determine `USER`-ness from an unlocked `find`/`get` first (via
+        `FindAccountByAccountId`), then lock only those ids, sorted by
+        `AccountId`, before calling this.
         """
 
     @abstractmethod
-    async def update(self, account: Account) -> None:
+    async def update(self, account: UserAccount) -> None:
         """Persists a `USER` account's new balance and version under the
         lock `get_for_update` already holds (T9).
 
-        Must only be called for a `USER` account (T7) -- a `SYSTEM`
-        account's `balance_amount` column is never written by this path.
-        Does not commit: the enclosing `TransferUnitOfWork` commits once,
-        atomically, alongside the posted entries and the idempotency
-        record (T3).
+        Only ever callable with a `UserAccount` (T7) -- a `SYSTEM` account's
+        `balance_amount` column is never written by this path, and passing
+        one here is now a type error, not a documented rule a caller could
+        still violate at runtime. Does not commit: the enclosing
+        `TransferUnitOfWork` commits once, atomically, alongside the posted
+        entries and the idempotency record (T3).
         """

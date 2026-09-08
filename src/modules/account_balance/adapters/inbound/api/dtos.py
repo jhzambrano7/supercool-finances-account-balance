@@ -4,7 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from modules.account_balance.application.use_cases.account_register import OpenAccountResult
-from modules.account_balance.domain.account import AccountPurpose, AccountStatus
+from modules.account_balance.domain.account import AccountPurpose, AccountStatus, UserAccount
 from modules.account_balance.domain.entry import EntryDirection
 from modules.account_balance.domain.transfer import Transfer
 
@@ -36,6 +36,9 @@ class AccountResponseDto(BaseModel):
     @classmethod
     def from_result(cls, result: OpenAccountResult) -> AccountResponseDto:
         account = result.account
+        # AO1: account-opening only ever produces a USER account -- SYSTEM
+        # accounts are platform-seeded infrastructure, never returned here.
+        assert isinstance(account, UserAccount), "account-opening never returns a SYSTEM account"
         return cls(
             account_id=account.account_id.value,
             owner_id=account.owner_id.value,

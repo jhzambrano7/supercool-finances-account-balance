@@ -93,7 +93,10 @@ def test_debit_for_reversal_is_referenced_only_in_definition_and_revert() -> Non
     sites = _debit_for_reversal_sites()
 
     assert sites == {
-        "account_balance/domain/account.py": {"def:Account.debit_for_reversal"},
+        "account_balance/domain/account.py": {
+            "def:UserAccount.debit_for_reversal",
+            "def:SystemAccount.debit_for_reversal",
+        },
         "account_balance/domain/posting.py": {"call:revert"},
     }
 

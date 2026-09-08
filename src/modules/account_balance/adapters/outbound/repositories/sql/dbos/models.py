@@ -14,6 +14,8 @@ from modules.account_balance.domain.account import (
     AccountPurpose,
     AccountStatus,
     AccountType,
+    SystemAccount,
+    UserAccount,
 )
 from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.identifiers import (
@@ -49,7 +51,10 @@ class AccountDbo(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False)
 
     @staticmethod
-    def from_domain(account: Account) -> AccountDbo:
+    def from_domain(account: UserAccount) -> AccountDbo:
+        """Only ever called with a `UserAccount`: `add()` (the sole caller of this) is only ever
+        invoked from `AccountRegister`, which never opens a `SYSTEM` account (AO1) -- those rows
+        exist only via the migration's own seed insert (T8), never through this port."""
         return AccountDbo(
             account_id=account.account_id.value,
             owner_id=account.owner_id.value,
@@ -66,15 +71,23 @@ class AccountDbo(Base):
         computed from its entries (T7), never read from this row; the caller passes that computed
         value in rather than this method reaching for entries itself (AO6, no SQL leaks here)."""
         currency = Currency(self.currency)
-        return Account.reconstitute(
+        resolved_balance = Money(
+            self.balance_amount if balance_amount is None else balance_amount, currency
+        )
+        if AccountType(self.account_type).is_system():
+            return SystemAccount(
+                account_id=AccountId(self.account_id),
+                owner_id=OwnerId(self.owner_id),
+                purpose=AccountPurpose(self.purpose),
+                currency=currency,
+                balance=resolved_balance,
+            )
+        return UserAccount.reconstitute(
             account_id=AccountId(self.account_id),
             owner_id=OwnerId(self.owner_id),
-            account_type=AccountType(self.account_type),
             purpose=AccountPurpose(self.purpose),
             currency=currency,
-            balance=Money(
-                self.balance_amount if balance_amount is None else balance_amount, currency
-            ),
+            balance=resolved_balance,
             status=AccountStatus(self.status),
             version=self.version,
         )

@@ -41,6 +41,8 @@ from modules.account_balance.domain.account import (
     AccountPurpose,
     AccountStatus,
     AccountType,
+    SystemAccount,
+    UserAccount,
 )
 from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.errors import AccountOwnershipError
@@ -111,13 +113,13 @@ class _FakeAccountRepository(AccountRepository):
     async def add(self, account: Account) -> None:
         raise NotImplementedError
 
-    async def get_for_update(self, account_id: AccountId) -> Account | None:
+    async def get_for_update(self, account_id: AccountId) -> UserAccount | None:
         account = self._database.accounts.get(account_id)
-        if account is None or not account.account_type.is_user():
+        if not isinstance(account, UserAccount):
             return None
         return account
 
-    async def update(self, account: Account) -> None:
+    async def update(self, account: UserAccount) -> None:
         self._staged[account.account_id] = account
 
 
@@ -209,23 +211,29 @@ def _open(
     purpose: AccountPurpose,
     balance: int = 0,
 ) -> Account:
-    """`balance` reconstitutes a pre-funded account -- `Account.open()` always forces a zero
+    """`balance` reconstitutes a pre-funded account -- `UserAccount.open()` always forces a zero
     balance, and a `USER` account debited by these tests needs enough on hand to satisfy I2. A
     `SYSTEM` account's balance is irrelevant to the use case (T7: never read from or written to
     this column), so it is left at zero unless a test says otherwise."""
     account_id = AccountId(uuid4())
-    if balance == 0:
-        return Account.open(
+    if account_type.is_system():
+        return SystemAccount(
             account_id=account_id,
             owner_id=owner_id,
-            account_type=account_type,
+            purpose=purpose,
+            currency=USD,
+            balance=Money(balance, USD),
+        )
+    if balance == 0:
+        return UserAccount.open(
+            account_id=account_id,
+            owner_id=owner_id,
             purpose=purpose,
             currency=USD,
         )
-    return Account.reconstitute(
+    return UserAccount.reconstitute(
         account_id=account_id,
         owner_id=owner_id,
-        account_type=account_type,
         purpose=purpose,
         currency=USD,
         balance=Money(balance, USD),

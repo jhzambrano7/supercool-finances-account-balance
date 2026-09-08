@@ -27,7 +27,7 @@ from modules.account_balance.application.gateways.models.find_accounts_criteria 
     FindAccountCriteria,
 )
 from modules.account_balance.application.use_cases.account_register import AccountRegister
-from modules.account_balance.domain.account import Account, AccountPurpose, AccountType
+from modules.account_balance.domain.account import Account, AccountPurpose, AccountType, UserAccount
 from modules.account_balance.domain.errors import InvalidAccountPurposeError
 from modules.account_balance.domain.identifiers import AccountId, OwnerId
 from modules.shared.application.services.id_generator import IdGenerator
@@ -73,10 +73,10 @@ class _FakeAccountRepository(AccountRepository):
             )
         self.by_natural_key[key] = account
 
-    async def get_for_update(self, account_id: AccountId) -> Account | None:
+    async def get_for_update(self, account_id: AccountId) -> UserAccount | None:
         raise NotImplementedError("AccountRegister never locks accounts")
 
-    async def update(self, account: Account) -> None:
+    async def update(self, account: UserAccount) -> None:
         raise NotImplementedError("AccountRegister never updates an existing account")
 
 
