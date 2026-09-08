@@ -1071,3 +1071,10 @@ Formato de cada entrada:
 - **Prompt:** (notificación de finalización del fork del merge de reversión, sin mensaje nuevo del usuario)
 - **Respuesta:** Corrí ruff/mypy strict/pytest yo mismo sobre el worktree (225 tests verdes) y confirmé con grep las afirmaciones clave del reporte (sin `__all__`, `RevertTransferUseCase`→`RevertTransfer`, `get_many_for_update` en uso, catch de `IntegrityError` acotado por constraint). Al traer el commit más nuevo de `main`, apareció un segundo conflicto real en `docs/decision-log.md`: 6 entradas de la creación original de la rama (Sept-7 madrugada) que nunca habían llegado a `main`. Las reordené a su posición cronológica correcta en vez de dejarlas fuera de orden, y pusheé.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:44 — Lanzar revisión adversarial fresca del PR #3 (reversión)
+<!-- id: 20260907-234421-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "Revisa el PR de reversión, córrelo en un subagente".
+- **Prompt:** "Revisa el PR de reversión, córrelo en un subagente"
+- **Respuesta:** Lancé un agente fresco (general-purpose, sin memoria de la implementación) con foco en: R3 (reserva de idempotencia antes de tocar cuentas -- ya causó un bug real en transfer, verificar orden real del código, no el comentario), R2 (dirección origen/destino derivada del transfer original, nunca del cliente), R4 (catch de IntegrityError acotado por nombre de constraint), y sobre todo si el retrofit del merge de hoy quedó completo (narrowing a UserAccount, get_many_for_update, logger, sin residuos del modelo Account viejo o del `__all__` barrel).
+- **Veredicto:** ⏳ pendiente
