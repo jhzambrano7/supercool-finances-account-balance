@@ -40,19 +40,24 @@ reading transfer/reversal history.
 
 Numbered `R1`–`R8`, continuing `AO1`–`AO6` and `T1`–`T9`.
 
-- **R1 — "Operator-authorized" is expressed as a separate endpoint with no ownership check, not a
-  role flag on the existing one.** `POST /transfers/{transfer_id}/reversals` requires the same
-  simulated `X-Caller-Id` header `transfer` introduced (T2) — purely for attribution
-  (`Transfer.requested_by`, PRD §7.1: "the domain records `requested_by` on every transfer, so a
-  reversal is attributable") — but the use case never calls `Account.assert_owned_by` against either
-  leg. There is deliberately no v1 mechanism distinguishing "an operator" from "any caller with a
-  UUID" beyond this endpoint existing at all; PRD §7.1 defers that to a real authentication adapter,
-  and the statement permits simulating authentication entirely. **This is a real, stated limitation,
-  not a hidden one**: today, anyone who can reach this endpoint can reverse any transfer. A real
-  deployment would put it behind an operator-only authentication boundary this exercise does not ask
-  for. Rejected: a boolean `is_operator` flag on the shared caller-resolution mechanism — inventing
-  role data with no backing authority would be exactly the kind of thing this project's own standing
-  rule (no invented behavior) exists to prevent.
+- **R1 — "Operator-authorized" is a real, if simulated, authorization check: exactly one fixed
+  admin principal, not a role flag on the existing caller-resolution mechanism.** `POST
+  /transfers/{transfer_id}/reversals` requires the same simulated `X-Caller-Id` header `transfer`
+  introduced (T2), but resolves it as a `PrincipalId` (a distinct identifier from `OwnerId`,
+  `domain/identifiers.py`) rather than an ordinary caller's. Before doing anything else, `RevertTransfer`
+  asks a new `AuthorizationGateway` port whether that principal is authorized; `FixedAdminAuthorizationGateway`
+  (`adapters/config/`) is the v1 adapter, comparing against one fixed, hardcoded `ADMIN_PRINCIPAL_ID`
+  documented in `README.md`. The use case still never calls `Account.assert_owned_by` against
+  either leg — this is not an ownership check, and an operator may reverse any transfer regardless
+  of which accounts it touches (R1's own point). **This is a real, stated limitation, still, just a
+  narrower one than before**: there is exactly one admin principal, hardcoded, not a real
+  identity-provider integration or a multi-operator system — PRD §7.1's deferral to "the
+  authentication adapter's problem" still holds for *who else* might someday be an operator, this
+  slice answers only "is the caller the one admin this platform recognizes." Rejected (unchanged):
+  a boolean `is_operator` flag on the shared caller-resolution mechanism — inventing role data with
+  no backing authority would be exactly the kind of thing this project's own standing rule (no
+  invented behavior) exists to prevent; a real gateway+adapter pair, even authorizing a single fixed
+  principal, is not that.
 
 - **R2 — Source and destination are derived from the original transfer, never supplied by the
   client.** The request is just `transfer_id` (which transfer to reverse) plus the same
@@ -110,10 +115,13 @@ Numbered `R1`–`R8`, continuing `AO1`–`AO6` and `T1`–`T9`.
 
 | Type | Kind | Responsibility |
 | --- | --- | --- |
-| `RevertTransfer` | Use-case request | `transfer_id`, `idempotency_key`, `requested_by` — nothing else (R2) |
-| `RevertTransferUseCase` | Application service | loads the original, derives legs, reuses `TransferMoneyUseCase`'s idempotency-reservation-first shape, calls `domain_posting.revert()` |
+| `RevertTransferRequest` | Use-case request | `transfer_id`, `idempotency_key`, `executed_by: PrincipalId` — nothing else (R2) |
+| `RevertTransfer` | Application service | loads the original, derives legs, reuses `TransferMoney`'s idempotency-reservation-first shape, calls `domain_posting.revert()` |
 | `TransferNotFoundError` | Use-case error | R7 |
 | `TransferAlreadyReversedError` | Use-case error | R4 |
+| `AuthorizationGateway` | Application gateway (port) | R1: `authorize(principal_id)`, raises if not the platform's admin |
+| `UnauthorizedPrincipalError` | Application error | R1, mapped to 403 |
+| `FixedAdminAuthorizationGateway` | Adapter | R1's v1 implementation: one hardcoded `ADMIN_PRINCIPAL_ID`, see `README.md` |
 
 ## Requirements
 
@@ -180,6 +188,7 @@ replay the original reversal's result, `201`, without posting a second one (R3, 
 
 | Error | HTTP status |
 | --- | --- |
+| `UnauthorizedPrincipalError` | 403 |
 | `TransferNotFoundError` | 404 |
 | `TransferAlreadyReversedError` | 409 |
 | Idempotency key reused with a different payload | 409 |
@@ -201,7 +210,7 @@ now-superseded 500 default.
 
 ## Testing Strategy
 
-- **Unit** (`tests/unit/account_balance/application/`): `RevertTransferUseCase` against the same fake
+- **Unit** (`tests/unit/account_balance/application/`): `RevertTransfer` against the same fake
   infrastructure `transfer`'s tests already built — the negative-balance case (PRD §7.3's own
   example), the not-found case, the double-reversal-conflict case, idempotent replay.
 - **Integration** (`tests/integration/account_balance/`): the full route against real PostgreSQL,
@@ -211,7 +220,9 @@ now-superseded 500 default.
 
 ## Out of Scope (explicitly, not by omission)
 
-- Verifying the caller is a legitimate operator (R1 — a stated, real limitation of this slice).
+- A real, multi-operator identity/authorization system: v1 recognizes exactly one fixed, hardcoded
+  admin principal (R1) — a real check, narrower than "no check at all," but still not a general
+  IAM integration, role hierarchy, or a way to add a second operator without a code change.
 - Partial reversal (D10, already settled: not a concept this domain has).
 - FX / multi-currency.
 - Reading transfer or reversal history.

@@ -10,6 +10,9 @@ from modules.account_balance.adapters.inbound.api.dtos import (
     TransferResponseDto,
 )
 from modules.account_balance.application.gateways.account_repository import AccountNotFoundError
+from modules.account_balance.application.gateways.authorization_gateway import (
+    UnauthorizedPrincipalError,
+)
 from modules.account_balance.application.use_cases.revert_transfer import (
     RevertTransfer,
     RevertTransferRequest,
@@ -34,6 +37,7 @@ from modules.account_balance.domain.identifiers import (
     AccountId,
     IdempotencyKey,
     OwnerId,
+    PrincipalId,
     TransferId,
 )
 from modules.shared.application.errors import ApplicationError
@@ -136,12 +140,19 @@ async def create_reversal(
     use_case: RevertTransfer = Depends(Provide[AccountBalanceContainer.revert_transfer]),
 ) -> TransferResponseDto:
     try:
+        # T2's `X-Caller-Id` is reused unchanged for identity resolution (R1) --
+        # only its *type* narrows, from `OwnerId` to `PrincipalId`, since this
+        # endpoint's caller is meant to be the platform's admin principal, not a
+        # customer. `AuthorizationGateway` (called inside `execute()`) is what
+        # actually decides whether this specific principal is authorized.
         request = RevertTransferRequest(
             transfer_id=TransferId(transfer_id),
             idempotency_key=IdempotencyKey(idempotency_key),
-            requested_by=caller_id,
+            executed_by=PrincipalId(caller_id.value),
         )
         reversal = await use_case.execute(request)
+    except UnauthorizedPrincipalError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except _UNPROCESSABLE_ERRORS_REVERT as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)

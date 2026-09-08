@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from logging import Logger
 
 from modules.account_balance.application.gateways.account_repository import AccountNotFoundError
+from modules.account_balance.application.gateways.authorization_gateway import (
+    AuthorizationGateway,
+)
 from modules.account_balance.application.gateways.idempotency_repository import (
     IdempotencyRecord,
     IdempotencyRecordConflictError,
@@ -18,7 +21,12 @@ from modules.account_balance.application.gateways.unit_of_work import TransferUn
 from modules.account_balance.application.use_cases.transfer_money import IdempotencyConflictError
 from modules.account_balance.domain import posting as domain_posting
 from modules.account_balance.domain.account import Account, UserAccount
-from modules.account_balance.domain.identifiers import EntryId, IdempotencyKey, OwnerId, TransferId
+from modules.account_balance.domain.identifiers import (
+    EntryId,
+    IdempotencyKey,
+    PrincipalId,
+    TransferId,
+)
 from modules.account_balance.domain.transfer import Transfer
 from modules.shared.application.errors import ApplicationError, ResourceNotFoundError
 from modules.shared.application.services.clock import Clock
@@ -62,26 +70,29 @@ class RevertTransferRequest:
 
     transfer_id: TransferId
     idempotency_key: IdempotencyKey
-    requested_by: OwnerId
+    executed_by: PrincipalId
 
+    def hash(self) -> str:
+        """A stable hash over the one field a retry must not silently change:
 
-def _request_hash(request: RevertTransferRequest) -> str:
-    """A stable hash over the one field a retry must not silently change:
-
-    which transfer is being reversed (R2 -- there is no amount, source or
-    destination in the request to include). Mirrors `transfer_money`'s own
-    `_request_hash` shape (T3).
-    """
-    return hashlib.sha256(str(request.transfer_id).encode("utf-8")).hexdigest()
+        which transfer is being reversed (R2 -- there is no amount, source or
+        destination in the request to include). Mirrors `TransferMoneyRequest.hash()`'s own
+        shape (T3): a canonical, delimiter-free encoding rather than the dataclass's own
+        `repr`, so a field reorder or rename does not change what a retry means.
+        """
+        return hashlib.sha256(str(self.transfer_id).encode("utf-8")).hexdigest()
 
 
 class RevertTransfer:
     """Orchestrates a reversal end to end (R1-R7).
 
-    Authentication (T2, resolving `X-Caller-Id`) is the inbound adapter's
-    job, same as `TransferMoney` -- this begins after the caller is already
-    resolved. There is no authorization step at all (R1): the use case
-    never calls `Account.assert_owned_by` against either leg.
+    Authentication (T2, resolving `X-Caller-Id`) is the inbound adapter's job, same as
+    `TransferMoney` -- this begins after the caller is already resolved. Authorization (R1) is a
+    real, if simulated, check: `execute()` asks `AuthorizationGateway` whether `executed_by` is the
+    platform's one authorized admin principal before doing anything else. This is deliberately not
+    `Account.assert_owned_by` against either leg -- an operator reversing a transfer has no
+    ownership relationship to either account to assert in the first place (R1's own point: an
+    operator may reverse any transfer, not just ones touching accounts it owns).
     """
 
     def __init__(
@@ -91,19 +102,26 @@ class RevertTransfer:
         unit_of_work_factory: Callable[[], TransferUnitOfWork],
         id_generator: IdGenerator,
         clock: Clock,
+        authorization_gateway: AuthorizationGateway,
     ) -> None:
         self._logger = logger
         self._new_unit_of_work = unit_of_work_factory
         self._id_generator = id_generator
         self._clock = clock
+        self._authorization_gateway = authorization_gateway
 
     async def execute(self, request: RevertTransferRequest) -> Transfer:
-        request_hash = _request_hash(request)
+        # Checked before anything transactional: a stateless gate over who is
+        # calling, not a fact this or any race could invalidate, so R3's "nothing
+        # may run before the one real collision point" ordering rule does not
+        # apply to it -- there is no collision here to protect.
+        await self._authorization_gateway.authorize(request.executed_by)
+        request_hash = request.hash()
 
         try:
             async with self._new_unit_of_work() as uow:
                 existing = await uow.idempotency.find_by_key(
-                    caller_id=request.requested_by, idempotency_key=request.idempotency_key
+                    caller_id=request.executed_by, idempotency_key=request.idempotency_key
                 )
                 if existing is not None:
                     return await self._replay_or_conflict(uow, existing, request_hash)
@@ -116,12 +134,12 @@ class RevertTransfer:
 
         async with self._new_unit_of_work() as uow:
             existing = await uow.idempotency.find_by_key(
-                caller_id=request.requested_by, idempotency_key=request.idempotency_key
+                caller_id=request.executed_by, idempotency_key=request.idempotency_key
             )
             if existing is None:  # pragma: no cover -- defensive, mirrors transfer_money
                 raise RuntimeError(
                     "idempotency record vanished after losing the insert race for "
-                    f"caller={request.requested_by}, key={request.idempotency_key}"
+                    f"caller={request.executed_by}, key={request.idempotency_key}"
                 )
             return await self._replay_or_conflict(uow, existing, request_hash)
 
@@ -171,7 +189,7 @@ class RevertTransfer:
         # load and the write.
         await uow.idempotency.add(
             IdempotencyRecord(
-                caller_id=request.requested_by,
+                caller_id=request.executed_by,
                 idempotency_key=request.idempotency_key,
                 request_hash=request_hash,
                 transfer_id=reversal_id,
@@ -202,7 +220,7 @@ class RevertTransfer:
             transfer_id=reversal_id,
             source=source,
             destination=destination,
-            requested_by=request.requested_by,
+            requested_by=request.executed_by,
             idempotency_key=request.idempotency_key,
             occurred_at=occurred_at,
             entry_ids=lambda: EntryId(self._id_generator.next_id()),

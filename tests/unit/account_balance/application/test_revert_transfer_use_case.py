@@ -19,6 +19,10 @@ from uuid import uuid4
 import pytest
 
 from modules.account_balance.application.gateways.account_repository import AccountRepository
+from modules.account_balance.application.gateways.authorization_gateway import (
+    AuthorizationGateway,
+    UnauthorizedPrincipalError,
+)
 from modules.account_balance.application.gateways.idempotency_repository import (
     IdempotencyRecord,
     IdempotencyRecordConflictError,
@@ -38,7 +42,6 @@ from modules.account_balance.application.use_cases.revert_transfer import (
     RevertTransferRequest,
     TransferAlreadyReversedError,
     TransferNotFoundError,
-    _request_hash,
 )
 from modules.account_balance.application.use_cases.transfer_money import IdempotencyConflictError
 from modules.account_balance.domain.account import (
@@ -55,6 +58,7 @@ from modules.account_balance.domain.identifiers import (
     EntryId,
     IdempotencyKey,
     OwnerId,
+    PrincipalId,
     TransferId,
 )
 from modules.account_balance.domain.transfer import Transfer
@@ -64,6 +68,20 @@ from modules.shared.domain.money import Currency, Money
 
 USD = Currency("USD")
 _OCCURRED_AT = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
+# The one principal every test's fake `AuthorizationGateway` authorizes, standing in for
+# production's `ADMIN_PRINCIPAL_ID` -- a fixed test id, not that real constant, since these tests
+# exercise the use case's own authorization *call*, not `FixedAdminAuthorizationGateway`'s specific
+# comparison (that adapter has its own test coverage).
+_TEST_ADMIN = PrincipalId(uuid4())
+
+
+class _FakeAuthorizationGateway(AuthorizationGateway):
+    def __init__(self, *, authorized: PrincipalId) -> None:
+        self._authorized = authorized
+
+    async def authorize(self, principal_id: PrincipalId) -> None:
+        if principal_id != self._authorized:
+            raise UnauthorizedPrincipalError(principal_id=principal_id)
 
 
 class _FakeClock(Clock):
@@ -196,12 +214,13 @@ def _unit_of_work_factory(database: _Database) -> Callable[[], _FakeUnitOfWork]:
     return lambda: _FakeUnitOfWork(database)
 
 
-def _use_case(database: _Database) -> RevertTransfer:
+def _use_case(database: _Database, *, authorized: PrincipalId = _TEST_ADMIN) -> RevertTransfer:
     return RevertTransfer(
         logger=logging.getLogger(__name__),
         unit_of_work_factory=_unit_of_work_factory(database),
         id_generator=IdGenerator(),
         clock=_FakeClock(_OCCURRED_AT),
+        authorization_gateway=_FakeAuthorizationGateway(authorized=authorized),
     )
 
 
@@ -275,10 +294,10 @@ def _seed(database: _Database, *accounts: Account) -> None:
 
 
 def _request(
-    *, transfer_id: TransferId, requested_by: OwnerId, key: str = "rev-1"
+    *, transfer_id: TransferId, executed_by: PrincipalId = _TEST_ADMIN, key: str = "rev-1"
 ) -> RevertTransferRequest:
     return RevertTransferRequest(
-        transfer_id=transfer_id, idempotency_key=IdempotencyKey(key), requested_by=requested_by
+        transfer_id=transfer_id, idempotency_key=IdempotencyKey(key), executed_by=executed_by
     )
 
 
@@ -305,12 +324,9 @@ async def test_a_completed_transfer_is_reversed() -> None:
     )
     database.transfers[original.transfer_id] = original
     _seed(database, ana, bruno)
-    operator = OwnerId(uuid4())
     use_case = _use_case(database)
 
-    reversal = await use_case.execute(
-        _request(transfer_id=original.transfer_id, requested_by=operator)
-    )
+    reversal = await use_case.execute(_request(transfer_id=original.transfer_id))
 
     assert reversal.reverses == original.transfer_id
     assert reversal.source_account_id == bruno.account_id
@@ -346,12 +362,9 @@ async def test_prd_7_3_ana_bruno_worked_example_bruno_ends_up_negative() -> None
     )
     database.transfers[original.transfer_id] = original
     _seed(database, ana, bruno)
-    operator = OwnerId(uuid4())
     use_case = _use_case(database)
 
-    reversal = await use_case.execute(
-        _request(transfer_id=original.transfer_id, requested_by=operator)
-    )
+    reversal = await use_case.execute(_request(transfer_id=original.transfer_id))
 
     assert database.accounts[bruno.account_id].balance == Money(-80, USD)  # type: ignore[union-attr]
     assert database.accounts[ana.account_id].balance == Money(100, USD)  # type: ignore[union-attr]
@@ -382,12 +395,9 @@ async def test_reversing_a_deposit_never_locks_the_system_leg() -> None:
     )
     database.transfers[original.transfer_id] = original
     _seed(database, funding, bruno)
-    operator = OwnerId(uuid4())
     use_case = _use_case(database)
 
-    reversal = await use_case.execute(
-        _request(transfer_id=original.transfer_id, requested_by=operator)
-    )
+    reversal = await use_case.execute(_request(transfer_id=original.transfer_id))
 
     assert reversal.source_account_id == bruno.account_id
     assert reversal.destination_account_id == funding.account_id
@@ -404,9 +414,7 @@ async def test_reversing_a_nonexistent_transfer_is_rejected() -> None:
     use_case = _use_case(database)
 
     with pytest.raises(TransferNotFoundError):
-        await use_case.execute(
-            _request(transfer_id=TransferId(uuid4()), requested_by=OwnerId(uuid4()))
-        )
+        await use_case.execute(_request(transfer_id=TransferId(uuid4())))
 
 
 # --------------------------------------------------------------------------
@@ -447,7 +455,6 @@ async def test_a_second_reversal_of_the_same_transfer_is_rejected() -> None:
         await use_case.execute(
             _request(
                 transfer_id=original.transfer_id,
-                requested_by=OwnerId(uuid4()),
                 key="second-attempt",
             )
         )
@@ -486,9 +493,7 @@ async def test_reversing_a_reversal_succeeds() -> None:
     _seed(database, ana, bruno)
     use_case = _use_case(database)
 
-    transfer_c = await use_case.execute(
-        _request(transfer_id=transfer_b.transfer_id, requested_by=OwnerId(uuid4()), key="c")
-    )
+    transfer_c = await use_case.execute(_request(transfer_id=transfer_b.transfer_id, key="c"))
 
     assert transfer_c.reverses == transfer_b.transfer_id
     assert len(database.transfers) == 3
@@ -517,9 +522,8 @@ async def test_a_retried_reversal_with_the_same_key_replays_the_original() -> No
     )
     database.transfers[original.transfer_id] = original
     _seed(database, ana, bruno)
-    operator = OwnerId(uuid4())
     use_case = _use_case(database)
-    request = _request(transfer_id=original.transfer_id, requested_by=operator, key="retry-me")
+    request = _request(transfer_id=original.transfer_id, key="retry-me")
 
     first = await use_case.execute(request)
     second = await use_case.execute(request)
@@ -551,17 +555,12 @@ async def test_the_same_key_with_a_different_transfer_is_a_conflict() -> None:
     database.transfers[original_1.transfer_id] = original_1
     database.transfers[original_2.transfer_id] = original_2
     _seed(database, ana, bruno)
-    operator = OwnerId(uuid4())
     use_case = _use_case(database)
 
-    await use_case.execute(
-        _request(transfer_id=original_1.transfer_id, requested_by=operator, key="dup")
-    )
+    await use_case.execute(_request(transfer_id=original_1.transfer_id, key="dup"))
 
     with pytest.raises(IdempotencyConflictError):
-        await use_case.execute(
-            _request(transfer_id=original_2.transfer_id, requested_by=operator, key="dup")
-        )
+        await use_case.execute(_request(transfer_id=original_2.transfer_id, key="dup"))
 
     # Only one reversal was posted -- the second attempt was rejected, not applied.
     assert len(database.transfers) == 3
@@ -569,7 +568,41 @@ async def test_the_same_key_with_a_different_transfer_is_a_conflict() -> None:
 
 def test_request_hash_is_stable_over_transfer_id_only() -> None:
     transfer_id = TransferId(uuid4())
-    first = _request(transfer_id=transfer_id, requested_by=OwnerId(uuid4()), key="a")
-    second = _request(transfer_id=transfer_id, requested_by=OwnerId(uuid4()), key="b")
+    first = _request(transfer_id=transfer_id, executed_by=PrincipalId(uuid4()), key="a")
+    second = _request(transfer_id=transfer_id, executed_by=PrincipalId(uuid4()), key="b")
 
-    assert _request_hash(first) == _request_hash(second)
+    assert first.hash() == second.hash()
+
+
+# --------------------------------------------------------------------------
+# R1 -- authorization is a real, if simulated, check
+# --------------------------------------------------------------------------
+
+
+async def test_a_non_admin_principal_is_rejected() -> None:
+    database = _Database()
+    owner_a = OwnerId(uuid4())
+    owner_b = OwnerId(uuid4())
+    ana = _account(
+        owner_id=owner_a, account_type=AccountType.USER, purpose=AccountPurpose.CHECKING, balance=0
+    )
+    bruno = _account(
+        owner_id=owner_b,
+        account_type=AccountType.USER,
+        purpose=AccountPurpose.CHECKING,
+        balance=100,
+    )
+    original = _posted_transfer(
+        source=ana, destination=bruno, amount=100, requested_by=owner_a, key="orig"
+    )
+    database.transfers[original.transfer_id] = original
+    _seed(database, ana, bruno)
+    use_case = _use_case(database)
+    stranger = PrincipalId(uuid4())
+
+    with pytest.raises(UnauthorizedPrincipalError):
+        await use_case.execute(_request(transfer_id=original.transfer_id, executed_by=stranger))
+
+    # Rejected before anything was written -- no reversal, no idempotency record either.
+    assert len(database.transfers) == 1
+    assert len(database.idempotency) == 0

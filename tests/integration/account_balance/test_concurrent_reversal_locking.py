@@ -15,9 +15,12 @@ from uuid import uuid4
 import pytest
 from httpx import AsyncClient, Response
 
+from modules.account_balance.adapters.config.admin_principal import ADMIN_PRINCIPAL_ID
 from modules.account_balance.adapters.config.seeded_accounts import FUNDING_ACCOUNT_ID
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
+
+_ADMIN_ID = str(ADMIN_PRINCIPAL_ID)
 
 
 def _headers(*, caller_id: str, idempotency_key: str) -> dict[str, str]:
@@ -64,7 +67,7 @@ async def test_two_concurrent_reversal_requests_for_the_same_transfer_never_both
     async def _reverse(idempotency_key: str) -> Response:
         return await client.post(
             f"/transfers/{transfer_id}/reversals",
-            headers=_headers(caller_id=str(uuid4()), idempotency_key=idempotency_key),
+            headers=_headers(caller_id=_ADMIN_ID, idempotency_key=idempotency_key),
         )
 
     first, second = await asyncio.gather(_reverse(str(uuid4())), _reverse(str(uuid4())))

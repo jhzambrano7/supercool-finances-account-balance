@@ -2,6 +2,9 @@ import logging
 
 from dependency_injector import containers, providers
 
+from modules.account_balance.adapters.config.fixed_admin_authorization_gateway import (
+    FixedAdminAuthorizationGateway,
+)
 from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repository import (
     SqlAccountRepository,
 )
@@ -79,6 +82,9 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
         transfer_money=transfer_money,
     )
 
+    # Stateless (a fixed-constant comparison, R1) -- a Singleton, same reasoning as `logger`.
+    authorization_gateway = providers.Singleton(FixedAdminAuthorizationGateway)
+
     # Shares `transfer_unit_of_work`'s provider (R3: same unit of work, same
     # three repositories, same idempotency mechanism as `transfer` -- no
     # parallel infrastructure for this slice).
@@ -88,6 +94,7 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
         unit_of_work_factory=transfer_unit_of_work.provider,
         id_generator=shared.id_generator,
         clock=shared.clock,
+        authorization_gateway=authorization_gateway,
     )
 
 
