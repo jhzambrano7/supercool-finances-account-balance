@@ -1211,3 +1211,10 @@ Formato de cada entrada:
 - **Respuesta:** `gh pr merge` falló por el mismo conflicto recurrente en `docs/decision-log.md` (entradas independientes en cada rama desde el punto de divergencia) -- sin conflictos de código. Resuelto en orden cronológico, verificado ruff/mypy strict/build de la web en el árbol mergeado antes de completar el commit y pushear. PR #7 quedó `MERGED`, main sincronizado y verificado de nuevo tras el merge de GitHub.
 - **Veredicto:** ⏳ pendiente
 <!-- skip: 20260908-150422-a1fe3a40 -->
+
+## 2026-09-08 15:04 — Revisar PRD/statement contra el estado real para encontrar gaps
+<!-- id: 20260908-150422-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "Revisa el PRD y statement, qué nos está faltando?".
+- **Prompt:** "Revisa el PRD y statement, qué nos está faltando?"
+- **Respuesta:** Lancé un fork para leer docs/prd.md y docs/statement.md completos y compararlos contra el código/tests/docs REALES en main (no memoria de la sesión), incluyendo gaps explícitamente diferidos en decision-log.md/specs, y aspectos operativos (README, CI, cobertura) que un evaluador podría chequear. Pedí una lista estructurada agrupada en "hay que resolver antes de entregar" / "nice to have" / "fuera de alcance por diseño, confirmar conmigo".
+- **Veredicto:** ⏳ pendiente
