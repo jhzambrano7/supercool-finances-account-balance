@@ -1154,3 +1154,10 @@ Formato de cada entrada:
 - **Prompt:** "comentarios nuevos al PR, resuélvelos"
 - **Respuesta:** El único comentario nuevo estaba en PR #3: `FixedAdminAuthorizationGateway` lanzaba `UnauthorizedPrincipalError` sin loguear antes, rompiendo la misma convención que ya se había corregido dos veces antes en la sesión (PR #4, y el gap original de este mismo PR). Corregido en un worktree temporal: logger inyectado, `warning` antes de lanzar (un rechazo de reversión es security-relevant). 229 tests, ruff, mypy strict verdes. Commit `9b8f7b2` pusheado a `feat/revert`, respondido en el hilo del PR.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 00:24 — Sincronizar feat/account-reads (PR #6) con main y pasar a esa rama
+<!-- id: 20260908-002437-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "sincroniza el PR 6 con main y pasa a ese branch" -- traer el merge de PR #3 (reversión) a `feat/account-reads`.
+- **Prompt:** "sincroniza el PR 6 con main y pasa a ese branch"
+- **Respuesta:** Mergeé `main` en `feat/account-reads`. Dos conflictos reales: `dependencies.py` (imports en la misma posición alfabética, combinados) y `docs/decision-log.md` (mismo patrón recurrente, sin reordenar esta vez). Encontré además un gap que el merge no marcó como conflicto: el fake de `AccountRepository` en `test_revert_transfer_use_case.py` no implementaba el nuevo `find_by_owner` abstracto -- lo agregué siguiendo el patrón ya usado en otros fakes. 246 tests, ruff, mypy strict verdes. Pusheado. Quedé parado en `feat/account-reads` según lo pedido.
+- **Veredicto:** ⏳ pendiente

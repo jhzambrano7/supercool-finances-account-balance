@@ -85,6 +85,9 @@ class _FakeAccountRepository(AccountRepository):
     ) -> tuple[UserAccount, ...]:
         raise NotImplementedError("AccountRegister never locks accounts")
 
+    async def find_by_owner(self, owner_id: OwnerId) -> tuple[UserAccount, ...]:
+        raise NotImplementedError("AccountRegister never lists accounts by owner")
+
     async def update(self, account: UserAccount) -> None:
         raise NotImplementedError("AccountRegister never updates an existing account")
 

@@ -8,6 +8,9 @@ from modules.account_balance.adapters.config.fixed_admin_authorization_gateway i
 from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repository import (
     SqlAccountRepository,
 )
+from modules.account_balance.adapters.outbound.repositories.sql.sql_movement_repository import (
+    SqlMovementRepository,
+)
 from modules.account_balance.adapters.outbound.repositories.sql.sql_unit_of_work import (
     SqlTransferUnitOfWork,
 )
@@ -16,6 +19,9 @@ from modules.account_balance.application.services.system_account_resolver import
 )
 from modules.account_balance.application.use_cases.account_register import AccountRegister
 from modules.account_balance.application.use_cases.deposit import Deposit
+from modules.account_balance.application.use_cases.get_account import GetAccount
+from modules.account_balance.application.use_cases.list_accounts import ListAccounts
+from modules.account_balance.application.use_cases.list_movements import ListMovements
 from modules.account_balance.application.use_cases.revert_transfer import RevertTransfer
 from modules.account_balance.application.use_cases.transfer_money import TransferMoney
 from modules.account_balance.application.use_cases.withdraw import Withdraw
@@ -37,6 +43,32 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
         provides=AccountRegister,
         repository=account_repository,
         id_generator=shared.id_generator,
+    )
+
+    get_account = providers.Factory(
+        provides=GetAccount,
+        repository=account_repository,
+        logger=logger,
+    )
+
+    list_accounts = providers.Factory(
+        provides=ListAccounts,
+        repository=account_repository,
+    )
+
+    # A fresh, independently-committed session per call (like account_repository above), not the
+    # transactional unit-of-work session: reading movements is not part of any write transaction.
+    movement_repository = providers.Factory(
+        provides=SqlMovementRepository,
+        logger=logger,
+        session_factory=shared.session_factory,
+    )
+
+    list_movements = providers.Factory(
+        provides=ListMovements,
+        account_repository=account_repository,
+        movement_repository=movement_repository,
+        logger=logger,
     )
 
     transfer_unit_of_work = providers.Factory(
