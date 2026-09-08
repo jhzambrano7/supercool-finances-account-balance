@@ -48,6 +48,7 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
     get_account = providers.Factory(
         provides=GetAccount,
         repository=account_repository,
+        logger=logger,
     )
 
     list_accounts = providers.Factory(
@@ -67,6 +68,7 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
         provides=ListMovements,
         account_repository=account_repository,
         movement_repository=movement_repository,
+        logger=logger,
     )
 
     transfer_unit_of_work = providers.Factory(

@@ -6,6 +6,7 @@ pagination/ordering logic itself belongs to the port's adapter, covered separate
 (`test_sql_account_repository.py`'s sibling for movements would live beside the real SQL tests).
 """
 
+import logging
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -112,6 +113,7 @@ async def test_the_owner_gets_the_page_the_port_returns() -> None:
     use_case = ListMovements(
         account_repository=_FakeAccountRepository({account.account_id: account}),
         movement_repository=movement_repository,
+        logger=logging.getLogger(__name__),
     )
 
     result = await use_case.execute(
@@ -130,6 +132,7 @@ async def test_a_stranger_is_refused_before_the_movement_repository_is_asked() -
     use_case = ListMovements(
         account_repository=_FakeAccountRepository({account.account_id: account}),
         movement_repository=movement_repository,
+        logger=logging.getLogger(__name__),
     )
 
     with pytest.raises(AccountOwnershipError):
@@ -144,6 +147,7 @@ async def test_a_missing_account_is_reported_as_not_found() -> None:
     use_case = ListMovements(
         account_repository=_FakeAccountRepository({}),
         movement_repository=_FakeMovementRepository(MovementPage(items=(), next_cursor=None)),
+        logger=logging.getLogger(__name__),
     )
 
     with pytest.raises(AccountNotFoundError):
@@ -152,24 +156,52 @@ async def test_a_missing_account_is_reported_as_not_found() -> None:
         )
 
 
-async def test_a_system_account_is_refused_like_a_strangers_account() -> None:
-    """SYSTEM movement history is an operator concern, not requested here (docs/web-ui-plan.md
-    §6.2) -- it fails the same ownership check a stranger's account would."""
-    system_account = SystemAccount(
+def _funding_account() -> SystemAccount:
+    return SystemAccount(
         account_id=AccountId(uuid4()),
         owner_id=PLATFORM_OWNER_ID,
         purpose=AccountPurpose.FUNDING,
         currency=USD,
     )
+
+
+async def test_a_system_account_is_refused_like_a_strangers_account() -> None:
+    """SYSTEM movement history is an operator concern, not requested here (docs/web-ui-plan.md
+    §6.2). A caller unrelated to the platform fails the ordinary ownership check --
+    `PLATFORM_OWNER_ID` never equals a real caller's id, so this path never reaches the
+    `isinstance` check at all."""
+    system_account = _funding_account()
     use_case = ListMovements(
         account_repository=_FakeAccountRepository({system_account.account_id: system_account}),
         movement_repository=_FakeMovementRepository(MovementPage(items=(), next_cursor=None)),
+        logger=logging.getLogger(__name__),
     )
 
     with pytest.raises(AccountOwnershipError):
         await use_case.execute(
             account_id=system_account.account_id,
             caller_id=OwnerId(uuid4()),
+            limit=25,
+            cursor=None,
+        )
+
+
+async def test_a_spoofed_platform_owner_id_is_still_refused() -> None:
+    """A caller who spoofs `X-Caller-Id` to `PLATFORM_OWNER_ID` itself (a bare, unvalidated UUID
+    header, T2) passes the ownership check on identity alone -- the `isinstance` guard is what
+    actually stops SYSTEM movement history from being read this way, not the ownership check.
+    This is the case that exercises it."""
+    system_account = _funding_account()
+    use_case = ListMovements(
+        account_repository=_FakeAccountRepository({system_account.account_id: system_account}),
+        movement_repository=_FakeMovementRepository(MovementPage(items=(), next_cursor=None)),
+        logger=logging.getLogger(__name__),
+    )
+
+    with pytest.raises(AccountOwnershipError):
+        await use_case.execute(
+            account_id=system_account.account_id,
+            caller_id=PLATFORM_OWNER_ID,
             limit=25,
             cursor=None,
         )

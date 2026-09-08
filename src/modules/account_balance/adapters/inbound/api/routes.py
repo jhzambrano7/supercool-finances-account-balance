@@ -81,9 +81,18 @@ async def list_accounts(
     use_case: ListAccounts = Depends(Provide[AccountBalanceContainer.list_accounts]),
 ) -> AccountsResponseDto:
     """`GET /accounts` (docs/web-ui-plan.md §6.1b) -- no query parameters, the owner is the
-    caller. `resolve_caller_id` alone accounts for every error this route can raise (a missing or
-    malformed `X-Caller-Id` -> 401); there is nothing else here for a caller to get wrong."""
-    accounts = await use_case.execute(caller_id=caller_id)
+    caller. `resolve_caller_id` handles the one input a caller can get wrong (a missing or
+    malformed `X-Caller-Id` -> 401); the try/except below is the same defensive
+    `DomainError`/`ApplicationError` -> 400 catch-all every other route in this module carries,
+    kept for consistency even though nothing in `ListAccounts` raises either today. A genuine
+    repository failure (`IntegrationError`) is deliberately left uncaught here, as everywhere else
+    in this codebase -- that is a real system fault and 500 is the correct status for it."""
+    try:
+        accounts = await use_case.execute(caller_id=caller_id)
+    except DomainError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ApplicationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return AccountsResponseDto(items=[AccountResponseDto.from_account(a) for a in accounts])
 
 
