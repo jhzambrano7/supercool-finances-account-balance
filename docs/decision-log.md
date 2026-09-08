@@ -999,3 +999,10 @@ Formato de cada entrada:
 - **Prompt:** (resultado de la revisión adversarial de PR #4, sin mensaje nuevo del usuario)
 - **Respuesta:** Corregí directamente en el worktree del PR: agregué `logger` a `resolve_system_account`/`Deposit`/`Withdraw` y su wiring, logueo antes de lanzar, y cambié el `assert` defensivo por un `raise`+log explícito (mismo patrón que `transfer_money.py`). 206 tests, ruff y mypy strict siguen verdes. Commit `6c0b3b1` pusheado a `feat/deposit-withdraw`. Dejé como nit opcional la duplicación de la tabla de mapeo de errores entre `transfer_routes.py` y `deposit_withdraw_routes.py`, sin tocarla (scope creep no pedido). Publiqué el resumen de la revisión como comentario en el PR #4.
 - **Veredicto:** ✅ aprobado
+
+## 2026-09-07 22:51 — Confirmar que los cambios quedaron subidos
+<!-- id: 20260907-225116-a1fe3a40 -->
+- **Qué intentaba:** Responder "subiste los cambios?" con verificación real contra origin, no con memoria de lo hecho.
+- **Prompt:** "subiste los cambios?"
+- **Respuesta:** `git fetch` + `gh pr view` confirmaron que `origin/feat/deposit-withdraw` tiene `6c0b3b1` como HEAD y el PR #4 ya lo refleja; `origin/main` tiene el log de la decisión. Nada pendiente de push.
+- **Veredicto:** ⏳ pendiente
