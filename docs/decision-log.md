@@ -1092,3 +1092,10 @@ Formato de cada entrada:
 - **Prompt:** "sobre la revisión del PR, no veo mis observaciones resueltas"
 - **Respuesta:** Encontré 4 comentarios vía `gh api`, ninguno resuelto: (1) nombre `RevertTransferUseCase` stale en el spec, (2) mover el hash de idempotencia a un método de `RevertTransferRequest` (ver transfer use case), (3-4) cambio real de diseño: `requested_by`→`executed_by` con un principal admin fijo documentado en README y autorización simulada real vía gateway/adapter propio, más el objeto siendo un `PrincipalId` en vez de `OwnerId`. Delegué a un fork en worktree aislado sobre `feat/revert`, dejando explícita la tensión de tipos con `IdempotencyRecord.caller_id: OwnerId` (infraestructura compartida por las 4 use cases) como decisión de arquitectura a justificar, no a adivinar. No responde los hilos del PR ni mergea -- eso lo hago yo tras verificar.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 00:12 — Verificar y responder los 4 comentarios resueltos en PR #3
+<!-- id: 20260908-001203-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente el fork que resolvió los 4 comentarios de revisión de PR #3 antes de responder los hilos.
+- **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
+- **Respuesta:** Corrí ruff/mypy strict/pytest yo mismo (229 tests verdes) y confirmé cada cambio leyendo el código real: nombre del spec corregido, hash movido a `RevertTransferRequest.hash()`, `AuthorizationGateway`+`FixedAdminAuthorizationGateway` contra `ADMIN_PRINCIPAL_ID` fijo documentado en README (403 mapeado), y `PrincipalId(OwnerId)` -- subclase deliberada de `OwnerId`, no de `EntityId`, para satisfacer `IdempotencyRecord.caller_id: OwnerId` por Liskov sin ensanchar esa infraestructura compartida. Publiqué las 4 respuestas en los hilos del PR. Limpié los dos worktrees ya verificados (account-reads y este).
+- **Veredicto:** ⏳ pendiente
