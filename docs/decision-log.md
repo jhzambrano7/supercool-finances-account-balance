@@ -1161,3 +1161,17 @@ Formato de cada entrada:
 - **Prompt:** "sincroniza el PR 6 con main y pasa a ese branch"
 - **Respuesta:** Mergeé `main` en `feat/account-reads`. Dos conflictos reales: `dependencies.py` (imports en la misma posición alfabética, combinados) y `docs/decision-log.md` (mismo patrón recurrente, sin reordenar esta vez). Encontré además un gap que el merge no marcó como conflicto: el fake de `AccountRepository` en `test_revert_transfer_use_case.py` no implementaba el nuevo `find_by_owner` abstracto -- lo agregué siguiendo el patrón ya usado en otros fakes. 246 tests, ruff, mypy strict verdes. Pusheado. Quedé parado en `feat/account-reads` según lo pedido.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 00:36 — Sincronizar feat/web-ui con main e integrar los endpoints de lectura
+<!-- id: 20260908-003612-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "nos queda el PR web, pásate a ese branch, actualiza con main, integra los EPs de lectura recién mergeados a main" -- PR #6 ya estaba mergeado por el usuario cuando llegué a este turno.
+- **Prompt:** "nos queda el PR web, pásate a ese branch, actualiza con main, integra los EPs de lectura recier mergeados a main"
+- **Respuesta:** Cambié a `feat/web-ui`, mergeé `main` (limpio, sin conflictos esta vez), gates de backend verdes, pusheado. Lancé un fork para reemplazar el registro `localStorage`/hack de replay en `AccountsScreen.tsx` por `GET /accounts` real, actualizar `MoveMoneyScreen.tsx`/`OpenAccountScreen.tsx` para dejar de depender de `registry.ts` (a borrar), y construir un histórico de movimientos real con `GET /accounts/{id}/movements` reemplazando el placeholder. Sin pruebas automatizadas, con verificación manual de golden-path.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 00:46 — Verificar y cerrar el fork de listado/histórico en la web UI
+<!-- id: 20260908-004646-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente el fork que integró los endpoints reales de lectura en la web UI antes de darlo por bueno.
+- **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
+- **Respuesta:** Confirmé en el worktree: `registry.ts` borrado sin referencias, build (`tsc -b && vite build`) limpio, sin dependencias de testing. `AccountsScreen.tsx` sin banner/hack, `MovementHistoryScreen.tsx` nueva con paginación por cursor. Commit `a8ed239` ya en origin. Limpié el worktree.
+- **Veredicto:** ⏳ pendiente

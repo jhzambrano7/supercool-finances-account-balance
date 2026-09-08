@@ -73,6 +73,7 @@ PRD: <§ sections and/or stable IDs>
 | `shared` | `src/modules/shared` |
 | `infra` | Containers, IaC, deployment |
 | `docs` | PRD and project documentation |
+| `web` | The `web/` ops console (React) — a demo surface, not held to backend rigor |
 | `tooling` | Hooks, scripts, developer workflow |
 | `session` | Generated transcript / decision-log artifacts |
 

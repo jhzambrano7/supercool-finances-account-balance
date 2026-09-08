@@ -25,6 +25,7 @@ SCOPES = (
     "shared",
     "infra",
     "docs",
+    "web",
     "tooling",
     "session",
     "prd",

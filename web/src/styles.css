@@ -1,0 +1,287 @@
+/* Palette and type scale: docs/web-ui-plan.md §9. Fixed sizes, tabular numerals for
+   amounts/ids — this is a UI of tables and figures, not a marketing page, so nothing here
+   scales with the viewport. */
+
+:root {
+  --ink: #111111;
+  --ink-2: #404040;
+  --paper: #ffffff;
+  --page: #fafafa;
+  --accent: #fff98e;
+  --link: #006bf8;
+  --line: #eaeaea;
+  --line-strong: #d4d4d4;
+  --muted: #a3a3a3;
+  --positive-deep: #1e6e46;
+  --negative: #c7361f;
+  --warning: #ffb40a;
+
+  --sans: 'DM Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial,
+    sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.amount,
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.screen-title {
+  font-size: 28px;
+}
+
+.section-heading {
+  font-size: 20px;
+}
+
+.help-text {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+input,
+select {
+  font-family: var(--sans);
+  font-size: 15px;
+  height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--link);
+  box-shadow: 0 0 0 2px rgba(0, 107, 248, 0.25);
+}
+
+input:disabled,
+select:disabled {
+  background: var(--page);
+  color: var(--muted);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+}
+
+button {
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 500;
+  border-radius: 999px;
+  padding: 12px 24px;
+  border: none;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--ink);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #ffffff;
+  border: 1px solid var(--ink);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid rgba(0, 0, 0, 0.3);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  border-color: var(--ink);
+}
+
+.card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: var(--space-6);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.app-shell {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: var(--space-6);
+}
+
+.identity-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--ink);
+  color: var(--paper);
+  padding: var(--space-3) var(--space-6);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.identity-bar__notice {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.identity-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.tabs {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-6);
+  border-bottom: 1px solid var(--line);
+}
+
+.tab {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: var(--space-3) var(--space-4);
+  font-weight: 500;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+}
+
+.tab[aria-selected='true'] {
+  color: var(--ink);
+  border-bottom-color: var(--link);
+}
+
+.banner {
+  padding: var(--space-3) var(--space-4);
+  border-radius: 8px;
+  font-size: 13px;
+  border: 1px solid var(--line-strong);
+  background: var(--page);
+}
+
+.banner--error {
+  background: #fdf1ee;
+  border-color: var(--negative);
+  color: var(--negative);
+}
+
+.banner--info {
+  background: #eef5ff;
+  border-color: var(--link);
+  color: var(--ink-2);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.amount-display {
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.amount-debit {
+  color: var(--negative);
+}
+
+.amount-credit {
+  color: var(--positive-deep);
+}
+
+a,
+a:visited {
+  color: var(--link);
+}
