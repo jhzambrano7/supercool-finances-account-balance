@@ -1253,3 +1253,10 @@ Formato de cada entrada:
 - **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
 - **Respuesta:** Diagnostiqué el lanzamiento fallido (0 tool_uses, sin worktree, mensaje sospechoso) y lo relancé con el mismo brief completo. Sigue corriendo.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 16:15 — Verificar la integración web de cerrar cuenta y abrir el PR #8
+<!-- id: 20260908-161505-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente el segundo intento (exitoso) del fork de integración web antes de abrir el PR.
+- **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
+- **Respuesta:** Confirmé build limpio, sin test deps, y el orden correcto de los matches de error en `errors.ts` (verificado contra el mensaje real de `AccountNotEmptyError`, que es superstring del de `AccountNotClosableError`). Confirmé el filtro de cuentas CLOSED en `MoveMoneyScreen` y que `MovementHistoryScreen` queda sin filtrar a propósito. Abrí el PR #8 cubriendo backend + web como un solo feature completo.
+- **Veredicto:** ⏳ pendiente
