@@ -1225,3 +1225,10 @@ Formato de cada entrada:
 - **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
 - **Respuesta:** Confirmé con grep/lectura directa: (1) `Account.close()` existe en el dominio pero no hay use case ni ruta -- cero resultados; (2) sin instrumentación de observabilidad en absoluto; (3) README raíz dice "reversal... not merged" cuando se mergeó hace horas, y afirma que la concurrencia "no está demostrada bajo carga paralela" cuando los tests de locking usan `asyncio.gather` real contra Postgres real vía testcontainers -- afirmación falsa; (4) no existe un test de reconciliación `balance == SUM(entries)` que el PRD pide explícitamente -- el único grep hit es un docstring explicando que esa computación se removió. Reporté los 4 al usuario agrupados por severidad, sugiriendo empezar por README + cerrar cuenta.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 15:11 — Actualizar el README raíz con el estado real y los gaps verificados
+<!-- id: 20260908-151119-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "procede con el readme, preciso y conciso sobre qué hacemos, y el porqué de las decisiones".
+- **Prompt:** "procede con el readme, preciso y conciso sobre qué hacemos, y el porqué de las decisiones"
+- **Respuesta:** Reescribí la tabla de Status separando transfers/deposit-withdraw/reversión/lecturas/web console en filas propias, cada una con la decisión detrás de su forma. Corregí dos afirmaciones falsas: "reversal not merged yet" (se mergeó hace horas) y "concurrency not yet demonstrated under parallel load" (falso, los tests ya usan asyncio.gather real contra Postgres real). Agregué 3 filas a la tabla de decisiones (depósito/retiro server-side, paginación por cursor, AuthorizationGateway real). Reescribí "What is not done" con los 3 gaps reales verificados (cerrar cuenta, observabilidad, chequeo de reconciliación), cada uno con su referencia exacta al PRD. Commit `ef74201` pusheado a main.
+- **Veredicto:** ⏳ pendiente
