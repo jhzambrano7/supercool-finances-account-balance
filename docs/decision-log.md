@@ -1196,3 +1196,10 @@ Formato de cada entrada:
 - **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
 - **Respuesta:** Confirmé build limpio, sin test deps, placeholder y su componente borrados sin referencias sueltas, README actualizado. Revisé con cuidado la desviación de diseño que el fork marcó como la más importante: el botón "Reverse" manda siempre el UUID admin como X-Caller-Id, sin importar la identidad activa, en vez de requerir un switch a identidad "Admin" -- justificado técnicamente (Movement History está scoped por dueño real, Admin no posee cuentas), pero tiene un costo real: se pierde la posibilidad de ver un 403 interactivamente en la UI. No lo decidí solo -- lo documenté en el cuerpo del PR #7 con el trade-off explícito y alternativas, dejándoselo al usuario antes de mergear.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 14:49 — Implementar el diseño elegido: reversión requiere switch real de identidad
+<!-- id: 20260908-144945-a1fe3a40 -->
+- **Qué intentaba:** Aplicar la decisión del usuario sobre el trade-off que había marcado: requerir el switch de identidad real en vez de la sobreescritura hardcodeada del principal admin.
+- **Prompt:** "Sobre ese punto del diseño que mencionas, prefiero que optemos por requerir el switch de cuentas, que el botón muestre la cuenta admin, el suuario se mueve, hace la reversión por id de transferencia"
+- **Respuesta:** Implementé directamente (sin delegar, ya tenía el diseño exacto claro): `ReversalScreen.tsx` nueva, muestra el UUID admin, reversión por transfer id usando la identidad realmente activa (sin override); `MovementHistoryScreen.tsx` vuelve a ser sólo lectura (agregó columna transfer id para copiar); `errors.ts` cambia el 403 de admin a recovery `switch-identity`. Verifiqué con Playwright contra un backend real: 403 real como no-admin, reversión exitosa tras pegar el UUID admin y cambiar identidad, 409 en doble reversión, balance vuelto a cero. Actualicé el cuerpo del PR #7 documentando el cambio de diseño.
+- **Veredicto:** ⏳ pendiente

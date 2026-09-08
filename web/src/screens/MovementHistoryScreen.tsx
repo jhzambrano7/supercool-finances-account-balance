@@ -13,7 +13,11 @@ interface Props {
 
 /** `GET /accounts/{account_id}/movements` (docs/web-ui-plan.md §6.2) -- a statement for one of the
  * caller's own accounts, newest first. Cursor pagination, not a numbered pager: the ledger has no
- * total count to page against, only a "load more" that asks for the next opaque page. */
+ * total count to page against, only a "load more" that asks for the next opaque page.
+ *
+ * A pure read screen -- reversal lives on its own screen (`ReversalScreen.tsx`), authorized as
+ * whichever identity is active there, never as an override this screen injects on the caller's
+ * behalf. */
 export function MovementHistoryScreen({ ownerId }: Props) {
   const [accounts, setAccounts] = useState<AccountResponse[]>([])
   const [accountId, setAccountId] = useState('')
@@ -102,6 +106,7 @@ export function MovementHistoryScreen({ ownerId }: Props) {
                   <th>Direction</th>
                   <th>Counterparty</th>
                   <th>Amount</th>
+                  <th>Transfer id</th>
                 </tr>
               </thead>
               <tbody>
@@ -115,6 +120,7 @@ export function MovementHistoryScreen({ ownerId }: Props) {
                     >
                       {formatSignedEntry(movement.amount, currency, movement.direction)}
                     </td>
+                    <td className="mono">{truncateId(movement.transfer_id)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -174,6 +174,20 @@ export async function retryWithdrawal(
 }
 
 /**
+ * `POST /transfers/{transfer_id}/reversals` -- no body (R2: source/destination are derived
+ * server-side from the original transfer). No retry-on-5xx policy, unlike the money movements
+ * above: this is a single admin click, not a multi-step form a network blip should silently
+ * resubmit behind the operator's back -- a failed attempt just leaves the "Reverse" button
+ * clickable again, with the same idempotency key discarded and a fresh one minted next click.
+ */
+export async function createReversal(
+  transferId: string,
+  headers: MoneyMovementHeaders,
+): Promise<TransferResponse> {
+  return postMoneyMovementOnce(`/transfers/${transferId}/reversals`, {}, headers)
+}
+
+/**
  * One GET, shared by the three read endpoints below -- no retry policy here, unlike the money
  * movements above: a `GET` is not a decided-once action guarded by an idempotency key, so a
  * caller that wants a retry just issues the same request again.
