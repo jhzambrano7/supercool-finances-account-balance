@@ -20,8 +20,8 @@ not built** when this line was written; the `account-opening` and `transfer` sli
 most of it (see their own specs).
 
 **Specified, not yet built:** the closed `Currency` enum below. `Currency` ships today as a
-shape-only ISO 4217 validator; narrowing it to `USD`/`MXN`/`COP` — and seeding the matching
-`FUNDING`/`SETTLEMENT` accounts each supported currency needs — is decided and pending, not done.
+shape-only ISO 4217 validator; narrowing it to `USD` — and seeding the matching
+`FUNDING`/`SETTLEMENT` accounts `USD` needs — is decided and pending, not done.
 
 ## Domain Types
 
@@ -33,7 +33,7 @@ shape-only ISO 4217 validator; narrowing it to `USD`/`MXN`/`COP` — and seeding
 | `Transfer` | Aggregate root, frozen | source, destination, amount, idempotency key, requester, owns its `Entry` legs |
 | `Entry` | Entity inside `Transfer` | one leg: account, direction, positive amount, timestamp |
 | `AccountId`, `TransferId`, `EntryId`, `OwnerId` | Value objects over `UUID` | typed identity; not interchangeable |
-| `Currency` | Enum: `USD`, `MXN`, `COP` | the closed set of currencies the platform supports — see its requirement below; widening it also requires seeding `FUNDING`/`SETTLEMENT` accounts in the new currency |
+| `Currency` | Enum: `USD` | the closed set of currencies the platform supports — see its requirement below; widening it also requires seeding `FUNDING`/`SETTLEMENT` accounts in the new currency |
 | `AccountType` | Enum: `USER`, `SYSTEM` | drives the overdraft policy |
 | `AccountPurpose` | Enum: `CHECKING`, `SAVINGS`, `FUNDING`, `SETTLEMENT` | what the account is *for*; paired with `AccountType` |
 | `AccountStatus` | Enum: `ACTIVE`, `CLOSED` | operability gate |
@@ -106,10 +106,18 @@ ordering, locking itself is out of scope.)*
 
 #### Requirement: The Supported Currencies Are a Closed Set, Enumerated in the Domain
 
-`Currency` MUST be an enum over exactly `USD`, `MXN`, `COP`. It MUST NOT accept an arbitrary
-three-letter code that merely satisfies the ISO 4217 *shape*: a code outside the enum MUST be
-rejected with `InvalidCurrencyError`, wherever it enters (an account being opened, an amount being
-posted), not deferred to a later failure.
+`Currency` MUST be an enum over exactly `USD`. It MUST NOT accept an arbitrary three-letter code
+that merely satisfies the ISO 4217 *shape*: a code outside the enum MUST be rejected with
+`InvalidCurrencyError`, wherever it enters (an account being opened, an amount being posted), not
+deferred to a later failure.
+
+**Scoped to one member for now, deliberately.** `MXN` and `COP` were the currencies originally
+discussed alongside `USD` when this requirement was written, and remain the worked examples below of
+what widening the set looks like — but shipping only `USD` first is simpler, and the two-step
+mechanism this requirement exists to establish (below) doesn't need more than one member to prove
+itself. Adding `MXN`, `COP`, or any other currency later is exactly the "widen the enum, seed the
+accounts" act this requirement already describes; nothing about that mechanism changes because the
+starting set has one member instead of three.
 
 *(Supersedes the original shape-only validation. That rule accepted `EUR`, `GBP` — and `ZZZ` — as
 equally valid, which let `POST /accounts` mint an account in a currency the platform holds no
@@ -156,9 +164,12 @@ the enum should dissolve into the query it was standing in for — "the currenci
 
 ##### Scenario: Each supported currency is independently usable end to end
 
-- GIVEN the platform holds `FUNDING` and `SETTLEMENT` accounts in `MXN`
-- WHEN an account is opened in `MXN` and a deposit is made into it
+- GIVEN the platform holds `FUNDING` and `SETTLEMENT` accounts in `USD` (the one member today)
+- WHEN an account is opened in `USD` and a deposit is made into it
 - THEN both succeed, and no leg of the resulting `Transfer` is denominated in any other currency
+- (The same holds for any future member the moment its `FUNDING`/`SETTLEMENT` accounts exist —
+  nothing about this scenario is `USD`-specific, `USD` is simply the only member to check it against
+  today.)
 
 ---
 
