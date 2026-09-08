@@ -1175,3 +1175,10 @@ Formato de cada entrada:
 - **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
 - **Respuesta:** Confirmé en el worktree: `registry.ts` borrado sin referencias, build (`tsc -b && vite build`) limpio, sin dependencias de testing. `AccountsScreen.tsx` sin banner/hack, `MovementHistoryScreen.tsx` nueva con paginación por cursor. Commit `a8ed239` ya en origin. Limpié el worktree.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 12:16 — Resolver los comentarios de PR #5 y mergearlo a main
+<!-- id: 20260908-121614-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "Resuelve los issues de ese PR si es que los tiene en comentarios. Al terminar mergea a main" para PR #5 (web).
+- **Prompt:** "Resuelve los issues de ese PR si es que los tiene en comentarios. Al terminar mergea a main"
+- **Respuesta:** Encontré 7 comentarios de un bot de revisión automatizado (timing/estilo genérico). Cinco repetían la misma afirmación desactualizada -- que /deposits y /withdrawals no existen -- pero verifiqué contra el código real de origin/main y origin/feat/web-ui que sí existen (PR #4) y que el frontend ya los usa correctamente; respondí con esa evidencia en vez de revertir código correcto. Dos eran hallazgos reales: balance sin formatear en `OpenAccountScreen.tsx` (mostraba el entero crudo) y falta de `type="button"` en `Tabs.tsx` -- corregidos, más reescribí el README de la web que seguía describiendo el estado viejo. Build limpio, commit `427e51b` pusheado, las 7 respuestas publicadas en el PR. Mergeado a main sin conflicto, gates de backend verdes tras sincronizar.
+- **Veredicto:** ⏳ pendiente
