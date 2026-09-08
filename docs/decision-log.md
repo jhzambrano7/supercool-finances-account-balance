@@ -978,3 +978,10 @@ Formato de cada entrada:
 - **Prompt:** (notificaciones de finalización de ambos agentes, sin mensaje nuevo del usuario)
 - **Respuesta:** Entré a los worktrees dejados por cada fork y corrí las verificaciones yo mismo: `feat/deposit-withdraw` → ruff + mypy strict + pytest completo (206 tests, todo verde); `feat/web-ui` → confirmé ausencia de dependencias de testing, build real (`tsc -b && vite build`) limpio, proxy de Vite a `localhost:8000`, y el scope `web` agregado en `scripts/check_commit_msg.py`. Ambas ramas quedaron pusheadas a origin sin PR ni merge.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 22:31 — Abrir los PRs de depósito/retiro y web UI contra main
+<!-- id: 20260907-223155-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "crea los PRs" para las dos ramas ya verificadas.
+- **Prompt:** "crea los PRs"
+- **Respuesta:** Abrí PR #4 (`feat/deposit-withdraw` → `main`) y PR #5 (`feat/web-ui` → `main`), cada uno con su test plan verificado. Detecté de paso que existe PR #3 (`feat/revert`, trabajo concurrente ajeno) -- no lo toqué.
+- **Veredicto:** ⏳ pendiente
