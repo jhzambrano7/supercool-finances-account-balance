@@ -1043,3 +1043,10 @@ Formato de cada entrada:
 - **Prompt:** "vamos con el PR de la web, ya con los EPs de depósito y retiro podemos incrementar la implementación"
 - **Respuesta:** Lancé un fork en worktree aislado sobre `feat/web-ui`: agrega `createDeposit`/`createWithdrawal` al cliente, generaliza `PendingTransfer` (acoplado hoy a la forma de `TransferRequest`) para soportar las tres formas de body, actualiza `MoveMoneyScreen.tsx` para que Deposit/Withdraw ya no inyecten IDs de cuentas SYSTEM a mano, y borra `seededAccounts.ts` (su propio docstring pedía borrarlo el día que estos endpoints existieran). Sigue sin pruebas automatizadas, con verificación manual de golden-path contra un backend real.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:08 — Retomar PR #3 (reversión): merge de main + retrofit de convenciones
+<!-- id: 20260907-230834-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "va siendo tiempo de retomar la reversión actualiza el PR con los cambios de main y aplica las convenciones que hemos definido, déjalo listo para hacer la revisión".
+- **Prompt:** "va siendo tiempo de retomar la reversión actualiza el PR con los cambios de main y aplica las convenciones que hemos definido, déjalo listo para hacer la revisión"
+- **Respuesta:** Investigué antes de delegar: `feat/revert` está 44 commits detrás de `main` (se armó antes del split `Account`→`UserAccount|SystemAccount`, la reorganización de DBOs/adapters, y toda la ronda de convenciones del PR review). Confirmé colisiones concretas: `transfer_repository.py` ya no existe con ese nombre (ahora `sql_transfer_repository.py`, forma distinta), `IdempotencyRecord` perdió `status` (revert_transfer.py aún referencia `"COMPLETED"`), y hay un `__all__` barrel que la convención actual prohíbe. Lancé un fork en worktree aislado para hacer un merge real (no rebase, no force-push a una rama con PR abierto) + retrofit completo, mismo rigor (ruff/mypy strict/pytest). No mergea a main ni abre PR nuevo -- el usuario revisa él mismo cuando esté listo.
+- **Veredicto:** ⏳ pendiente
