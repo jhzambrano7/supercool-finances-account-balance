@@ -1,10 +1,10 @@
-import { useState } from 'react'
-import { listRegisteredAccounts } from '../accounts/registry'
+import { useEffect, useState } from 'react'
 import {
   ApiError,
   createDeposit,
   createTransfer,
   createWithdrawal,
+  getAccounts,
   retryDeposit,
   retryTransfer,
   retryWithdrawal,
@@ -17,7 +17,7 @@ import {
   savePendingOperation,
   type PendingOperation,
 } from '../api/idempotency'
-import type { TransferResponse } from '../api/types'
+import type { AccountResponse, TransferResponse } from '../api/types'
 import { Receipt } from '../components/Receipt'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Tabs } from '../components/Tabs'
@@ -82,7 +82,22 @@ export function MoveMoneyScreen({ ownerId, onSwitchIdentity }: Props) {
   const [error, setError] = useState<DescribedError | null>(null)
   const [receipt, setReceipt] = useState<TransferResponse | null>(null)
 
-  const myAccounts = listRegisteredAccounts(ownerId)
+  const [myAccounts, setMyAccounts] = useState<AccountResponse[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    getAccounts(ownerId)
+      .then((response) => {
+        if (!cancelled) setMyAccounts(response.items)
+      })
+      .catch(() => {
+        // Best-effort: an empty dropdown is a visible, honest failure mode here -- the form's
+        // own submit path still reports a real error if the caller tries to proceed without one.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [ownerId])
 
   function resetForm() {
     setStep('form')
@@ -230,8 +245,8 @@ export function MoveMoneyScreen({ ownerId, onSwitchIdentity }: Props) {
                 <select value={myAccountId} onChange={(e) => setMyAccountId(e.target.value)}>
                   <option value="">Select an account…</option>
                   {myAccounts.map((a) => (
-                    <option key={a.accountId} value={a.accountId}>
-                      {truncateId(a.accountId)} · {a.purpose ?? '?'} · {a.currency ?? '?'}
+                    <option key={a.account_id} value={a.account_id}>
+                      {truncateId(a.account_id)} · {a.purpose} · {a.currency}
                     </option>
                   ))}
                 </select>

@@ -4,6 +4,7 @@ import { PlaceholderScreen } from './components/PlaceholderScreen'
 import { Tabs } from './components/Tabs'
 import { loadIdentities, type Identity } from './identity/identity'
 import { AccountsScreen } from './screens/AccountsScreen'
+import { MovementHistoryScreen } from './screens/MovementHistoryScreen'
 import { MoveMoneyScreen } from './screens/MoveMoneyScreen'
 import { OpenAccountScreen } from './screens/OpenAccountScreen'
 
@@ -45,13 +46,7 @@ export default function App() {
         {screen === 'open' && <OpenAccountScreen ownerId={active.id} />}
         {screen === 'move' && <MoveMoneyScreen ownerId={active.id} onSwitchIdentity={() => setScreen('open')} />}
         {screen === 'accounts' && <AccountsScreen ownerId={active.id} />}
-        {screen === 'history' && (
-          <PlaceholderScreen
-            title="Movement history"
-            reason="There is no endpoint yet. The rows exist (transfers, entries); nothing serves them."
-            specLink="openspec/specs/transfer/spec.md — Out of Scope"
-          />
-        )}
+        {screen === 'history' && <MovementHistoryScreen ownerId={active.id} />}
         {screen === 'reversal' && (
           <PlaceholderScreen
             title="Reversal"

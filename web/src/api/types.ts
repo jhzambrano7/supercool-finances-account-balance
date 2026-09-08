@@ -63,3 +63,32 @@ export interface TransferResponse {
   occurred_at: string
   entries: EntryResponse[]
 }
+
+/** `GET /accounts`'s body -- wrapped in `{items: [...]}` rather than a bare array, so a
+ * `next_cursor` could be added later without a breaking change (this endpoint has no
+ * pagination today). */
+export interface AccountsResponse {
+  items: AccountResponse[]
+}
+
+/** `GET /accounts/{account_id}/movements`'s per-item shape -- narrower than `EntryResponse`
+ * (no bare `account_id`, the caller already named it in the URL) and wider in another way
+ * (`currency`, `counterparty_account_id`, `requested_by`, `occurred_at`). Deliberately no
+ * running-balance field -- computing one would resurrect a cost this design avoids. */
+export interface MovementResponse {
+  entry_id: string
+  transfer_id: string
+  direction: EntryDirection
+  amount: number
+  currency: string
+  counterparty_account_id: string
+  requested_by: string
+  occurred_at: string
+}
+
+/** `GET /accounts/{account_id}/movements`'s body -- cursor pagination, not offset: `next_cursor`
+ * is `null` exactly when this page reached the end. */
+export interface MovementsResponse {
+  items: MovementResponse[]
+  next_cursor: string | null
+}

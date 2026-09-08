@@ -1,7 +1,9 @@
 import { describeHttpError, describeNetworkError, type DescribedError } from './errors'
 import type {
   AccountResponse,
+  AccountsResponse,
   DepositRequest,
+  MovementsResponse,
   OpenAccountRequest,
   TransferRequest,
   TransferResponse,
@@ -169,4 +171,51 @@ export async function retryWithdrawal(
   headers: MoneyMovementHeaders,
 ): Promise<TransferResponse> {
   return postMoneyMovementOnce('/withdrawals', body, headers)
+}
+
+/**
+ * One GET, shared by the three read endpoints below -- no retry policy here, unlike the money
+ * movements above: a `GET` is not a decided-once action guarded by an idempotency key, so a
+ * caller that wants a retry just issues the same request again.
+ */
+async function getJson(path: string, callerId: string): Promise<unknown> {
+  let response: Response
+  try {
+    response = await fetch(path, { headers: { 'X-Caller-Id': callerId } })
+  } catch {
+    throw new ApiError(describeNetworkError())
+  }
+
+  const parsed = await parseJsonBody(response)
+  if (!response.ok) {
+    throw new ApiError(describeHttpError(response.status, (parsed as { detail?: unknown } | null)?.detail))
+  }
+  return parsed
+}
+
+/** `GET /accounts` -- every account the caller owns. */
+export async function getAccounts(callerId: string): Promise<AccountsResponse> {
+  return (await getJson('/accounts', callerId)) as AccountsResponse
+}
+
+/** `GET /accounts/{account_id}` -- 403 if the caller doesn't own it, 404 if it doesn't exist. */
+export async function getAccount(accountId: string, callerId: string): Promise<AccountResponse> {
+  return (await getJson(`/accounts/${accountId}`, callerId)) as AccountResponse
+}
+
+/**
+ * `GET /accounts/{account_id}/movements` -- cursor pagination, newest first. `cursor` is opaque;
+ * omit it for the first page. `limit` defaults to 25 server-side, caps at 100.
+ */
+export async function getMovements(
+  accountId: string,
+  callerId: string,
+  options: { limit?: number; cursor?: string | null } = {},
+): Promise<MovementsResponse> {
+  const params = new URLSearchParams()
+  if (options.limit != null) params.set('limit', String(options.limit))
+  if (options.cursor != null) params.set('cursor', options.cursor)
+  const query = params.toString()
+  const path = `/accounts/${accountId}/movements${query ? `?${query}` : ''}`
+  return (await getJson(path, callerId)) as MovementsResponse
 }

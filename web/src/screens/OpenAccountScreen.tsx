@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { registerAccount } from '../accounts/registry'
 import { ApiError, openAccount } from '../api/client'
 import type { DescribedError } from '../api/errors'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -34,11 +33,6 @@ export function OpenAccountScreen({ ownerId }: Props) {
     try {
       const response = await openAccount({ owner_id: effectiveOwner, purpose, currency })
       setResult(response)
-      registerAccount(effectiveOwner, {
-        accountId: response.account.account_id,
-        purpose,
-        currency,
-      })
     } catch (err) {
       if (err instanceof ApiError) setError(err.described)
       else throw err

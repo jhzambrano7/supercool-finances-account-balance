@@ -1,117 +1,76 @@
-import { useState } from 'react'
-import { forgetAccount, listRegisteredAccounts, registerAccount, type RegisteredAccount } from '../accounts/registry'
-import { ApiError, openAccount } from '../api/client'
+import { useEffect, useState } from 'react'
+import { ApiError, getAccounts } from '../api/client'
+import type { AccountResponse } from '../api/types'
+import type { DescribedError } from '../api/errors'
+import { ErrorBanner } from '../components/ErrorBanner'
 import { formatMinorUnits } from '../money/money'
 import type { Currency } from '../money/money'
+import { truncateId } from '../identity/identity'
 
 interface Props {
   ownerId: string
 }
 
-interface Balance {
-  value: number | null
-  error: string | null
-  loading: boolean
-}
-
-/**
- * Accounts, as a client-side registry (docs/web-ui-plan.md §5.3). This list lives in the browser,
- * not on the server -- there is no `GET /accounts` yet.
- */
+/** Accounts, for real (`GET /accounts`, docs/web-ui-plan.md §6.1b) -- every account this caller
+ * owns, with its real, current balance. No client-side registry, no replay hack. */
 export function AccountsScreen({ ownerId }: Props) {
-  const [accounts, setAccounts] = useState<RegisteredAccount[]>(() => listRegisteredAccounts(ownerId))
-  const [balances, setBalances] = useState<Record<string, Balance>>({})
-  const [addId, setAddId] = useState('')
+  const [accounts, setAccounts] = useState<AccountResponse[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<DescribedError | null>(null)
 
-  function refresh() {
-    setAccounts(listRegisteredAccounts(ownerId))
-  }
-
-  function addById() {
-    const trimmed = addId.trim()
-    if (!trimmed) return
-    registerAccount(ownerId, { accountId: trimmed, purpose: null, currency: null })
-    setAddId('')
-    refresh()
-  }
-
-  function forget(accountId: string) {
-    forgetAccount(ownerId, accountId)
-    refresh()
-  }
-
-  async function refreshBalance(account: RegisteredAccount) {
-    if (!account.purpose || !account.currency) {
-      setBalances((prev) => ({
-        ...prev,
-        [account.accountId]: { value: null, error: 'Added by id — no natural key to replay.', loading: false },
-      }))
-      return
-    }
-    setBalances((prev) => ({ ...prev, [account.accountId]: { value: null, error: null, loading: true } }))
+  async function refresh() {
+    setLoading(true)
+    setError(null)
     try {
-      const response = await openAccount({ owner_id: ownerId, purpose: account.purpose, currency: account.currency })
-      setBalances((prev) => ({
-        ...prev,
-        [account.accountId]: { value: response.account.balance, error: null, loading: false },
-      }))
+      const response = await getAccounts(ownerId)
+      setAccounts(response.items)
     } catch (err) {
-      const message = err instanceof ApiError ? err.described.title : 'Could not refresh.'
-      setBalances((prev) => ({ ...prev, [account.accountId]: { value: null, error: message, loading: false } }))
+      if (err instanceof ApiError) setError(err.described)
+      else throw err
+    } finally {
+      setLoading(false)
     }
   }
+
+  useEffect(() => {
+    void refresh()
+    // Re-fetch whenever the active identity changes -- each identity sees only its own accounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerId])
 
   return (
     <div className="stack">
       <h2 className="screen-title">Accounts</h2>
 
-      <div className="banner banner--info">
-        This list lives in your browser, not on the server. The API has no endpoint to list accounts
-        yet. Accounts opened elsewhere won&apos;t appear here, and if the database is reset these will
-        point at rows that no longer exist.
-      </div>
+      {error && <ErrorBanner error={error} onRetry={() => void refresh()} />}
 
-      <div className="card row">
-        <input value={addId} onChange={(e) => setAddId(e.target.value)} placeholder="account uuid" style={{ flex: 1 }} />
-        <button className="btn-ghost" onClick={addById}>
-          Add by id
-        </button>
-      </div>
+      {loading && !error && <div className="help-text">Loading…</div>}
 
-      {accounts.length === 0 && <div className="help-text">No accounts yet. Open one to get started.</div>}
+      {!loading && !error && accounts.length === 0 && (
+        <div className="help-text">No accounts yet. Open one to get started.</div>
+      )}
 
       <div className="stack">
-        {accounts.map((account) => {
-          const balance = balances[account.accountId]
-          return (
-            <div key={account.accountId} className="card row" style={{ justifyContent: 'space-between' }}>
-              <div>
-                <div className="mono">{account.accountId}</div>
-                <div className="help-text">
-                  {account.purpose ?? 'unknown purpose'} · {account.currency ?? 'unknown currency'}
-                </div>
-                {balance?.loading && <div className="help-text">Refreshing…</div>}
-                {balance?.error && <div className="help-text">{balance.error}</div>}
-                {balance?.value != null && account.currency && (
-                  <div className="amount tabular">{formatMinorUnits(balance.value, account.currency as Currency)}</div>
-                )}
-              </div>
-              <div className="row">
-                <button
-                  className="btn-ghost"
-                  title="Refresh (via account-open replay)"
-                  onClick={() => refreshBalance(account)}
-                >
-                  Refresh (via account-open replay)
-                </button>
-                <button className="btn-ghost" onClick={() => forget(account.accountId)}>
-                  Forget
-                </button>
+        {accounts.map((account) => (
+          <div key={account.account_id} className="card row" style={{ justifyContent: 'space-between' }}>
+            <div>
+              <div className="mono">{truncateId(account.account_id)}</div>
+              <div className="help-text">
+                {account.purpose} · {account.currency} · {account.status}
               </div>
             </div>
-          )
-        })}
+            <div className="amount tabular">
+              {formatMinorUnits(account.balance, account.currency as Currency)}
+            </div>
+          </div>
+        ))}
       </div>
+
+      {!loading && (
+        <button className="btn-ghost" onClick={() => void refresh()}>
+          Refresh
+        </button>
+      )}
     </div>
   )
 }
