@@ -1057,3 +1057,10 @@ Formato de cada entrada:
 - **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
 - **Respuesta:** Confirmé en el worktree: `seededAccounts.ts` borrado sin referencias, proxy de Vite en `localhost:8000` (sin el override de dev), build (`tsc -b && vite build`) limpio, sin dependencias de testing agregadas. Commit `446f9da` ya en origin. Limpié los worktrees ya superados (el de este fork y el original de la web, ambos redundantes tras el merge).
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:23 — Cerrar la reversión (merge sincronizado) e iniciar listado de cuentas + histórico
+<!-- id: 20260907-232353-a1fe3a40 -->
+- **Qué intentaba:** Verificar el fork del merge de `feat/revert` antes de darlo por bueno, y arrancar la nueva solicitud del usuario: vista de listado de cuentas + histórico de movimientos, ambos acotados al dueño de la sesión.
+- **Prompt:** "La consola tiene vista de listado de cuentas de un usuario además de histórico de movimientos, podemos ir resolviendo estos temas. En ambos casos por su puesto pertenecientes al usuario de la sesión"
+- **Respuesta:** Verifiqué el merge de reversión yo mismo (225 tests, ruff, mypy strict verdes; spot-check de las afirmaciones clave: sin `__all__`, `RevertTransferUseCase` renombrado, `get_many_for_update` usado, catch de `IntegrityError` acotado por constraint). Encontré y corregí un segundo conflicto real en `docs/decision-log.md` al traer el último commit de main: 6 entradas históricas de la propia rama (creación original del PR #3, segunda revisión del PR #1) que nunca habían llegado a main -- las reordené a su posición cronológica correcta (entre 02:40 y 10:06) en vez de dejarlas fuera de orden al final. Pusheado. Para la nueva tarea: el diseño ya existía documentado (`docs/web-ui-plan.md` §6.1/6.1b/6.2) -- creé rama `feat/account-reads` limpia desde `main` y lancé un fork para implementar GET /accounts/{id}, GET /accounts y GET /accounts/{id}/movements (paginado por cursor), con chequeo de dueño real, mismo rigor de siempre.
+- **Veredicto:** ⏳ pendiente
