@@ -65,6 +65,22 @@ PLATFORM_OWNER_ID: Final = OwnerId(UUID(int=0))
 
 
 @dataclass(frozen=True, slots=True)
+class PrincipalId(OwnerId):
+    """Identifies whoever is authorized to perform an operator-only operation (revert's R1),
+    as distinct from `OwnerId`'s more common use identifying a customer.
+
+    Subclasses `OwnerId` rather than `EntityId` directly, deliberately: this codebase already
+    reuses `OwnerId` broadly for "whoever the resolved `X-Caller-Id` identifies"
+    (`TransferMoneyRequest.requested_by` is not literally "the account's owner" either -- either
+    leg's owner may request a transfer). Shared infrastructure that is generically about "the
+    caller" (`IdempotencyRecord.caller_id: OwnerId`) accepts a `PrincipalId` without being
+    loosened, since a `PrincipalId` IS an `OwnerId` here -- while a field that specifically wants
+    "the authorized principal, not just any caller" (`RevertTransferRequest.executed_by`) can say
+    so at the type level.
+    """
+
+
+@dataclass(frozen=True, slots=True)
 class IdempotencyKey:
     """A client-supplied retry key, carried on `Transfer` (§6.3).
 

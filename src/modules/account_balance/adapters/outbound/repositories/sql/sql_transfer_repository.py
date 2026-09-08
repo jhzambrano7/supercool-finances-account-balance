@@ -2,6 +2,7 @@ from collections.abc import Callable
 from logging import Logger
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.account_balance.adapters.outbound.repositories.sql.dbos.entry_dbo import EntryDbo
@@ -9,11 +10,14 @@ from modules.account_balance.adapters.outbound.repositories.sql.dbos.transfer_db
     TransferDbo,
 )
 from modules.account_balance.application.gateways.transfer_repository import (
+    TransferAlreadyReversedConflictError,
     TransferRepository,
     TransferRepositoryError,
 )
 from modules.account_balance.domain.identifiers import TransferId
 from modules.account_balance.domain.transfer import Transfer
+
+_REVERSES_CONSTRAINT = "uq_transfers_reverses"
 
 
 class SqlTransferRepository(TransferRepository):
@@ -38,6 +42,29 @@ class SqlTransferRepository(TransferRepository):
                 await session.flush()
                 session.add_all(EntryDbo.from_domain(entry) for entry in transfer.entries)
                 await session.flush()
+        except IntegrityError as exc:
+            # Logged unconditionally -- every IntegrityError this adapter sees
+            # is recorded, including the recognized R4 conflict below, so the
+            # log is a complete audit trail of integrity violations rather than
+            # only the ones this adapter fails to explain.
+            self._logger.exception("integrity error adding transfer %s", transfer.transfer_id)
+            if not _violates_reverses_constraint(exc):
+                raise TransferRepositoryError(
+                    operation="add",
+                    cause=exc,
+                    metadata={"transfer_id": str(transfer.transfer_id.value)},
+                ) from exc
+            if transfer.reverses is None:  # pragma: no cover -- defensive: the index only
+                # applies to rows with reverses IS NOT NULL, so this constraint cannot fire
+                # for an ordinary (non-reversal) transfer.
+                raise TransferRepositoryError(
+                    operation="add",
+                    cause=exc,
+                    metadata={"transfer_id": str(transfer.transfer_id.value)},
+                ) from exc
+            raise TransferAlreadyReversedConflictError(
+                original_transfer_id=transfer.reverses
+            ) from exc
         except Exception as exc:
             self._logger.exception("unexpected error adding transfer %s", transfer.transfer_id)
             raise TransferRepositoryError(
@@ -67,3 +94,11 @@ class SqlTransferRepository(TransferRepository):
                 cause=exc,
                 metadata={"transfer_id": str(transfer_id.value)},
             ) from exc
+
+
+def _violates_reverses_constraint(exc: IntegrityError) -> bool:
+    """Narrows the catch in `add()` to R4's own partial unique index (migration
+    `cf910528c0f8`), not any `IntegrityError` -- mirrors AO4's
+    `_violates_natural_key_constraint` and T5's `_violates_idempotency_constraint`."""
+    diag = getattr(exc.orig, "diag", None)
+    return getattr(diag, "constraint_name", None) == _REVERSES_CONSTRAINT

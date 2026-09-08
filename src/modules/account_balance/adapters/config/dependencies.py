@@ -2,6 +2,9 @@ import logging
 
 from dependency_injector import containers, providers
 
+from modules.account_balance.adapters.config.fixed_admin_authorization_gateway import (
+    FixedAdminAuthorizationGateway,
+)
 from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repository import (
     SqlAccountRepository,
 )
@@ -13,6 +16,7 @@ from modules.account_balance.application.services.system_account_resolver import
 )
 from modules.account_balance.application.use_cases.account_register import AccountRegister
 from modules.account_balance.application.use_cases.deposit import Deposit
+from modules.account_balance.application.use_cases.revert_transfer import RevertTransfer
 from modules.account_balance.application.use_cases.transfer_money import TransferMoney
 from modules.account_balance.application.use_cases.withdraw import Withdraw
 from modules.shared.adapters.config.dependencies import SharedDependencies
@@ -76,6 +80,21 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
         provides=Withdraw,
         system_account_resolver=system_account_resolver,
         transfer_money=transfer_money,
+    )
+
+    # Stateless (a fixed-constant comparison, R1) -- a Singleton, same reasoning as `logger`.
+    authorization_gateway = providers.Singleton(FixedAdminAuthorizationGateway, logger=logger)
+
+    # Shares `transfer_unit_of_work`'s provider (R3: same unit of work, same
+    # three repositories, same idempotency mechanism as `transfer` -- no
+    # parallel infrastructure for this slice).
+    revert_transfer = providers.Factory(
+        provides=RevertTransfer,
+        logger=logger,
+        unit_of_work_factory=transfer_unit_of_work.provider,
+        id_generator=shared.id_generator,
+        clock=shared.clock,
+        authorization_gateway=authorization_gateway,
     )
 
 

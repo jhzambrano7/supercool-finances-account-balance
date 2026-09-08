@@ -444,6 +444,54 @@ Formato de cada entrada:
 - **Qué intentaba:** Cerrar el segundo eslabón de la cadena.
 - **Prompt:** (continuación directa del pedido de este turno)
 - **Respuesta:** Pusheado `feat/transfer` y abierto el PR #2 apuntando a `feat/account-opening` (no a main, per feature-branch-chain), con el bug de concurrencia real y su fix documentados en el cuerpo del PR. `revert` (PR #3) arranca sobre `feat/transfer` a continuación.
+
+## 2026-09-07 02:50 — Especificar revert y lanzar su implementación
+
+- **Qué intentaba:** Cerrar el tercer eslabón de la cadena: documentar y lanzar la implementación de la reversión (PR #3).
+- **Prompt:** (continuación directa del pedido de este turno)
+- **Respuesta:** `openspec/specs/revert/spec.md`: decisiones R1–R8. La más importante: R1 declara explícitamente que "operador-autorizado" en v1 es sólo "un endpoint separado sin chequeo de dueño" — una limitación real y declarada, no un mecanismo de verificación de operador inventado (el PRD mismo delega esa pregunta al adaptador de autenticación real, fuera de alcance). R2 deriva origen/destino de la transferencia original en vez de aceptarlos del cliente, eliminando una clase entera de error posible. R3 aplica por adelantado la lección que costó un bug real en transfer: la reserva de idempotencia debe ser la primera escritura, antes de tocar cualquier cuenta — documentado explícitamente citando el commit del fix (`0c4ea93`) en el brief de implementación. R4 es el índice único parcial sobre `transfers.reverses` que design.md ya había especificado pero nunca se había construido. Lanzada la implementación en background sobre `feat/revert`, con instrucción explícita de reusar toda la maquinaria de `transfer` (unit of work, repositorios, mecanismo de idempotencia) sin duplicarla.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 02:55 — Verificar revert y lanzar su revisión fresca
+
+<!-- id: 20260907-025510-a1fe3a40 -->
+- **Qué intentaba:** (Turno disparado por la finalización del sub-agente de implementación.) Verificar la entrega antes de pasarla a revisión fresca.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** 196 tests confirmados. Leí `RevertTransferUseCase` completo antes de aceptar el reporte: la reserva de idempotencia efectivamente ocurre primero, antes de cargar el original o tocar cuentas — no sólo lo dice el comentario, lo hace el código. Verificado también R2 (origen=destino del original, destino=origen del original, coincide con el contrato real de `revert()` en posting.py) y R4 (el catch en `SqlTransferRepository.add()` está acotado por nombre al índice parcial, mismo patrón que AO4/T5; la migración crea el índice único parcial correctamente sobre `reverses IS NOT NULL`). Gates verdes. Lanzada revisión fresca con foco explícito en re-verificar la afirmación de "reserva primero" línea por línea en vez de confiar en el comentario, y en la dirección origen/destino de la reversa.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 03:02 — Cerrar la revisión fresca de revert y abrir el PR #3
+
+<!-- id: 20260907-030200-a1fe3a40 -->
+- **Qué intentaba:** Cerrar los dos hallazgos de la revisión fresca (nada bloqueante) y abrir el PR #3.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** La revisión confirmó, línea por línea y corriendo los tests ella misma, todo lo verificado en el turno anterior: reserva de idempotencia primero, índice único parcial correcto, catch acotado por nombre de constraint, dirección origen/destino correcta contra el contrato real de `revert()`, ejemplo PRD §7.3 reproducido, ausencia real de chequeo de dueño (R1). Dos hallazgos menores, ninguno bloqueante: (1) el mapeo de `InvalidIdempotencyKeyError` a 422 ya era correcto pero no tenía test — agregado, siguiendo el mismo patrón que `transfer`; (2) `AccountNotFoundError` no se atrapaba explícitamente en el endpoint de reversión (código muerto hoy, pero inconsistente con el endpoint hermano) — corregido por paridad.
+- **197 tests, gates verdes.** Abierto el PR #3 (`feat/revert` → `feat/transfer`), tercer y último eslabón de la cadena, con la limitación de R1 explícita en el cuerpo del PR.
+- **Veredicto:** ✅ aprobado
+
+## 2026-09-07 03:08 — Pushear feat/revert y abrir el PR #3, cadena completa
+
+- **Qué intentaba:** Cerrar el tercer y último eslabón de la cadena pedida este turno.
+- **Prompt:** (continuación directa del pedido original de este turno)
+- **Respuesta:** Pusheado `feat/revert` y abierto el PR #3 apuntando a `feat/transfer`. Cadena completa: PR #1 (account-opening, main), PR #2 (transfer, sobre #1), PR #3 (revert, sobre #2) — los tres abiertos, cada uno con su propio bug real encontrado y cerrado por una revisión fresca en contexto independiente antes de abrirse. La limitación de R1 (revert sin verificación real de operador) quedó explícita en el cuerpo del PR, no sólo en el spec.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 09:49 — Iniciar segunda revisión del PR #1 (account-opening)
+
+<!-- id: 20260907-094946-a1fe3a40 -->
+- **Qué intentaba:** El usuario pidió arrancar una revisión del PR #1 antes de decidir mergearlo.
+- **Prompt:** "movámonos al PR 1, quiero que inicies una revisión"
+- **Respuesta:** Lanzada una segunda revisión adversarial en contexto fresco (independiente de la que ya corrió antes de abrir el PR), aclarando explícitamente al sub-agente que no hay un bug conocido pendiente en este PR (a diferencia de transfer y revert, que sí tuvieron uno cada uno en su primera pasada) para que no fabrique hallazgos. Foco: manejo de la carrera de clave natural (AO4), semántica 201/200 (AO3), que `account_type` no sea aceptable desde el request (AO1), y completitud del mapeo de errores HTTP — las tres clases de bug que sí aparecieron en las dos PRs posteriores de esta cadena.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 09:54 — Cerrar la segunda revisión del PR #1: sin hallazgos bloqueantes
+
+<!-- id: 20260907-095404-a1fe3a40 -->
+- **Qué intentaba:** (Turno disparado por la finalización de la revisión.) Verificar el veredicto antes de reportarlo.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** Reporte limpio: sin hallazgos bloqueantes. Verificado por mí de forma independiente antes de aceptarlo (sin checkout, vía `git show`/`git diff` sobre la rama): diff de dominio genuinamente vacío, el catch de `IntegrityError` en `add()` está acotado por nombre real de constraint (`uq_accounts_owner_purpose_currency`), `account_type` está ausente del schema del request y hardcodeado a `USER` en el caso de uso (AO1). La revisión corrió los tests desde un `git worktree` separado (no tocó el árbol de trabajo actual) y confirmó 75 tests + gates verdes. Dos nitpicks no bloqueantes: warning de deprecación de `testcontainers.postgres`, y el test de integración de la carrera es secuencial (no concurrencia real de dos threads), cubierto en cambio por el test unitario — split razonable, no un hueco real.
+- **Veredicto:** ✅ aprobado — PR #1 queda con luz verde para mergear a criterio del usuario
+
 ## 2026-09-07 10:06 — Cambiar al branch del PR #1
 
 <!-- id: 20260907-100645-a1fe3a40 -->
