@@ -3,6 +3,8 @@ import { ApiError, openAccount } from '../api/client'
 import type { DescribedError } from '../api/errors'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { truncateId } from '../identity/identity'
+import { formatMinorUnits } from '../money/money'
+import type { Currency } from '../money/money'
 
 interface Props {
   ownerId: string
@@ -125,7 +127,9 @@ export function OpenAccountScreen({ ownerId }: Props) {
               </tr>
               <tr>
                 <th>Balance</th>
-                <td className="amount">{result.account.balance}</td>
+                <td className="amount tabular">
+                  {formatMinorUnits(result.account.balance, result.account.currency as Currency)}
+                </td>
               </tr>
               <tr>
                 <th>Status</th>

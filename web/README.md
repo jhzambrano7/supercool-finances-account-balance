@@ -12,36 +12,41 @@ API on `main` serves today).
    `uv run alembic upgrade head`, then `PYTHONPATH=src uv run uvicorn
    modules.shared.adapters.inbound.api.app:app --port 8000`.
 2. Frontend: from this directory, `npm install` then `npm run dev`. The dev server proxies
-   `/accounts` and `/transfers` to `http://localhost:8000` (`vite.config.ts`) — there is no CORS
-   middleware on the backend by design (see `docs/web-ui-plan.md` §1.5), so the browser must only
-   ever see same-origin requests.
+   `/accounts`, `/transfers`, `/deposits` and `/withdrawals` to `http://localhost:8000`
+   (`vite.config.ts`) — there is no CORS middleware on the backend by design (see
+   `docs/web-ui-plan.md` §1.5), so the browser must only ever see same-origin requests.
 
 Open the URL Vite prints (typically `http://localhost:5173`). Two simulated identities are seeded on
 first run — every interesting flow here needs two people.
 
-## What's here (Phase 1)
+## What's here
+
+Past Phase 1 now: the backend gained real `POST /deposits`/`POST /withdrawals` and real
+`GET /accounts`/`GET /accounts/{id}`/`GET /accounts/{id}/movements` endpoints, and this app was
+updated to use them as each landed on `main`, rather than waiting for a single big rewrite.
 
 - **Identity bar** — a persistent, non-dismissible bar showing the simulated `X-Caller-Id`. There is
   no login; this app never pretends otherwise.
 - **Open account** — `POST /accounts`.
-- **Move money** — one screen, three tabs (Transfer / Deposit / Withdraw), all backed by the same
-  `POST /transfers` (there is no dedicated deposit/withdraw endpoint yet — see
-  `openspec/specs/transfer/spec.md`, "Known gap"). The two `SYSTEM` account ids are hard-coded in
-  `src/api/seededAccounts.ts`, mirroring the backend's own `seeded_accounts.py`; delete that file the
-  day `POST /deposits`/`POST /withdrawals` exist.
+- **Move money** — one screen, three tabs (Transfer / Deposit / Withdraw): Transfer is
+  `POST /transfers`; Deposit and Withdraw are their own `POST /deposits`/`POST /withdrawals`, which
+  resolve the platform's `FUNDING`/`SETTLEMENT` account server-side — the client never supplies or
+  hard-codes a `SYSTEM` account id.
 - **Receipt** — the double-entry, rendered from the transfer response. No balance is fabricated here.
-- **Accounts** — a `localStorage` registry (there's no `GET /accounts` yet), with a "refresh via
-  account-open replay" hack for reading a balance, labelled as the hack it is.
-- **Movement history** and **Reversal** — placeholder screens; both need backend endpoints that
-  don't exist on this branch yet.
+- **Accounts** — real `GET /accounts`, the caller's own accounts with their real, current balances.
+  No client-side registry, no replay hack.
+- **Movement history** — real `GET /accounts/{id}/movements`: pick one of your own accounts, see its
+  ledger entries (direction, counterparty, amount), cursor-paginated ("Load more" — there is no total
+  count to build a numbered pager against).
+- **Reversal** — still a placeholder screen: reversal is operator-authorized, not
+  customer-initiated, and this app has no operator identity concept yet.
 
 ## Layout
 
-`src/api/` (fetch client, error mapper, seeded constants, DTO types), `src/money/` (minor-units
-parsing/formatting — string arithmetic only, never `parseFloat(x) * 100`), `src/identity/`
-(simulated-identity store), `src/accounts/` (client-side account registry), `src/screens/`,
-`src/components/`. No router, no state library, no UI component library — four screens, `useState`
-and `fetch`.
+`src/api/` (fetch client, error mapper, DTO types), `src/money/` (minor-units parsing/formatting —
+string arithmetic only, never `parseFloat(x) * 100`), `src/identity/` (simulated-identity store),
+`src/screens/`, `src/components/`. No router, no state library, no UI component library — five
+screens, `useState` and `fetch`.
 
 ## Deliberately not built here
 
