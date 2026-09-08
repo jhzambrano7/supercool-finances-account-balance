@@ -1,13 +1,14 @@
-"""Unit tests for `RevertTransferUseCase` against fake repositories.
+"""Unit tests for `RevertTransfer` against fake repositories.
 
 Per openspec/specs/revert/spec.md's Testing Strategy: the negative-balance
 case (PRD §7.3's own example), the not-found case, the double-reversal-
 conflict case, and idempotent replay -- everything that does not require a
-real database transaction (locking, and the concurrent double-reversal race,
-are integration-only, per transfer's own precedent for the same kind of
+real database transaction (locking itself, and the concurrent double-reversal
+race, are integration-only, per transfer's own precedent for the same kind of
 claim).
 """
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -23,24 +24,30 @@ from modules.account_balance.application.gateways.idempotency_repository import 
     IdempotencyRecordConflictError,
     IdempotencyRepository,
 )
+from modules.account_balance.application.gateways.models.find_accounts_criteria import (
+    FindAccountByAccountId,
+    FindAccountCriteria,
+)
 from modules.account_balance.application.gateways.transfer_repository import (
     TransferAlreadyReversedConflictError,
     TransferRepository,
 )
 from modules.account_balance.application.gateways.unit_of_work import TransferUnitOfWork
 from modules.account_balance.application.use_cases.revert_transfer import (
-    IdempotencyConflictError,
     RevertTransfer,
-    RevertTransferUseCase,
+    RevertTransferRequest,
     TransferAlreadyReversedError,
     TransferNotFoundError,
     _request_hash,
 )
+from modules.account_balance.application.use_cases.transfer_money import IdempotencyConflictError
 from modules.account_balance.domain.account import (
     Account,
     AccountPurpose,
     AccountStatus,
     AccountType,
+    SystemAccount,
+    UserAccount,
 )
 from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.identifiers import (
@@ -50,7 +57,6 @@ from modules.account_balance.domain.identifiers import (
     OwnerId,
     TransferId,
 )
-from modules.account_balance.domain.posting import Posting
 from modules.account_balance.domain.transfer import Transfer
 from modules.shared.application.services.clock import Clock
 from modules.shared.application.services.id_generator import IdGenerator
@@ -70,11 +76,9 @@ class _FakeClock(Clock):
 
 @dataclass
 class _Database:
-    """Mirrors `test_transfer_money_use_case.py`'s own `_Database` -- the
-
-    fakes' shared, already-committed backing store. Each `_FakeUnitOfWork`
-    writes to its own staged dicts, merged back here only on a clean exit.
-    """
+    """Mirrors `test_transfer_money.py`'s own `_Database` -- the fakes' shared,
+    already-committed backing store. Each `_FakeUnitOfWork` writes to its own staged dicts,
+    merged back here only on a clean exit."""
 
     accounts: dict[AccountId, Account] = field(default_factory=dict)
     transfers: dict[TransferId, Transfer] = field(default_factory=dict)
@@ -86,41 +90,47 @@ class _FakeAccountRepository(AccountRepository):
         self._database = database
         self._staged = staged
 
-    async def find_by_natural_key(
-        self, *, owner_id: OwnerId, purpose: AccountPurpose, currency: Currency
-    ) -> Account | None:
-        raise NotImplementedError
+    async def find(self, *, criteria: FindAccountCriteria) -> Account | None:
+        match criteria:
+            case FindAccountByAccountId(account_id):
+                return self._staged.get(account_id) or self._database.accounts.get(account_id)
+            case _:
+                # RevertTransfer only ever looks accounts up by id -- this
+                # fake has no need to support any other criteria.
+                raise NotImplementedError
 
     async def add(self, account: Account) -> None:
         raise NotImplementedError
 
-    async def get(self, account_id: AccountId) -> Account | None:
-        return self._staged.get(account_id) or self._database.accounts.get(account_id)
-
-    async def get_for_update(self, account_id: AccountId) -> Account | None:
+    async def get_for_update(self, account_id: AccountId) -> UserAccount | None:
         account = self._database.accounts.get(account_id)
-        if account is None or not account.account_type.is_user():
-            return None
-        return account
+        return account if isinstance(account, UserAccount) else None
 
-    async def update(self, account: Account) -> None:
+    async def get_many_for_update(
+        self, account_ids: tuple[AccountId, ...]
+    ) -> tuple[UserAccount, ...]:
+        """Sorts, exactly as the real adapter does (T6) -- mirrors `test_transfer_money.py`'s own
+        fake."""
+        return tuple(
+            account
+            for account_id in sorted(account_ids)
+            if isinstance(account := self._database.accounts.get(account_id), UserAccount)
+        )
+
+    async def update(self, account: UserAccount) -> None:
         self._staged[account.account_id] = account
 
 
 class _FakeTransferRepository(TransferRepository):
-    """`add()` simulates the partial unique index on `transfers.reverses`
-
-    (R4, design §8): scanning committed + staged rows for one already
-    reversing the same original, the same fact `uq_transfers_reverses`
-    enforces for real against Postgres.
-    """
+    """`add()` simulates the partial unique index on `transfers.reverses` (R4, design §8):
+    scanning committed + staged rows for one already reversing the same original, the same fact
+    `uq_transfers_reverses` enforces for real against Postgres."""
 
     def __init__(self, database: _Database, staged: dict[TransferId, Transfer]) -> None:
         self._database = database
         self._staged = staged
 
-    async def add(self, posting: Posting) -> None:
-        transfer = posting.transfer
+    async def add(self, transfer: Transfer) -> None:
         if transfer.reverses is not None:
             already_reversed = {
                 existing.reverses
@@ -128,9 +138,7 @@ class _FakeTransferRepository(TransferRepository):
                 if existing.reverses is not None
             }
             if transfer.reverses in already_reversed:
-                raise TransferAlreadyReversedConflictError(
-                    f"transfer {transfer.reverses} already has a reversal"
-                )
+                raise TransferAlreadyReversedConflictError(original_transfer_id=transfer.reverses)
         self._staged[transfer.transfer_id] = transfer
 
     async def get(self, transfer_id: TransferId) -> Transfer | None:
@@ -153,7 +161,9 @@ class _FakeIdempotencyRepository(IdempotencyRepository):
     async def add(self, record: IdempotencyRecord) -> None:
         key = (record.caller_id, record.idempotency_key.value)
         if key in self._database.idempotency or key in self._staged:
-            raise IdempotencyRecordConflictError("idempotency key already exists")
+            raise IdempotencyRecordConflictError(
+                caller_id=record.caller_id, idempotency_key=record.idempotency_key
+            )
         self._staged[key] = record
 
 
@@ -186,8 +196,9 @@ def _unit_of_work_factory(database: _Database) -> Callable[[], _FakeUnitOfWork]:
     return lambda: _FakeUnitOfWork(database)
 
 
-def _use_case(database: _Database) -> RevertTransferUseCase:
-    return RevertTransferUseCase(
+def _use_case(database: _Database) -> RevertTransfer:
+    return RevertTransfer(
+        logger=logging.getLogger(__name__),
         unit_of_work_factory=_unit_of_work_factory(database),
         id_generator=IdGenerator(),
         clock=_FakeClock(_OCCURRED_AT),
@@ -197,10 +208,14 @@ def _use_case(database: _Database) -> RevertTransferUseCase:
 def _account(
     *, owner_id: OwnerId, account_type: AccountType, purpose: AccountPurpose, balance: int
 ) -> Account:
-    return Account.reconstitute(
-        account_id=AccountId(uuid4()),
+    account_id = AccountId(uuid4())
+    if account_type.is_system():
+        return SystemAccount(
+            account_id=account_id, owner_id=owner_id, purpose=purpose, currency=USD
+        )
+    return UserAccount.reconstitute(
+        account_id=account_id,
         owner_id=owner_id,
-        account_type=account_type,
         purpose=purpose,
         currency=USD,
         balance=Money(balance, USD),
@@ -219,13 +234,10 @@ def _posted_transfer(
     key: str,
     reverses: TransferId | None = None,
 ) -> Transfer:
-    """Builds a `Transfer` directly -- mirrors `test_transfer_money_use_case.py`'s
-
-    own `_build_winner_transfer`: this stands in for an already-posted row
-    the fake `TransferRepository` reconstructs, not something built through
-    `posting.transfer()`/`posting.revert()` (which mutate live `Account`
-    instances this helper does not need to produce).
-    """
+    """Builds a `Transfer` directly -- mirrors `test_transfer_money.py`'s own helpers: this stands
+    in for an already-posted row the fake `TransferRepository` reconstructs, not something built
+    through `posting.transfer()`/`posting.revert()` (which mutate live `Account` instances this
+    helper does not need to produce)."""
     tid = transfer_id or TransferId(uuid4())
     money = Money(amount, USD)
     debit = Entry(
@@ -264,8 +276,8 @@ def _seed(database: _Database, *accounts: Account) -> None:
 
 def _request(
     *, transfer_id: TransferId, requested_by: OwnerId, key: str = "rev-1"
-) -> RevertTransfer:
-    return RevertTransfer(
+) -> RevertTransferRequest:
+    return RevertTransferRequest(
         transfer_id=transfer_id, idempotency_key=IdempotencyKey(key), requested_by=requested_by
     )
 
@@ -303,8 +315,8 @@ async def test_a_completed_transfer_is_reversed() -> None:
     assert reversal.reverses == original.transfer_id
     assert reversal.source_account_id == bruno.account_id
     assert reversal.destination_account_id == ana.account_id
-    assert database.accounts[bruno.account_id].balance == Money(0, USD)
-    assert database.accounts[ana.account_id].balance == Money(100, USD)
+    assert database.accounts[bruno.account_id].balance == Money(0, USD)  # type: ignore[union-attr]
+    assert database.accounts[ana.account_id].balance == Money(100, USD)  # type: ignore[union-attr]
     # The original transfer's own entries are unchanged (I7).
     assert database.transfers[original.transfer_id] is original
     assert len(original.entries) == 2
@@ -341,8 +353,8 @@ async def test_prd_7_3_ana_bruno_worked_example_bruno_ends_up_negative() -> None
         _request(transfer_id=original.transfer_id, requested_by=operator)
     )
 
-    assert database.accounts[bruno.account_id].balance == Money(-80, USD)
-    assert database.accounts[ana.account_id].balance == Money(100, USD)
+    assert database.accounts[bruno.account_id].balance == Money(-80, USD)  # type: ignore[union-attr]
+    assert database.accounts[ana.account_id].balance == Money(100, USD)  # type: ignore[union-attr]
     assert len(original.entries) + len(reversal.entries) == 4
 
 
@@ -379,7 +391,7 @@ async def test_reversing_a_deposit_never_locks_the_system_leg() -> None:
 
     assert reversal.source_account_id == bruno.account_id
     assert reversal.destination_account_id == funding.account_id
-    assert database.accounts[bruno.account_id].balance == Money(0, USD)
+    assert database.accounts[bruno.account_id].balance == Money(0, USD)  # type: ignore[union-attr]
 
 
 # --------------------------------------------------------------------------

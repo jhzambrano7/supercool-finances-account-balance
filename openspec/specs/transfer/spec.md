@@ -8,6 +8,59 @@ concept for them). It covers the use case, the simulated authentication this sli
 the persistence it requires. `transfer()` itself — the domain service, I1–I7 — is already specified
 in `openspec/specs/account-balance/spec.md` and is not repeated here.
 
+**Known gap, decided, not yet built: explicit `deposit`/`withdraw` operations.** "No separate domain
+concept" (above) is true of the domain service, but today it is also true of the *inbound* surface —
+`POST /transfers`'s body (`TransferRequestDto`) takes only raw `source_account_id`/
+`destination_account_id` UUIDs, with no `type` field distinguishing a deposit from an ordinary
+transfer. A deposit is `source_account_id = FUNDING_ACCOUNT_ID`, a withdrawal is
+`destination_account_id = SETTLEMENT_ACCOUNT_ID` — fixed, platform-seeded UUIDs
+(`adapters/config/seeded_accounts.py`) with no discovery endpoint exposing them. A caller performing
+either operation must already know these ids out of band (today, only this codebase's own tests do).
+
+**One `SYSTEM` account per supported currency, resolved by the operation, not by the caller.** The
+same gap has a second half: `FUNDING_ACCOUNT_ID`/`SETTLEMENT_ACCOUNT_ID` are not merely fixed ids,
+they are fixed *`USD`* ids (migration `5bf582a92358` seeds both with `"currency": "USD"`), so an
+account opened in any other currency can be created but never funded — I4 refuses the deposit, and
+the failure is permanent rather than transient. The currency side of this is decided: `Currency`
+becomes a closed enum, `USD` only for now (see `openspec/specs/account-balance/spec.md`, "The
+Supported Currencies Are a Closed Set"). That decision is what makes the explicit operations
+resolvable: a `deposit` looks up the `FUNDING` account *for the target account's currency* instead of
+reading one global constant.
+
+**The design, settled:**
+
+- `POST /deposits` (`{destination_account_id, amount, currency}`) and `POST /withdrawals`
+  (`{source_account_id, amount, currency}`) — flat resources alongside `/transfers`, same headers
+  (`X-Caller-Id`, `Idempotency-Key`), response reuses `TransferResponseDto` unchanged: a deposit or
+  withdrawal *is* a `Transfer`, it does not need its own response shape.
+- `Deposit`/`Withdraw` (no suffix, matching `AccountRegister`/`TransferMoney`) are thin wrappers, not
+  parallel use cases: each resolves the relevant `SYSTEM` account, builds a `TransferMoneyRequest`,
+  and delegates to the existing `TransferMoney.execute()` unchanged. Locking (T6), idempotency
+  (T3/T5) and authorization (T1) already live there and already distinguish `USER`/`SYSTEM` correctly
+  — duplicating that in two new use cases would duplicate exactly the concurrency-sensitive code this
+  slice took the most rounds to get right.
+- **`FindSystemAccountByPurposeAndCurrency(purpose, currency)`**, not the more generic
+  `FindAccountByPurposeAndCurrency` an earlier draft of this note used — deliberately narrower.
+  Without an `owner_id`, this criteria's uniqueness depends entirely on there being exactly one row
+  for a given `(purpose, currency)`, which is only true for `SYSTEM` purposes (`FUNDING`/
+  `SETTLEMENT` — one row each, owned by `PLATFORM_OWNER_ID`). A `USER` purpose (`CHECKING`/
+  `SAVINGS`) has no such guarantee — many owners hold one each — so a same-shaped criteria open to
+  either kind would silently return an arbitrary match, or more than one, the moment it was reused for
+  a `USER` lookup by mistake. The type only accepting `FUNDING`/`SETTLEMENT` (validated at
+  construction, the same way `AccountPurpose.matches_type()` already validates elsewhere) makes that
+  misuse a construction-time error instead of a latent query bug. The natural key
+  `(owner_id, purpose, currency)` already permits exactly one `FUNDING` row per currency under
+  `PLATFORM_OWNER_ID` and already forbids duplicates, so no constraint change is needed: the schema
+  was right, only the seed was narrow.
+- A `Currency` that passes the enum but has no `FUNDING`/`SETTLEMENT` account yet (not reachable
+  while the enum has one member, but a real risk the moment it has more) is a platform-configuration
+  gap, not a client mistake — distinct from `AccountNotFoundError`. `CurrencyNotOperationalError`
+  (`ApplicationError`) maps to `503`, not the `400`/`422` this document's other errors use: it says
+  "we cannot serve this currency right now", not "your request is wrong".
+
+Not built yet; this note exists so the design is recorded before it is built, not re-derived from
+scratch.
+
 Source of truth: `docs/prd.md` §5 (the critical path), §6 (idempotency), §9.1 (authorization).
 Carries forward the constraints `openspec/changes/archive/2026-09-07-account-balance-domain/design.md`
 §5.3 and §8 already placed on this layer before any of it was written.
@@ -135,11 +188,12 @@ Numbered `T1`–`T9`, continuing the citation convention `AO1`–`AO6` establish
 
 | Type | Kind | Responsibility |
 | --- | --- | --- |
-| `TransferMoney` | Use-case request, `application/use_cases` | `amount`, `source_account_id`, `destination_account_id`, `idempotency_key`, `requested_by` — the client-facing shape design.md §5.3 already specified |
-| `TransferMoneyUseCase` | Application service | orchestrates: authenticate → authorize → idempotency check → lock → load → `transfer()` → persist |
+| `TransferMoneyRequest` | Use-case request, `application/use_cases` | `amount`, `source_account_id`, `destination_account_id`, `idempotency_key`, `requested_by` — the client-facing shape design.md §5.3 already specified |
+| `TransferMoney` | Application service | orchestrates: authenticate → authorize → idempotency check → lock → load → `transfer()` → persist |
 | `Clock` | Port, `application/gateways` (or `services`, mirroring `IdGenerator`'s home) | supplies `occurred_at`; the domain takes no ambient time (D6) |
 | `IdempotencyRecord` | Persistence row, not a domain type | `caller_id, idempotency_key, request_hash, transfer_id, status, created_at` |
 | `AuthenticatedCaller` / caller-id dependency | Inbound API, `adapters/inbound/api` | resolves `X-Caller-Id` into an `OwnerId`, or raises unauthorized (T2) |
+| `TransferRequestDto` / `TransferResponseDto` / `EntryResponseDto` | Inbound API DTOs, `adapters/inbound/api/dtos.py` | the HTTP request/response shapes, mapped by their own `from_transfer` (docs/coding-conventions.md's DTO convention) |
 
 ## Requirements
 
@@ -223,18 +277,47 @@ coverage, not proven by a unit test.)*
 - THEN one succeeds, the other observes the post-lock balance and is rejected by I2
   (`InsufficientFundsError`, mapped to `422`) rather than both succeeding
 
-### Requirement: A `SYSTEM` Account's Balance Is Never Read From Or Written To Its Stored Column
+### Requirement: A `SYSTEM` Account Has No Balance At All
 
-A `SYSTEM` account's balance MUST be computed as the sum of its entries' signed amounts at read time,
-and no write to its `accounts.balance_amount` column MUST occur during posting (T7, PRD §5.3).
+A `SYSTEM` account MUST NOT carry a balance: not in the domain (`SystemAccount` has no `balance`
+field), not as a maintained column (`accounts.balance_amount` stays at its seeded zero and is never
+read for a `SYSTEM` row), and not as a value computed on read. No write to `balance_amount` MUST
+occur for a `SYSTEM` row during posting (T7, PRD §5.3).
 
-#### Scenario: A `SYSTEM` account's balance reflects its entries, not a maintained column
+*(Revised. The original T7 said the balance was to be computed as `SUM(signed entries)` at read
+time. It was built that way, then removed: **no use case ever demanded the materialized value.**
+Nothing in this service reads a `SYSTEM` account's balance — not the transfer path, which needs only
+the account's existence, currency and id to build its legs; not the API, which exposes no endpoint
+returning one. Computing it on every read was answering a question nobody asked, and paying for it
+with a `SUM` over an append-only table that only ever grows — the cost rises forever while the value
+stays unused. Its absence is now the requirement, rather than a smaller implementation of it.)*
 
-- GIVEN the `SYSTEM` funding account has received no direct writes to `balance_amount` beyond its
-  seeded zero, but has posted three deposits totaling 300 as its debited leg
-- WHEN its balance is computed
-- THEN it equals -300 (three debits, from the `SYSTEM` account's perspective as the source), not
-  whatever `balance_amount` happens to still hold
+**The platform's position is still fully derivable — it is just not stored.** Every movement writes
+its `Entry` rows, so the sum is always reconstructible from the ledger; what changed is that nothing
+reconstructs it on the request path. This is the ordinary bookkeeping distinction between the journal
+(authoritative, append-only) and a balance (a derived read model), and v1 simply does not need the
+read model.
+
+#### If a materialized `SYSTEM` balance is ever needed: snapshots, not a live `SUM`
+
+Recorded here because it is a decision already taken about the *shape* of that future work, not a
+possibility to rediscover. A scheduled process takes periodic snapshots of the balance; each run
+materializes only the entries posted since the previous snapshot and updates it. Reading the current
+balance then costs one snapshot row plus the small, bounded tail of entries after it — instead of a
+`SUM` over the entire history that grows without limit. The request path stays out of it either way:
+the snapshot is maintained asynchronously, never inside a transfer's transaction, so it introduces
+none of the `SYSTEM`-row contention T6 exists to avoid.
+
+Not built, and not to be built until something actually requires the value. The point of writing it
+down is that the absence of a balance today is a deliberate scoping decision with a known way
+forward, not an oversight to be "fixed" by reintroducing the live `SUM` this requirement removed.
+
+#### Scenario: Posting a transfer never writes the `SYSTEM` leg's stored balance
+
+- GIVEN a deposit whose source is the `SYSTEM` funding account
+- WHEN the transfer is posted
+- THEN entries are written for both legs, the `USER` account's `balance_amount` is updated, and the
+  `SYSTEM` account's row is not written at all
 
 ### Requirement: Domain Errors Map To Stable HTTP Statuses
 
@@ -264,7 +347,7 @@ default before this table and the route's `_UNPROCESSABLE_ERRORS` tuple were cor
 
 ## Testing Strategy
 
-- **Unit** (`tests/unit/account_balance/application/`): `TransferMoneyUseCase` against fake
+- **Unit** (`tests/unit/account_balance/application/`): `TransferMoney` against fake
   `AccountRepository`/`IdempotencyRepository`/`Clock`/`IdGenerator` — authorization for all four
   movement shapes (T1's table), idempotency replay and conflict, the idempotency race path.
 - **Integration** (`tests/integration/account_balance/`): real PostgreSQL via the shared

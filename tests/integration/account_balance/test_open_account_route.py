@@ -1,33 +1,12 @@
 """Integration test for `POST /accounts` against a real PostgreSQL."""
 
-from collections.abc import AsyncIterator, Iterator
+import asyncio
 from uuid import uuid4
 
 import pytest
-from dependency_injector import providers
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient, Response
 
-from modules.shared.adapters.config.settings import Settings
-from modules.shared.adapters.inbound.api.app import create_app
-
-pytestmark = pytest.mark.integration
-
-
-@pytest.fixture
-def app(postgres_url: str) -> Iterator[FastAPI]:
-    application = create_app()
-    container = application.container  # type: ignore[attr-defined]
-    container.settings.override(providers.Object(Settings(database_url=postgres_url)))
-    yield application
-    container.settings.reset_override()
-
-
-@pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
 
 async def test_first_open_returns_201_created(client: AsyncClient) -> None:
@@ -61,3 +40,22 @@ async def test_a_system_only_purpose_is_rejected(client: AsyncClient) -> None:
     response = await client.post("/accounts", json=payload)
 
     assert response.status_code == 422
+
+
+async def test_a_genuinely_concurrent_open_conflicts_instead_of_recovering(
+    client: AsyncClient,
+) -> None:
+    """AO4's race, against real concurrent requests: reviewer's own call is
+    that the loser is reported as a conflict, not silently recovered into a
+    200 -- a client that hits this simply retries and finds the account via
+    the natural-key lookup the use case already tries first.
+    """
+    payload = {"owner_id": str(uuid4()), "purpose": "CHECKING", "currency": "USD"}
+
+    async def _open() -> Response:
+        return await client.post("/accounts", json=payload)
+
+    first, second = await asyncio.gather(_open(), _open())
+
+    statuses = sorted([first.status_code, second.status_code])
+    assert statuses == [201, 409]

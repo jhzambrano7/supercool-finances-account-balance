@@ -7,43 +7,30 @@ conflict -- the parts that do not need two concurrent connections (that is
 `test_concurrent_reversal_locking.py`).
 """
 
-from collections.abc import AsyncIterator, Callable, Iterator
+import logging
+from collections.abc import Callable
 from uuid import UUID, uuid4
 
 import pytest
-from dependency_injector import providers
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.account_balance.adapters.config.seeded_accounts import (
     FUNDING_ACCOUNT_ID,
     SETTLEMENT_ACCOUNT_ID,
 )
-from modules.account_balance.adapters.outbound.repositories.sql.account_repository import (
+from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repository import (
     SqlAccountRepository,
 )
+from modules.account_balance.application.gateways.models.find_accounts_criteria import (
+    FindAccountByAccountId,
+)
+from modules.account_balance.domain.account import UserAccount
 from modules.account_balance.domain.identifiers import AccountId
-from modules.shared.adapters.config.settings import Settings
-from modules.shared.adapters.inbound.api.app import create_app
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
-
-@pytest.fixture
-def app(postgres_url: str) -> Iterator[FastAPI]:
-    application = create_app()
-    container = application.container  # type: ignore[attr-defined]
-    container.settings.override(providers.Object(Settings(database_url=postgres_url)))
-    yield application
-    container.settings.reset_override()
-
-
-@pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
+_logger = logging.getLogger(__name__)
 
 
 async def _open_user_account(client: AsyncClient, *, owner_id: str) -> str:
@@ -74,9 +61,9 @@ async def _deposit(client: AsyncClient, *, account_id: str, amount: int, owner_i
 
 
 async def _balance_of(session_factory: Callable[[], AsyncSession], *, account_id: str) -> int:
-    repository = SqlAccountRepository(session_factory)
-    account = await repository.get(AccountId(UUID(account_id)))
-    assert account is not None
+    repository = SqlAccountRepository(_logger, session_factory)
+    account = await repository.get(criteria=FindAccountByAccountId(AccountId(UUID(account_id))))
+    assert isinstance(account, UserAccount)
     return account.balance.amount
 
 

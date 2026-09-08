@@ -2,7 +2,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
-from modules.account_balance.domain.account import Account
+from modules.account_balance.domain.account import Account, UserAccount
 from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.errors import ReversalMismatchError, SelfTransferError
 from modules.account_balance.domain.identifiers import (
@@ -18,16 +18,22 @@ from modules.shared.domain.money import Money
 
 @dataclass(frozen=True, slots=True)
 class Posting:
-    """A posted `Transfer` plus the successor `Account` instances it produced.
+    """A posted `Transfer` plus the successor `UserAccount` instances it produced.
 
-    `Account` is immutable — `credit`/`debit`/`debit_for_reversal` each return
-    a *new* instance rather than mutating the receiver — so a caller given
-    only the `Transfer` would have nothing to persist the new balances from.
-    `Posting` carries both (design §5.1).
+    `UserAccount` is immutable — `credit`/`debit`/`debit_for_reversal` each
+    return a *new* instance rather than mutating the receiver — so a caller
+    given only the `Transfer` would have nothing to persist the new balances
+    from. `Posting` carries both (design §5.1).
+
+    `accounts` holds only the `USER` legs, and so has one element for a deposit
+    or a withdrawal and two for a customer-to-customer transfer: a `SYSTEM` leg
+    has no balance to advance (T7), so a posting produces no successor instance
+    for it. Its `Entry` is written all the same — the ledger records both legs
+    regardless of what kind of account each names.
     """
 
     transfer: Transfer
-    accounts: tuple[Account, ...]
+    accounts: tuple[UserAccount, ...]
 
 
 def transfer(
@@ -45,11 +51,18 @@ def transfer(
 
     Sequence, and the order is the whole point (design §5.1): guard (self-
     transfer, then I4 currency agreement across source/destination/amount) ->
-    build the two legs -> apply them to the accounts (I2 fires on the debit)
-    -> construct `Transfer` (I1 fires here) -> return `Posting`. Every rule
-    that can refuse has refused before any `Account.debit`/`credit` call
-    succeeds, so a raise here always leaves both accounts exactly as they
-    were passed in -- nothing is undone because nothing was done.
+    build the two legs -> apply each to its account *if that account is a*
+    `UserAccount` (I2 fires on the debit) -> construct `Transfer` (I1 fires
+    here) -> return `Posting`. Every rule that can refuse has refused before
+    any `UserAccount.debit`/`credit` call succeeds, so a raise here always
+    leaves both accounts exactly as they were passed in -- nothing is undone
+    because nothing was done.
+
+    Both legs are always built and always land in the `Transfer`: the ledger
+    records the movement in full. What varies is how many successor accounts
+    come back — a `SYSTEM` leg has no balance to advance (T7), so it produces
+    none, and `Posting.accounts` carries one entry for a deposit or withdrawal
+    and two for a customer-to-customer transfer.
 
     Positivity (I3) is not re-guarded here: `Entry.__post_init__` already
     raises `NonPositiveAmountError` when the two legs are built (step 2,
@@ -84,8 +97,11 @@ def transfer(
         occurred_at=occurred_at,
     )
 
-    debited = source.debit(debit_leg)
-    credited = destination.credit(credit_leg)
+    applied: list[UserAccount] = []
+    if isinstance(source, UserAccount):
+        applied.append(source.debit(debit_leg))
+    if isinstance(destination, UserAccount):
+        applied.append(destination.credit(credit_leg))
 
     posted = Transfer(
         transfer_id=transfer_id,
@@ -98,7 +114,7 @@ def transfer(
         entries=(debit_leg, credit_leg),
     )
 
-    return Posting(transfer=posted, accounts=(debited, credited))
+    return Posting(transfer=posted, accounts=tuple(applied))
 
 
 def revert(
@@ -112,9 +128,8 @@ def revert(
     occurred_at: datetime,
     entry_ids: Callable[[], EntryId],
 ) -> Posting:
-    """Posts a reversal of `original`. Identical to `transfer` with three
+    """Posts a reversal of `original`. Identical to `transfer` with three differences (design §5.2):
 
-    differences (design §5.2):
 
     1. `amount` is not a parameter -- it is `original.amount`. A partial
        reversal is just another transfer and does not need a concept (D10).
@@ -129,6 +144,10 @@ def revert(
        -- the sole call site outside `account.py` itself (design §4.3's
        architecture test) -- so the reversal succeeds in full even when it
        drives `source` (the original's destination) below zero (PRD §7.3).
+
+    As in `transfer()`, both legs are always built and always land in the
+    `Transfer`, but only a `UserAccount` leg yields a successor instance -- a
+    `SYSTEM` leg has no balance to advance (T7).
 
     `original` is never touched: reverting reads its `amount`,
     `destination_account_id`, `source_account_id` and `transfer_id`, and
@@ -165,8 +184,11 @@ def revert(
         occurred_at=occurred_at,
     )
 
-    debited = source.debit_for_reversal(debit_leg)
-    credited = destination.credit(credit_leg)
+    applied: list[UserAccount] = []
+    if isinstance(source, UserAccount):
+        applied.append(source.debit_for_reversal(debit_leg))
+    if isinstance(destination, UserAccount):
+        applied.append(destination.credit(credit_leg))
 
     reversal = Transfer(
         transfer_id=transfer_id,
@@ -180,4 +202,4 @@ def revert(
         reverses=original.transfer_id,
     )
 
-    return Posting(transfer=reversal, accounts=(debited, credited))
+    return Posting(transfer=reversal, accounts=tuple(applied))

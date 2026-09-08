@@ -1,63 +1,101 @@
+import logging
+
 from dependency_injector import containers, providers
 
-from modules.account_balance.adapters.outbound.repositories.sql.account_repository import (
+from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repository import (
     SqlAccountRepository,
 )
-from modules.account_balance.adapters.outbound.repositories.sql.engine import (
-    create_engine,
-    create_session_factory,
-)
-from modules.account_balance.adapters.outbound.repositories.sql.unit_of_work import (
+from modules.account_balance.adapters.outbound.repositories.sql.sql_unit_of_work import (
     SqlTransferUnitOfWork,
 )
-from modules.account_balance.application.use_cases.open_account import OpenAccountUseCase
-from modules.account_balance.application.use_cases.revert_transfer import RevertTransferUseCase
-from modules.account_balance.application.use_cases.transfer_money import TransferMoneyUseCase
+from modules.account_balance.application.services.system_account_resolver import (
+    SystemAccountResolver,
+)
+from modules.account_balance.application.use_cases.account_register import AccountRegister
+from modules.account_balance.application.use_cases.deposit import Deposit
+from modules.account_balance.application.use_cases.revert_transfer import RevertTransfer
+from modules.account_balance.application.use_cases.transfer_money import TransferMoney
+from modules.account_balance.application.use_cases.withdraw import Withdraw
 from modules.shared.adapters.config.dependencies import SharedDependencies
-from modules.shared.adapters.config.settings import Settings
 
 
 class AccountBalanceContainer(containers.DeclarativeContainer):
-    """Mirrors `SharedDependencies`'s shape (AO6): a flat `DeclarativeContainer`
+    shared: SharedDependencies = providers.DependenciesContainer()  # type: ignore[assignment]
 
-    of `providers.Singleton`/`providers.Factory`. Composes
-    `SharedDependencies.id_generator`/`.clock` rather than duplicating them.
-    """
+    logger = providers.Singleton(logging.getLogger, "modules.account_balance")
 
-    settings = providers.Singleton(Settings)
-    engine = providers.Singleton(create_engine, settings=settings)
-    session_factory = providers.Singleton(create_session_factory, engine=engine)
-
-    account_repository = providers.Factory(SqlAccountRepository, session_factory=session_factory)
-
-    open_account_use_case = providers.Factory(
-        OpenAccountUseCase,
-        repository=account_repository,
-        id_generator=SharedDependencies.id_generator,
+    account_repository = providers.Factory(
+        provides=SqlAccountRepository,
+        logger=logger,
+        session_factory=shared.session_factory,
     )
 
-    # `.provider` delegation (dependency_injector): `transfer_money_use_case`
+    account_register = providers.Factory(
+        provides=AccountRegister,
+        repository=account_repository,
+        id_generator=shared.id_generator,
+    )
+
+    transfer_unit_of_work = providers.Factory(
+        provides=SqlTransferUnitOfWork,
+        logger=logger,
+        session_factory=shared.session_factory,
+    )
+
+    # `.provider` delegation (dependency_injector): `transfer_money`
     # receives the *provider itself* as a callable, not one resolved
-    # instance -- `TransferMoneyUseCase` calls it fresh each time it needs a
+    # instance -- `TransferMoney` calls it fresh each time it needs a
     # unit of work (T5's recovery path opens a second one after the first
     # rolls back).
-    transfer_unit_of_work = providers.Factory(
-        SqlTransferUnitOfWork, session_factory=session_factory
+    transfer_money = providers.Factory(
+        provides=TransferMoney,
+        logger=logger,
+        unit_of_work_factory=transfer_unit_of_work.provider,
+        id_generator=shared.id_generator,
+        clock=shared.clock,
     )
 
-    transfer_money_use_case = providers.Factory(
-        TransferMoneyUseCase,
-        unit_of_work_factory=transfer_unit_of_work.provider,
-        id_generator=SharedDependencies.id_generator,
-        clock=SharedDependencies.clock,
+    # Reads through account_repository (unlocked, matching how transfer_money
+    # itself reads a SYSTEM leg, T7) rather than through transfer_unit_of_work's
+    # own accounts repository, since resolving the platform's FUNDING/SETTLEMENT
+    # account is not part of the transfer's own transaction.
+    system_account_resolver = providers.Factory(
+        provides=SystemAccountResolver,
+        repository=account_repository,
+        logger=logger,
+    )
+
+    # Deposit/Withdraw are thin wrappers over transfer_money (openspec/specs/
+    # transfer/spec.md, "The design, settled").
+    deposit = providers.Factory(
+        provides=Deposit,
+        system_account_resolver=system_account_resolver,
+        transfer_money=transfer_money,
+    )
+
+    withdraw = providers.Factory(
+        provides=Withdraw,
+        system_account_resolver=system_account_resolver,
+        transfer_money=transfer_money,
     )
 
     # Shares `transfer_unit_of_work`'s provider (R3: same unit of work, same
     # three repositories, same idempotency mechanism as `transfer` -- no
     # parallel infrastructure for this slice).
-    revert_transfer_use_case = providers.Factory(
-        RevertTransferUseCase,
+    revert_transfer = providers.Factory(
+        provides=RevertTransfer,
+        logger=logger,
         unit_of_work_factory=transfer_unit_of_work.provider,
-        id_generator=SharedDependencies.id_generator,
-        clock=SharedDependencies.clock,
+        id_generator=shared.id_generator,
+        clock=shared.clock,
     )
+
+
+def build_account_balance_container() -> AccountBalanceContainer:
+    """The one correct way to construct `AccountBalanceContainer` -- every entrypoint (the HTTP
+    app, a future cron job or worker) should call this instead of `AccountBalanceContainer()`
+    directly, so pairing it with `SharedDependencies` can't be forgotten at a second call site.
+    """
+    container = AccountBalanceContainer()
+    container.shared.override(SharedDependencies)
+    return container

@@ -30,8 +30,6 @@ class TestDomainErrorTaxonomy:
 
     def test_currency_mismatch_error_is_imported_from_shared_not_redefined(self) -> None:
         """The spec table lists CurrencyMismatchError, but it already exists in
-
-        `shared.domain.errors` (I4). Redefining it here would create two
-        distinct types with the same name, which is worse than not having it.
-        """
+        `shared.domain.errors` (I4). Redefining it here would create two distinct types with the
+        same name, which is worse than not having it."""
         assert account_balance_errors.CurrencyMismatchError is CurrencyMismatchError

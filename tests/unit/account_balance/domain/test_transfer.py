@@ -138,13 +138,10 @@ class TestNetsToZeroPerCurrency:
 
 
 class TestMismatchedLegCurrenciesFailViaNetting:
-    """spec "Mismatched legs fed directly to Transfer fail a different,
-
-    correct way": the module docstring above already explains why
-    (`Transfer` has no currency-match guard of its own), but that behaviour
-    had no test exercising the exact 2-leg shape the spec's GIVEN describes
-    (verify-report CRITICAL-1). This closes that gap.
-    """
+    """spec "Mismatched legs fed directly to Transfer fail a different, correct way": the module
+    docstring above already explains why (`Transfer` has no currency-match guard of its own), but
+    that behaviour had no test exercising the exact 2-leg shape the spec's GIVEN describes
+    (verify-report CRITICAL-1). This closes that gap."""
 
     def test_a_usd_debit_and_eur_credit_leg_pair_raises_unbalanced_not_currency_mismatch(
         self,
@@ -305,11 +302,8 @@ class TestOccurredAtMustBeTimezoneAware:
 
 
 class TestGuardOrder:
-    """Design §5 states an explicit guard order; these confirm the exact
-
-    precedence used when multiple problems are present at once, since the
-    result depends on which guard runs first.
-    """
+    """Design §5 states an explicit guard order; these confirm the exact precedence used when
+    multiple problems are present at once, since the result depends on which guard runs first."""
 
     def test_zero_amount_takes_precedence_over_self_transfer(self) -> None:
         account_id = AccountId(uuid4())

@@ -1,43 +1,31 @@
 import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
+from logging import Logger
 
+from modules.account_balance.application.gateways.account_repository import AccountNotFoundError
 from modules.account_balance.application.gateways.idempotency_repository import (
     IdempotencyRecord,
     IdempotencyRecordConflictError,
+)
+from modules.account_balance.application.gateways.models.find_accounts_criteria import (
+    FindAccountByAccountId,
 )
 from modules.account_balance.application.gateways.transfer_repository import (
     TransferAlreadyReversedConflictError,
 )
 from modules.account_balance.application.gateways.unit_of_work import TransferUnitOfWork
-from modules.account_balance.application.use_cases.transfer_money import (
-    AccountNotFoundError,
-    IdempotencyConflictError,
-)
+from modules.account_balance.application.use_cases.transfer_money import IdempotencyConflictError
 from modules.account_balance.domain import posting as domain_posting
-from modules.account_balance.domain.account import Account
+from modules.account_balance.domain.account import Account, UserAccount
 from modules.account_balance.domain.identifiers import EntryId, IdempotencyKey, OwnerId, TransferId
 from modules.account_balance.domain.transfer import Transfer
+from modules.shared.application.errors import ApplicationError, ResourceNotFoundError
 from modules.shared.application.services.clock import Clock
 from modules.shared.application.services.id_generator import IdGenerator
 
-_IDEMPOTENCY_STATUS_COMPLETED = "COMPLETED"
 
-# `AccountNotFoundError` and `IdempotencyConflictError` are reused verbatim
-# from `transfer_money` (R3: "reuses transfer's idempotency mechanism
-# exactly") rather than redeclared here -- two names for the same fact would
-# force every caller catching either to know both exist.
-__all__ = [
-    "AccountNotFoundError",
-    "IdempotencyConflictError",
-    "RevertTransfer",
-    "RevertTransferUseCase",
-    "TransferAlreadyReversedError",
-    "TransferNotFoundError",
-]
-
-
-class TransferNotFoundError(Exception):
+class TransferNotFoundError(ResourceNotFoundError):
     """`transfer_id` does not resolve to a persisted `Transfer` (R7).
 
     Not a `DomainError`: it is a fact about the request's own reference (the
@@ -45,8 +33,11 @@ class TransferNotFoundError(Exception):
     already applies in `transfer_money.py`.
     """
 
+    def __init__(self, transfer_id: TransferId) -> None:
+        super().__init__(resource_type="transfer", resource_identifier=str(transfer_id))
 
-class TransferAlreadyReversedError(Exception):
+
+class TransferAlreadyReversedError(ApplicationError):
     """The original transfer already has a reversal (R4).
 
     Raised when the use case catches `TransferAlreadyReversedConflictError`
@@ -56,9 +47,13 @@ class TransferAlreadyReversedError(Exception):
     the same key replayed with a different payload.
     """
 
+    def __init__(self, *, original_transfer_id: TransferId) -> None:
+        self.original_transfer_id = original_transfer_id
+        super().__init__(f"transfer {original_transfer_id} already has a reversal")
+
 
 @dataclass(frozen=True, slots=True)
-class RevertTransfer:
+class RevertTransferRequest:
     """`POST /transfers/{transfer_id}/reversals`'s use-case input (R2).
 
     Deliberately carries no source/destination -- both are derived from the
@@ -70,7 +65,7 @@ class RevertTransfer:
     requested_by: OwnerId
 
 
-def _request_hash(request: RevertTransfer) -> str:
+def _request_hash(request: RevertTransferRequest) -> str:
     """A stable hash over the one field a retry must not silently change:
 
     which transfer is being reversed (R2 -- there is no amount, source or
@@ -80,27 +75,29 @@ def _request_hash(request: RevertTransfer) -> str:
     return hashlib.sha256(str(request.transfer_id).encode("utf-8")).hexdigest()
 
 
-class RevertTransferUseCase:
+class RevertTransfer:
     """Orchestrates a reversal end to end (R1-R7).
 
     Authentication (T2, resolving `X-Caller-Id`) is the inbound adapter's
-    job, same as `TransferMoneyUseCase` -- this begins after the caller is
-    already resolved. There is no authorization step at all (R1): the use
-    case never calls `Account.assert_owned_by` against either leg.
+    job, same as `TransferMoney` -- this begins after the caller is already
+    resolved. There is no authorization step at all (R1): the use case
+    never calls `Account.assert_owned_by` against either leg.
     """
 
     def __init__(
         self,
         *,
+        logger: Logger,
         unit_of_work_factory: Callable[[], TransferUnitOfWork],
         id_generator: IdGenerator,
         clock: Clock,
     ) -> None:
+        self._logger = logger
         self._new_unit_of_work = unit_of_work_factory
         self._id_generator = id_generator
         self._clock = clock
 
-    async def execute(self, request: RevertTransfer) -> Transfer:
+    async def execute(self, request: RevertTransferRequest) -> Transfer:
         request_hash = _request_hash(request)
 
         try:
@@ -136,61 +133,67 @@ class RevertTransferUseCase:
         a different payload is a conflict -- never a silent replacement.
         """
         if existing.request_hash != request_hash:
+            self._logger.warning(
+                "idempotency key %s reused with a different payload by caller %s",
+                existing.idempotency_key,
+                existing.caller_id,
+            )
             raise IdempotencyConflictError(
-                f"idempotency key {existing.idempotency_key} was already used with a "
-                "different request"
+                caller_id=existing.caller_id, idempotency_key=existing.idempotency_key
             )
         transfer = await uow.transfers.get(existing.transfer_id)
         if transfer is None:  # pragma: no cover -- defensive: the record names a real transfer
+            self._logger.error(
+                "idempotency record references transfer %s, which does not exist",
+                existing.transfer_id,
+            )
             raise RuntimeError(
                 f"idempotency record references transfer {existing.transfer_id}, not found"
             )
         return transfer
 
     async def _post_new_reversal(
-        self, uow: TransferUnitOfWork, request: RevertTransfer, request_hash: str
+        self, uow: TransferUnitOfWork, request: RevertTransferRequest, request_hash: str
     ) -> Transfer:
         reversal_id = TransferId(self._id_generator.next_id())
         occurred_at = self._clock.now()
 
         # R3: reserve the idempotency slot *before* loading the original
         # transfer or touching any account -- the same discipline
-        # transfer_money's own T5 fix established (commit 0c4ea93):
-        # nothing may run before the one real collision point (the unique
-        # constraint on (caller_id, idempotency_key)) has a chance to
-        # happen. `debit_for_reversal` cannot itself raise
-        # `InsufficientFundsError` (R5), so there is no domain check on this
-        # path a losing retry could fail on the way transfer's could -- the
-        # ordering is kept anyway so this use case never has to be
-        # re-audited for the same bug class the moment a future change adds
-        # a check between the load and the write.
+        # transfer_money's own T5 fix established: nothing may run before
+        # the one real collision point (the unique constraint on
+        # (caller_id, idempotency_key)) has a chance to happen.
+        # `debit_for_reversal` cannot itself raise `InsufficientFundsError`
+        # (R5), so there is no domain check on this path a losing retry
+        # could fail on the way transfer's could -- the ordering is kept
+        # anyway so this use case never has to be re-audited for the same
+        # bug class the moment a future change adds a check between the
+        # load and the write.
         await uow.idempotency.add(
             IdempotencyRecord(
                 caller_id=request.requested_by,
                 idempotency_key=request.idempotency_key,
                 request_hash=request_hash,
                 transfer_id=reversal_id,
-                status=_IDEMPOTENCY_STATUS_COMPLETED,
                 created_at=occurred_at,
             )
         )
 
         original = await uow.transfers.get(request.transfer_id)
         if original is None:
-            raise TransferNotFoundError(f"transfer {request.transfer_id} does not exist")
+            self._logger.warning("transfer %s does not exist, cannot revert", request.transfer_id)
+            raise TransferNotFoundError(request.transfer_id)
 
         # R2: source/destination are derived from the original, never
         # supplied by the client. `revert()`'s own contract (posting.py):
         # the reversal debits the original's destination and credits the
         # original's source.
-        source = await uow.accounts.get(original.destination_account_id)
-        destination = await uow.accounts.get(original.source_account_id)
-        if source is None or destination is None:  # pragma: no cover -- defensive:
-            # both ids are FK-backed by the original transfer's own rows,
-            # so this cannot happen through the API -- see AccountNotFoundError
-            raise AccountNotFoundError(
-                f"account referenced by transfer {request.transfer_id} does not exist"
-            )
+        source = await uow.accounts.get(
+            criteria=FindAccountByAccountId(original.destination_account_id)
+        )
+        destination = await uow.accounts.get(
+            criteria=FindAccountByAccountId(original.source_account_id)
+        )
 
         source, destination = await self._lock_user_accounts(uow, source, destination)
 
@@ -206,40 +209,47 @@ class RevertTransferUseCase:
         )
 
         try:
-            await uow.transfers.add(posting)
+            await uow.transfers.add(posting.transfer)
         except TransferAlreadyReversedConflictError as exc:
-            raise TransferAlreadyReversedError(
-                f"transfer {request.transfer_id} already has a reversal"
-            ) from exc
+            self._logger.warning(
+                "transfer %s already has a reversal, rejecting a second one",
+                request.transfer_id,
+            )
+            raise TransferAlreadyReversedError(original_transfer_id=request.transfer_id) from exc
+        # `posting.accounts` holds only `UserAccount`s (T7) -- a `SYSTEM`
+        # leg has no balance to persist, so there is nothing left to filter
+        # here, same as `TransferMoney._post_new_transfer`.
         for account in posting.accounts:
-            if account.account_type.is_user():
-                await uow.accounts.update(account)
+            await uow.accounts.update(account)
 
         return posting.transfer
 
     async def _lock_user_accounts(
         self, uow: TransferUnitOfWork, source: Account, destination: Account
     ) -> tuple[Account, Account]:
-        """R6: exactly T6, unchanged -- locks the `USER`-typed leg(s) among
-
-        the reversal's (derived) source/destination, sorted by `AccountId`,
-        in that order. A `SYSTEM` leg is never locked and keeps the
-        unlocked snapshot already loaded above -- its balance is never
-        persisted (T7), so re-reading it under lock would buy nothing.
-        """
-        user_ids = sorted(
+        """R6: exactly T6, unchanged -- locks the `USER`-typed leg(s) among the reversal's
+        (derived) source/destination. The lock *ordering* that keeps a concurrent reversal and
+        counter-reversal from deadlocking is the adapter's job, not this method's --
+        `get_many_for_update` sorts what it is given. A `SYSTEM` leg is never locked and keeps
+        the unlocked snapshot already loaded above: it has no balance to persist (T7), so
+        re-reading it under lock would buy nothing."""
+        account_ids = tuple(
             {
                 account.account_id
                 for account in (source, destination)
-                if account.account_type.is_user()
+                if isinstance(account, UserAccount)
             }
         )
-        for account_id in user_ids:
-            locked = await uow.accounts.get_for_update(account_id)
-            if locked is None:  # pragma: no cover -- defensive: already read unlocked above
-                raise AccountNotFoundError(f"account {account_id} does not exist")
-            if locked.account_id == source.account_id:
-                source = locked
-            if locked.account_id == destination.account_id:
-                destination = locked
+        locked_accounts = await uow.accounts.get_many_for_update(account_ids)
+        locked_by_id = {account.account_id: account for account in locked_accounts}
+
+        for account_id in account_ids:
+            if account_id not in locked_by_id:  # pragma: no cover -- defensive: read unlocked above
+                self._logger.error(
+                    "account %s vanished between the unlocked read and the lock", account_id
+                )
+                raise AccountNotFoundError(FindAccountByAccountId(account_id))
+
+        source = locked_by_id.get(source.account_id, source)
+        destination = locked_by_id.get(destination.account_id, destination)
         return source, destination

@@ -8,49 +8,25 @@ demonstrated any other way.
 """
 
 import asyncio
-from collections.abc import AsyncIterator, Iterator
 from uuid import uuid4
 
 import pytest
-from dependency_injector import providers
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient, Response
+from httpx import AsyncClient, Response
 
 from modules.account_balance.adapters.config.seeded_accounts import (
     FUNDING_ACCOUNT_ID,
     SETTLEMENT_ACCOUNT_ID,
 )
-from modules.shared.adapters.config.settings import Settings
-from modules.shared.adapters.inbound.api.app import create_app
 
-pytestmark = pytest.mark.integration
-
-
-@pytest.fixture
-def app(postgres_url: str) -> Iterator[FastAPI]:
-    application = create_app()
-    container = application.container  # type: ignore[attr-defined]
-    container.settings.override(providers.Object(Settings(database_url=postgres_url)))
-    yield application
-    container.settings.reset_override()
-
-
-@pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
 
 async def test_two_concurrent_debits_of_the_same_account_serialize_instead_of_corrupting_balance(
     client: AsyncClient,
 ) -> None:
-    """GIVEN a USER account with balance 100, two concurrent transfers each
-
-    debiting 60 from it, WHEN both are posted concurrently, THEN one
-    succeeds and the other is rejected by I2 (`InsufficientFundsError`,
-    422) rather than both succeeding and driving the balance negative.
-    """
+    """GIVEN a USER account with balance 100, two concurrent transfers each debiting 60 from it,
+    WHEN both are posted concurrently, THEN one succeeds and the other is rejected by I2
+    (`InsufficientFundsError`, 422) rather than both succeeding and driving the balance negative."""
     owner_id = str(uuid4())
     open_response = await client.post(
         "/accounts", json={"owner_id": owner_id, "purpose": "CHECKING", "currency": "USD"}

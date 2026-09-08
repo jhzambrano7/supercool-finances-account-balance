@@ -1,25 +1,26 @@
 from collections.abc import Callable
+from logging import Logger
 from types import TracebackType
 from typing import Self, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from modules.account_balance.adapters.outbound.repositories.sql.account_repository import (
+from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repository import (
     SqlAccountRepository,
 )
-from modules.account_balance.adapters.outbound.repositories.sql.idempotency_repository import (
+from modules.account_balance.adapters.outbound.repositories.sql.sql_idempotency_repository import (
     SqlIdempotencyRepository,
 )
-from modules.account_balance.adapters.outbound.repositories.sql.transfer_repository import (
+from modules.account_balance.adapters.outbound.repositories.sql.sql_transfer_repository import (
     SqlTransferRepository,
 )
 from modules.account_balance.application.gateways.unit_of_work import TransferUnitOfWork
 
 
 class _KeptOpenSession:
-    """An `async with`-able wrapper that hands back an already-open session
+    """An `async with`-able wrapper that hands back an already-open session without closing it on
+    exit.
 
-    without closing it on exit.
 
     `SqlAccountRepository`, `SqlTransferRepository` and
     `SqlIdempotencyRepository` all follow the same shape: every method does
@@ -53,7 +54,8 @@ class SqlTransferUnitOfWork(TransferUnitOfWork):
     case, not any individual repository call, decides which (design §5.3).
     """
 
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(self, logger: Logger, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._logger = logger
         self._session_maker = session_factory
         self._session: AsyncSession | None = None
 
@@ -61,9 +63,9 @@ class SqlTransferUnitOfWork(TransferUnitOfWork):
         session = self._session_maker()
         self._session = session
         bound = cast(Callable[[], AsyncSession], lambda: _KeptOpenSession(session))
-        self.accounts = SqlAccountRepository(bound)
-        self.transfers = SqlTransferRepository(bound)
-        self.idempotency = SqlIdempotencyRepository(bound)
+        self.accounts = SqlAccountRepository(self._logger, bound)
+        self.transfers = SqlTransferRepository(self._logger, bound)
+        self.idempotency = SqlIdempotencyRepository(self._logger, bound)
         return self
 
     async def __aexit__(

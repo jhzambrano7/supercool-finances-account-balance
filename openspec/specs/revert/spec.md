@@ -21,7 +21,10 @@ the error-mapping discipline, and — found the hard way, by an independent revi
 rule that a reservation guarding a race must be inserted *before* anything the race could invalidate).
 This document applies those lessons up front rather than rediscovering them.
 
-**Implemented today:** nothing yet.
+**Implemented today:** `POST /transfers/{transfer_id}/reversals`, the `RevertTransfer` use case,
+and the partial unique index on `transfers.reverses` (R1-R8), retrofitted against the
+`UserAccount | SystemAccount` split and this repo's post-review conventions (log-before-raise,
+structured error attributes, `get_many_for_update`) after both landed on `main`.
 
 ## Scope
 
@@ -181,12 +184,20 @@ replay the original reversal's result, `201`, without posting a second one (R3, 
 | `TransferAlreadyReversedError` | 409 |
 | Idempotency key reused with a different payload | 409 |
 | Missing/malformed `X-Caller-Id` | 401 |
-| any other `DomainError` reaching this endpoint | 500 — defensive default |
+| any other `DomainError`/`ApplicationError` reaching this endpoint | 400 — defensive default |
 
 `AccountOwnershipError`, `InsufficientFundsError`, `SelfTransferError`, `NonPositiveAmountError`,
 `InvalidCurrencyError`, `InvalidIdempotencyKeyError` are all unreachable from this endpoint's own
 input by construction (R1, R2, R5) and are **not** in its error-mapping table — listing them would
 claim a reachability this endpoint does not have.
+
+**Updated from an earlier 500 default.** This document originally specified 500 for the defensive
+default, matching what `transfer`'s own route did when this spec was written. `transfer`'s own
+error-mapping table was later corrected to 400 (`docs/coding-conventions.md`: a `DomainError`/
+`ApplicationError` reaching a defensive catch-all is a business-rule violation over the
+request/system state, the caller's to know about, not evidence of a system fault) -- this
+endpoint's implementation follows that same corrected convention rather than reproducing the
+now-superseded 500 default.
 
 ## Testing Strategy
 

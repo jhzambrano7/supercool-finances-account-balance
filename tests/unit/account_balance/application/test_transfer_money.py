@@ -1,4 +1,4 @@
-"""Unit tests for `TransferMoneyUseCase` against fake repositories.
+"""Unit tests for `TransferMoney` against fake repositories.
 
 Per openspec/specs/transfer/spec.md's Testing Strategy: authorization for all
 four movement shapes (T1's table), idempotency replay and conflict, and the
@@ -7,6 +7,7 @@ database transaction (locking itself is integration-only, per the spec's own
 note).
 """
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -16,27 +17,35 @@ from uuid import uuid4
 
 import pytest
 
-from modules.account_balance.application.gateways.account_repository import AccountRepository
+from modules.account_balance.application.gateways.account_repository import (
+    AccountNotFoundError,
+    AccountRepository,
+)
 from modules.account_balance.application.gateways.idempotency_repository import (
     IdempotencyRecord,
     IdempotencyRecordConflictError,
     IdempotencyRepository,
 )
+from modules.account_balance.application.gateways.models.find_accounts_criteria import (
+    FindAccountByAccountId,
+    FindAccountByOwnerAndPurposeAndCurrency,
+    FindAccountCriteria,
+)
 from modules.account_balance.application.gateways.transfer_repository import TransferRepository
 from modules.account_balance.application.gateways.unit_of_work import TransferUnitOfWork
 from modules.account_balance.application.use_cases.transfer_money import (
-    AccountNotFoundError,
     IdempotencyConflictError,
     SystemToSystemTransferNotAllowedError,
     TransferMoney,
-    TransferMoneyUseCase,
-    _request_hash,
+    TransferMoneyRequest,
 )
 from modules.account_balance.domain.account import (
     Account,
     AccountPurpose,
     AccountStatus,
     AccountType,
+    SystemAccount,
+    UserAccount,
 )
 from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.errors import AccountOwnershipError
@@ -47,7 +56,6 @@ from modules.account_balance.domain.identifiers import (
     OwnerId,
     TransferId,
 )
-from modules.account_balance.domain.posting import Posting
 from modules.account_balance.domain.transfer import Transfer
 from modules.shared.application.services.clock import Clock
 from modules.shared.application.services.id_generator import IdGenerator
@@ -88,24 +96,49 @@ class _FakeAccountRepository(AccountRepository):
         self._database = database
         self._staged = staged
 
-    async def find_by_natural_key(
-        self, *, owner_id: OwnerId, purpose: AccountPurpose, currency: Currency
-    ) -> Account | None:
-        raise NotImplementedError
+    async def find(self, *, criteria: FindAccountCriteria) -> Account | None:
+        match criteria:
+            case FindAccountByAccountId(account_id):
+                return self._staged.get(account_id) or self._database.accounts.get(account_id)
+            case FindAccountByOwnerAndPurposeAndCurrency(owner_id, purpose, currency):
+                return next(
+                    (
+                        a
+                        for a in {**self._database.accounts, **self._staged}.values()
+                        if a.owner_id == owner_id
+                        and a.purpose == purpose
+                        and a.currency == currency
+                    ),
+                    None,
+                )
+            case _:
+                # TransferMoney only ever looks accounts up by id (T9) --
+                # this fake has no need to support any other criteria.
+                raise NotImplementedError
 
     async def add(self, account: Account) -> None:
         raise NotImplementedError
 
-    async def get(self, account_id: AccountId) -> Account | None:
-        return self._staged.get(account_id) or self._database.accounts.get(account_id)
-
-    async def get_for_update(self, account_id: AccountId) -> Account | None:
+    async def get_for_update(self, account_id: AccountId) -> UserAccount | None:
         account = self._database.accounts.get(account_id)
-        if account is None or not account.account_type.is_user():
+        if not isinstance(account, UserAccount):
             return None
         return account
 
-    async def update(self, account: Account) -> None:
+    async def get_many_for_update(
+        self, account_ids: tuple[AccountId, ...]
+    ) -> tuple[UserAccount, ...]:
+        """Sorts, exactly as the real adapter does -- the ordering is the port's promise (T6), so a
+        fake that returned them unordered would let a caller depend on an order the real
+        implementation does not actually guarantee it inherits."""
+        locked = [
+            account
+            for account_id in sorted(account_ids)
+            if isinstance(account := self._database.accounts.get(account_id), UserAccount)
+        ]
+        return tuple(locked)
+
+    async def update(self, account: UserAccount) -> None:
         self._staged[account.account_id] = account
 
 
@@ -114,8 +147,8 @@ class _FakeTransferRepository(TransferRepository):
         self._database = database
         self._staged = staged
 
-    async def add(self, posting: Posting) -> None:
-        self._staged[posting.transfer.transfer_id] = posting.transfer
+    async def add(self, transfer: Transfer) -> None:
+        self._staged[transfer.transfer_id] = transfer
 
     async def get(self, transfer_id: TransferId) -> Transfer | None:
         return self._staged.get(transfer_id) or self._database.transfers.get(transfer_id)
@@ -142,9 +175,13 @@ class _FakeIdempotencyRepository(IdempotencyRepository):
             # exactly what a real unique-constraint violation reports.
             self._database.force_idempotency_conflict_once = False
             self._database.idempotency[key] = self._database.conflicting_winner  # type: ignore[assignment]
-            raise IdempotencyRecordConflictError("idempotency key already exists")
+            raise IdempotencyRecordConflictError(
+                caller_id=record.caller_id, idempotency_key=record.idempotency_key
+            )
         if key in self._database.idempotency or key in self._staged:
-            raise IdempotencyRecordConflictError("idempotency key already exists")
+            raise IdempotencyRecordConflictError(
+                caller_id=record.caller_id, idempotency_key=record.idempotency_key
+            )
         self._staged[key] = record
 
 
@@ -177,9 +214,10 @@ def _unit_of_work_factory(database: _Database) -> Callable[[], _FakeUnitOfWork]:
     return lambda: _FakeUnitOfWork(database)
 
 
-def _use_case(database: _Database, *, occurred_at: datetime | None = None) -> TransferMoneyUseCase:
+def _use_case(database: _Database, *, occurred_at: datetime | None = None) -> TransferMoney:
     fixed = occurred_at or datetime(2026, 9, 7, 12, 0, tzinfo=__import__("datetime").UTC)
-    return TransferMoneyUseCase(
+    return TransferMoney(
+        logger=logging.getLogger(__name__),
         unit_of_work_factory=_unit_of_work_factory(database),
         id_generator=IdGenerator(),
         clock=_FakeClock(fixed),
@@ -193,26 +231,27 @@ def _open(
     purpose: AccountPurpose,
     balance: int = 0,
 ) -> Account:
-    """`balance` reconstitutes a pre-funded account -- `Account.open()` always
-
-    forces a zero balance, and a `USER` account debited by these tests needs
-    enough on hand to satisfy I2. A `SYSTEM` account's balance is irrelevant
-    to the use case (T7: never read from or written to this column), so it
-    is left at zero unless a test says otherwise.
-    """
+    """`balance` reconstitutes a pre-funded account -- `UserAccount.open()` always forces a zero
+    balance, and a `USER` account debited by these tests needs enough on hand to satisfy I2. It is
+    ignored for a `SYSTEM` account, which has no balance at all (T7)."""
     account_id = AccountId(uuid4())
-    if balance == 0:
-        return Account.open(
+    if account_type.is_system():
+        return SystemAccount(
             account_id=account_id,
             owner_id=owner_id,
-            account_type=account_type,
             purpose=purpose,
             currency=USD,
         )
-    return Account.reconstitute(
+    if balance == 0:
+        return UserAccount.open(
+            account_id=account_id,
+            owner_id=owner_id,
+            purpose=purpose,
+            currency=USD,
+        )
+    return UserAccount.reconstitute(
         account_id=account_id,
         owner_id=owner_id,
-        account_type=account_type,
         purpose=purpose,
         currency=USD,
         balance=Money(balance, USD),
@@ -233,8 +272,8 @@ def _request(
     requested_by: OwnerId,
     key: str = "k1",
     amount: int = 500,
-) -> TransferMoney:
-    return TransferMoney(
+) -> TransferMoneyRequest:
+    return TransferMoneyRequest(
         source_account_id=source.account_id,
         destination_account_id=destination.account_id,
         amount=Money(amount, USD),
@@ -439,12 +478,9 @@ async def test_the_same_key_with_a_different_amount_is_a_conflict() -> None:
 def _build_winner_transfer(
     *, source: Account, destination: Account, amount: Money, requested_by: OwnerId, key: str
 ) -> Transfer:
-    """A `Transfer` built directly (not through `posting.transfer()`, which
-
-    needs live `Account` instances) to stand in for a concurrent request's
-    already-committed result -- same body as the loser's own request, but a
-    transfer_id the loser never generated itself.
-    """
+    """A `Transfer` built directly (not through `posting.transfer()`, which needs live `Account`
+    instances) to stand in for a concurrent request's already-committed result -- same body as
+    the loser's own request, but a transfer_id the loser never generated itself."""
     transfer_id = TransferId(uuid4())
     debit = Entry(
         entry_id=EntryId(uuid4()),
@@ -475,13 +511,10 @@ def _build_winner_transfer(
 
 
 async def test_two_concurrent_requests_with_the_same_key_never_both_apply() -> None:
-    """T5: the fake simulates the race by making the *first* `add()` on the
-
-    idempotency repository behave as though a concurrent request already
-    committed the winning row directly against the shared store -- the use
-    case must catch that, not error, and return the winner's result rather
-    than its own.
-    """
+    """T5: the fake simulates the race by making the *first* `add()` on the idempotency repository
+    behave as though a concurrent request already committed the winning row directly against the
+    shared store -- the use case must catch that, not error, and return the winner's result
+    rather than its own."""
     database = _Database()
     owner_a = OwnerId(uuid4())
     owner_b = OwnerId(uuid4())
@@ -507,9 +540,8 @@ async def test_two_concurrent_requests_with_the_same_key_never_both_apply() -> N
     database.conflicting_winner = IdempotencyRecord(
         caller_id=owner_a,
         idempotency_key=IdempotencyKey("race"),
-        request_hash=_request_hash(request),
+        request_hash=request.hash(),
         transfer_id=winner.transfer_id,
-        status="COMPLETED",
         created_at=winner.occurred_at,
     )
     database.force_idempotency_conflict_once = True
@@ -554,9 +586,8 @@ async def test_a_losing_concurrent_request_replays_even_when_underfunded() -> No
     database.conflicting_winner = IdempotencyRecord(
         caller_id=owner_a,
         idempotency_key=IdempotencyKey("race"),
-        request_hash=_request_hash(request),
+        request_hash=request.hash(),
         transfer_id=winner.transfer_id,
-        status="COMPLETED",
         created_at=winner.occurred_at,
     )
     database.force_idempotency_conflict_once = True

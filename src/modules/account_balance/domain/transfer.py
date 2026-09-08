@@ -42,12 +42,9 @@ class Transfer:
     reverses: TransferId | None = None
 
     def __post_init__(self) -> None:
-        """Guards run in this exact order (design §5) because more than one
-
-        can be true of a malformed input at once, and only one error should
-        be raised: positivity, then self-transfer, then leg shape, then the
-        timestamp, then I1's per-currency netting.
-        """
+        """Guards run in this exact order (design §5) because more than one can be true of a
+        malformed input at once, and only one error should be raised: positivity, then self-
+        transfer, then leg shape, then the timestamp, then I1's per-currency netting."""
         if not self.amount.is_positive:
             raise NonPositiveAmountError(
                 f"transfer amount must be strictly positive, got {self.amount}"

@@ -3011,6 +3011,7 @@ class Posting:
     coordinating two `Account` aggregates that are not fields of this
     type, which is a service's job, not a constructor's.
     """
+
     transfer: Transfer
     accounts: tuple[Account, ...]
 ```
