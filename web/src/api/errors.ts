@@ -56,6 +56,14 @@ export function describeHttpError(status: number, rawDetail: unknown): Described
 
   if (status === 403) {
     const lower = (detail ?? '').toLowerCase()
+    if (lower.includes('not authorized to perform this operation')) {
+      return {
+        status,
+        title: "That's not the admin principal.",
+        detail: detail ?? 'Reversal is operator-only, checked against one fixed principal — see README.md.',
+        recovery: 'report',
+      }
+    }
     if (lower.includes('system')) {
       return {
         status,
@@ -73,6 +81,15 @@ export function describeHttpError(status: number, rawDetail: unknown): Described
   }
 
   if (status === 404) {
+    const lower = (detail ?? '').toLowerCase()
+    if (lower.startsWith('transfer with id')) {
+      return {
+        status,
+        title: 'No transfer with that id.',
+        detail,
+        recovery: 'focus-field',
+      }
+    }
     return {
       status,
       title: 'No account with that id.',
@@ -83,6 +100,14 @@ export function describeHttpError(status: number, rawDetail: unknown): Described
 
   if (status === 409) {
     const lower = (detail ?? '').toLowerCase()
+    if (lower.includes('already has a reversal')) {
+      return {
+        status,
+        title: 'This transfer already has a reversal.',
+        detail: detail ?? 'A transfer can only be reversed once — see its movement history for the compensating entry.',
+        recovery: 'start-over',
+      }
+    }
     if (lower.includes('race') || lower.includes('already exists')) {
       return {
         status,

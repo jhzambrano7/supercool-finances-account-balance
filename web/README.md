@@ -37,16 +37,23 @@ updated to use them as each landed on `main`, rather than waiting for a single b
   No client-side registry, no replay hack.
 - **Movement history** — real `GET /accounts/{id}/movements`: pick one of your own accounts, see its
   ledger entries (direction, counterparty, amount), cursor-paginated ("Load more" — there is no total
-  count to build a numbered pager against).
-- **Reversal** — still a placeholder screen: reversal is operator-authorized, not
-  customer-initiated, and this app has no operator identity concept yet.
+  count to build a numbered pager against). Each row also has a **Reverse (as admin)** action
+  (`POST /transfers/{transfer_id}/reversals`) — no separate "Reversal" tab or operator-identity
+  switch: that action always sends the platform's one fixed admin principal
+  (`00000000-0000-0000-0000-000000000003`, see the backend's own `README.md`) as `X-Caller-Id`,
+  regardless of whichever identity is active in the identity bar. Switching the whole app to
+  "Admin" instead would not work here — the admin owns no customer accounts, so it could never see
+  the movement it needs to reverse; overriding the caller id for just this one request is what
+  actually lets an operator act on an account they don't own. A rejected non-admin attempt, an
+  already-reversed transfer, and a negative resulting balance (correct per design, not an error)
+  are all shown honestly, the same way every other screen here shows its real backend responses.
 
 ## Layout
 
 `src/api/` (fetch client, error mapper, DTO types), `src/money/` (minor-units parsing/formatting —
-string arithmetic only, never `parseFloat(x) * 100`), `src/identity/` (simulated-identity store),
-`src/screens/`, `src/components/`. No router, no state library, no UI component library — five
-screens, `useState` and `fetch`.
+string arithmetic only, never `parseFloat(x) * 100`), `src/identity/` (simulated-identity store, plus
+the one fixed admin principal), `src/screens/`, `src/components/`. No router, no state library, no
+UI component library — four screens, `useState` and `fetch`.
 
 ## Deliberately not built here
 

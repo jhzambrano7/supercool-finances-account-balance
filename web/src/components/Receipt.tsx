@@ -4,17 +4,20 @@ import type { Currency } from '../money/money'
 
 interface Props {
   transfer: TransferResponse
+  /** A reversal *is* a `TransferResponse` (I7: a compensating transfer, never a mutation) --
+   * this only changes the opening line, not the shape below it. */
+  heading?: string
 }
 
 /**
  * Rendered from the `201` body -- a full `TransferResponseDto` (§5.5). No "new balance" is shown,
  * and no fake one is computed: the transfer response carries no balance, so this must not invent one.
  */
-export function Receipt({ transfer }: Props) {
+export function Receipt({ transfer, heading = 'Transfer posted.' }: Props) {
   const currency = transfer.currency as Currency
   return (
     <div className="card stack">
-      <div>Transfer posted.</div>
+      <div>{heading}</div>
       <div className="amount-display amount tabular">{formatMinorUnits(transfer.amount, currency)}</div>
       <table>
         <tbody>
