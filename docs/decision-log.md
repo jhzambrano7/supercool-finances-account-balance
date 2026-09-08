@@ -1006,3 +1006,10 @@ Formato de cada entrada:
 - **Prompt:** "subiste los cambios?"
 - **Respuesta:** `git fetch` + `gh pr view` confirmaron que `origin/feat/deposit-withdraw` tiene `6c0b3b1` como HEAD y el PR #4 ya lo refleja; `origin/main` tiene el log de la decisión. Nada pendiente de push.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 22:51 — Resolver los 3 comentarios de revisión pendientes en PR #4
+<!-- id: 20260907-225147-a1fe3a40 -->
+- **Qué intentaba:** Responder "No estoy viendo solución a algunos comments que dejé" -- ubicar y resolver los comentarios de revisión humanos pendientes en PR #4.
+- **Prompt:** "No estoy viendo solución a algunos comments que dejé"
+- **Respuesta:** Encontré 3 comentarios vía `gh api`. (1) `assert`→raise explícito: ya resuelto, coincidió con mi propio hallazgo de la revisión adversarial. (2) Mover `system_account_resolver.py` a `application/services/` como clase `SystemAccountResolver` con dependencias inyectadas: implementado (commit `0cb36bb`), matching el patrón ya usado por `IdGenerator`/`Clock`; 206 tests, ruff y mypy strict verdes. (3) `Literal` en vez de `__post_init__` para restringir `purpose`: NO lo apliqué -- devolví la pregunta con evidencia (mismo patrón de validación en runtime ya usado por `SystemAccount.__post_init__`/`UserAccount.open()` en el mismo módulo; achicar el tipo rompería la prueba que hoy prueba el rechazo, forzando `# type: ignore`). Respondí los 3 hilos directamente en el PR.
+- **Veredicto:** ⏳ pendiente
