@@ -964,3 +964,10 @@ Formato de cada entrada:
 - **Prompt:** "commitea y sube los cambios"
 - **Respuesta:** Dos commits separados por concern: (1) la respuesta completa a la revisión del PR (los 5 batches + mis dos hallazgos propios: el fix de `OverdraftPolicy` colgante en las convenciones y la nota de docstring sobre `get_for_update`), (2) el plan del sitio web (`docs/web-ui-plan.md`), sin relación con el otro cambio. Gates corridos antes de cada uno.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 22:15 — Arrancar depósito/retiro y web UI en paralelo, cada uno en worktree aislado
+<!-- id: 20260907-221532-a1fe3a40 -->
+- **Qué intentaba:** Cumplir la instrucción de iniciar dos tareas en paralelo sin que se pisen en el mismo working tree.
+- **Prompt:** "Quiero que inicies dos tareas en paralelo: 1. depósitos y retiros [...] 2. Construye la web [...] usa react [...] No debe llevar pruebas automatizadas"
+- **Respuesta:** Comité los dos edits de spec pendientes (currency USD-only + diseño depósito/retiro) en una rama nueva `feat/deposit-withdraw` (off `main`), creé otra rama limpia `feat/web-ui` (off `main`), y lancé dos agentes fork con `isolation: "worktree"` — uno implementa el backend con el rigor de siempre (ruff/mypy strict/pytest, GitNexus impact-analysis), el otro construye React en `web/` sin pruebas automatizadas por instrucción explícita. Ninguno mergea ni abre PR por su cuenta.
+- **Veredicto:** ⏳ pendiente
