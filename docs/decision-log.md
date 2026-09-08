@@ -1218,3 +1218,10 @@ Formato de cada entrada:
 - **Prompt:** "Revisa el PRD y statement, qué nos está faltando?"
 - **Respuesta:** Lancé un fork para leer docs/prd.md y docs/statement.md completos y compararlos contra el código/tests/docs REALES en main (no memoria de la sesión), incluyendo gaps explícitamente diferidos en decision-log.md/specs, y aspectos operativos (README, CI, cobertura) que un evaluador podría chequear. Pedí una lista estructurada agrupada en "hay que resolver antes de entregar" / "nice to have" / "fuera de alcance por diseño, confirmar conmigo".
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 15:07 — Verificar el análisis de gaps contra PRD/statement antes de reportar
+<!-- id: 20260908-150711-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente los 4 hallazgos de mayor severidad del fork antes de reportarlos al usuario.
+- **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
+- **Respuesta:** Confirmé con grep/lectura directa: (1) `Account.close()` existe en el dominio pero no hay use case ni ruta -- cero resultados; (2) sin instrumentación de observabilidad en absoluto; (3) README raíz dice "reversal... not merged" cuando se mergeó hace horas, y afirma que la concurrencia "no está demostrada bajo carga paralela" cuando los tests de locking usan `asyncio.gather` real contra Postgres real vía testcontainers -- afirmación falsa; (4) no existe un test de reconciliación `balance == SUM(entries)` que el PRD pide explícitamente -- el único grep hit es un docstring explicando que esa computación se removió. Reporté los 4 al usuario agrupados por severidad, sugiriendo empezar por README + cerrar cuenta.
+- **Veredicto:** ⏳ pendiente
