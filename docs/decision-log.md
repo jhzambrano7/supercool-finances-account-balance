@@ -1085,3 +1085,10 @@ Formato de cada entrada:
 - **Prompt:** (notificaciones de finalización de ambos: el fork de account-reads y el reviewer de PR #3, sin mensaje nuevo del usuario)
 - **Respuesta:** Backend de cuentas: 238 tests, ruff, mypy strict verdes; encontré por mi cuenta un `assert isinstance` repetido (mismo anti-patrón que un reviewer humano ya marcó en PR #4) en `get_account.py`/`list_movements.py` y lo corregí (commit `99d2c86`) -- tuve que resolver además un desajuste de nombre de rama local vs remota en el worktree del fork antes de poder pushear. Validé la decisión de arquitectura (MovementRepository como puerto separado de TransferRepository). PR #3: verifiqué yo mismo, leyendo el código real, las tres afirmaciones más críticas del reviewer (R3 orden de idempotencia, R2 dirección, R4 catch acotado por constraint) antes de publicar el resumen como comentario en el PR. Sin hallazgos bloqueantes en ninguno de los dos.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:52 — Resolver los 4 comentarios de revisión pendientes en PR #3
+<!-- id: 20260907-235239-a1fe3a40 -->
+- **Qué intentaba:** Responder "sobre la revisión del PR, no veo mis observaciones resueltas" -- ubicar y resolver los comentarios humanos pendientes en PR #3.
+- **Prompt:** "sobre la revisión del PR, no veo mis observaciones resueltas"
+- **Respuesta:** Encontré 4 comentarios vía `gh api`, ninguno resuelto: (1) nombre `RevertTransferUseCase` stale en el spec, (2) mover el hash de idempotencia a un método de `RevertTransferRequest` (ver transfer use case), (3-4) cambio real de diseño: `requested_by`→`executed_by` con un principal admin fijo documentado en README y autorización simulada real vía gateway/adapter propio, más el objeto siendo un `PrincipalId` en vez de `OwnerId`. Delegué a un fork en worktree aislado sobre `feat/revert`, dejando explícita la tensión de tipos con `IdempotencyRecord.caller_id: OwnerId` (infraestructura compartida por las 4 use cases) como decisión de arquitectura a justificar, no a adivinar. No responde los hilos del PR ni mergea -- eso lo hago yo tras verificar.
+- **Veredicto:** ⏳ pendiente
