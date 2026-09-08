@@ -37,6 +37,9 @@ export function AccountsScreen({ ownerId }: Props) {
   useEffect(() => {
     void refresh()
     // Re-fetch whenever the active identity changes -- each identity sees only its own accounts.
+    // Also drop any close error left over from the previous identity's session, so switching
+    // identities never shows a banner about an action nobody just took.
+    setCloseError(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerId])
 
@@ -45,17 +48,21 @@ export function AccountsScreen({ ownerId }: Props) {
    * or an already-CLOSED account is a UX hint only -- the backend enforces the real rule
    * regardless, so a stale row (someone else deposited into it a second ago) still gets a real,
    * honest `422` here, never silently ignored.
+   *
+   * `refresh()` runs whether this succeeds or fails: a 422 here means the row was already stale
+   * (a concurrent deposit landed first) -- refreshing shows the real current balance, so the same
+   * click doesn't just repeat the same 422 against a UI that never caught up.
    */
   async function close(account: AccountResponse) {
     setClosingId(account.account_id)
     setCloseError(null)
     try {
       await closeAccount(account.account_id, ownerId)
-      await refresh()
     } catch (err) {
       if (err instanceof ApiError) setCloseError(err.described)
       else throw err
     } finally {
+      await refresh()
       setClosingId(null)
     }
   }

@@ -23,6 +23,7 @@ async def test_a_close_racing_a_deposit_never_leaves_a_closed_account_holding_mo
     open_response = await client.post(
         "/accounts", json={"owner_id": owner_id, "purpose": "CHECKING", "currency": "USD"}
     )
+    assert open_response.status_code == 201, open_response.text
     account_id = open_response.json()["account_id"]
 
     async def _close() -> Response:
