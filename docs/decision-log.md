@@ -1029,3 +1029,10 @@ Formato de cada entrada:
 - **Prompt:** "No estoy viendo solución a algunos comments que dejé"
 - **Respuesta:** Encontré 3 comentarios vía `gh api`. (1) `assert`→raise explícito: ya resuelto, coincidió con mi propio hallazgo de la revisión adversarial. (2) Mover `system_account_resolver.py` a `application/services/` como clase `SystemAccountResolver` con dependencias inyectadas: implementado (commit `0cb36bb`), matching el patrón ya usado por `IdGenerator`/`Clock`; 206 tests, ruff y mypy strict verdes. (3) `Literal` en vez de `__post_init__` para restringir `purpose`: NO lo apliqué -- devolví la pregunta con evidencia (mismo patrón de validación en runtime ya usado por `SystemAccount.__post_init__`/`UserAccount.open()` en el mismo módulo; achicar el tipo rompería la prueba que hoy prueba el rechazo, forzando `# type: ignore`). Respondí los 3 hilos directamente en el PR.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:00 — Mergear PR #4 a main resolviendo un conflicto real en el decision-log
+<!-- id: 20260907-230004-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "mergealo a main" para PR #4.
+- **Prompt:** "mergealo a main"
+- **Respuesta:** `gh pr merge --merge` falló por un conflicto real (no espurio) en `docs/decision-log.md`: dos entradas de la sesión pre-compactación (incidente `git checkout main --.`, decisión de acotar Currency a USD) habían quedado sólo en `feat/deposit-withdraw` y nunca llegaron a `main`. Las incorporé en orden cronológico correcto vía merge local, sin tocar código (0 conflictos ahí). Corrí ruff/mypy strict/pytest sobre el árbol ya mergeado (206 tests verdes) antes de completar el commit y pushear. PR #4 quedó `MERGED`. Limpié el worktree del fork ya mergeado.
+- **Veredicto:** ⏳ pendiente
