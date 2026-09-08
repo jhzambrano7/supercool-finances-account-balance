@@ -1210,3 +1210,4 @@ Formato de cada entrada:
 - **Prompt:** "mergealo a main"
 - **Respuesta:** `gh pr merge` falló por el mismo conflicto recurrente en `docs/decision-log.md` (entradas independientes en cada rama desde el punto de divergencia) -- sin conflictos de código. Resuelto en orden cronológico, verificado ruff/mypy strict/build de la web en el árbol mergeado antes de completar el commit y pushear. PR #7 quedó `MERGED`, main sincronizado y verificado de nuevo tras el merge de GitHub.
 - **Veredicto:** ⏳ pendiente
+<!-- skip: 20260908-150422-a1fe3a40 -->
