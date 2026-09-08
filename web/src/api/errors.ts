@@ -134,6 +134,25 @@ export function describeHttpError(status: number, rawDetail: unknown): Described
       }
     }
     const lower = (detail ?? '').toLowerCase()
+    // Checked before the generic "cannot be closed" branch below: AccountNotEmptyError's own
+    // message also contains that phrase ("has a non-zero balance and cannot be closed"), so the
+    // more specific, actionable case has to win the match first.
+    if (lower.includes('non-zero balance')) {
+      return {
+        status,
+        title: 'This account still has money in it.',
+        detail: detail ?? 'Closing requires a zero balance (docs/prd.md §7.2) — move the balance out first, then retry.',
+        recovery: 'edit-amount',
+      }
+    }
+    if (lower.includes('cannot be closed')) {
+      return {
+        status,
+        title: "This account can't be closed.",
+        detail: detail ?? 'Either it is already closed, or it never could be (a SYSTEM account) — nothing here fixes that.',
+        recovery: 'report',
+      }
+    }
     let title = 'The service rejected this input.'
     if (lower.includes('insufficient') || lower.includes('below zero')) {
       title = "Balances can't go negative from a customer action."

@@ -88,7 +88,10 @@ export function MoveMoneyScreen({ ownerId, onSwitchIdentity }: Props) {
     let cancelled = false
     getAccounts(ownerId)
       .then((response) => {
-        if (!cancelled) setMyAccounts(response.items)
+        // Unlike an amount (genuinely unknown until submit), a CLOSED account is already a known
+        // fact at render time -- it can never be a valid leg for any of the three tabs, so listing
+        // it here would just be a dropdown option guaranteed to 422 on every path, not a real choice.
+        if (!cancelled) setMyAccounts(response.items.filter((a) => a.status === 'ACTIVE'))
       })
       .catch(() => {
         // Best-effort: an empty dropdown is a visible, honest failure mode here -- the form's
