@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from logging import Logger
 
 from modules.account_balance.application.gateways.account_repository import AccountRepository
 from modules.account_balance.application.use_cases.system_account_resolver import (
@@ -36,16 +37,22 @@ class Deposit:
     """
 
     def __init__(
-        self, *, account_repository: AccountRepository, transfer_money: TransferMoney
+        self,
+        *,
+        account_repository: AccountRepository,
+        transfer_money: TransferMoney,
+        logger: Logger,
     ) -> None:
         self._account_repository = account_repository
         self._transfer_money = transfer_money
+        self._logger = logger
 
     async def execute(self, request: DepositRequest) -> Transfer:
         funding_account = await resolve_system_account(
             repository=self._account_repository,
             purpose=AccountPurpose.FUNDING,
             currency=request.amount.currency,
+            logger=self._logger,
         )
         return await self._transfer_money.execute(
             TransferMoneyRequest(

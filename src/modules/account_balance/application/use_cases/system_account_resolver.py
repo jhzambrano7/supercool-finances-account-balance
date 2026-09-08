@@ -1,3 +1,5 @@
+from logging import Logger
+
 from modules.account_balance.application.gateways.account_repository import AccountRepository
 from modules.account_balance.application.gateways.models.find_accounts_criteria import (
     FindSystemAccountByPurposeAndCurrency,
@@ -23,7 +25,7 @@ class CurrencyNotOperationalError(ApplicationError):
 
 
 async def resolve_system_account(
-    *, repository: AccountRepository, purpose: AccountPurpose, currency: Currency
+    *, repository: AccountRepository, purpose: AccountPurpose, currency: Currency, logger: Logger
 ) -> SystemAccount:
     """Shared by `Deposit` and `Withdraw`: looks up the platform's one `FUNDING`/`SETTLEMENT`
     account for `currency`, or raises `CurrencyNotOperationalError` if none is seeded yet.
@@ -32,8 +34,20 @@ async def resolve_system_account(
         criteria=FindSystemAccountByPurposeAndCurrency(purpose=purpose, currency=currency)
     )
     if account is None:
+        # Log before raising (docs/coding-conventions.md, application layer only): a 503 here is
+        # a platform-configuration gap, not a client mistake -- on-call needs a trail to grep for,
+        # matching how transfer_money.py logs every one of its own raises.
+        logger.warning("no %s account is seeded for currency %s", purpose.value, currency)
         raise CurrencyNotOperationalError(purpose=purpose, currency=currency)
-    assert isinstance(account, SystemAccount), (
-        "FindSystemAccountByPurposeAndCurrency only ever matches a SYSTEM row"
-    )
+    if not isinstance(account, SystemAccount):  # pragma: no cover -- defensive, mirrors AO4
+        logger.error(
+            "FindSystemAccountByPurposeAndCurrency(%s, %s) matched a non-SYSTEM account %s",
+            purpose.value,
+            currency,
+            account.account_id,
+        )
+        raise RuntimeError(
+            f"FindSystemAccountByPurposeAndCurrency({purpose.value}, {currency}) matched a "
+            f"non-SYSTEM account {account.account_id}"
+        )
     return account

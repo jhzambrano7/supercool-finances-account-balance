@@ -61,12 +61,14 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
         provides=Deposit,
         account_repository=account_repository,
         transfer_money=transfer_money,
+        logger=logger,
     )
 
     withdraw = providers.Factory(
         provides=Withdraw,
         account_repository=account_repository,
         transfer_money=transfer_money,
+        logger=logger,
     )
 
 

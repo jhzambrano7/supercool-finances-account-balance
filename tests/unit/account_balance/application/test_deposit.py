@@ -162,6 +162,7 @@ def _deposit(database: _Database) -> Deposit:
     return Deposit(
         account_repository=_FakeAccountRepository(database),
         transfer_money=_transfer_money(database),
+        logger=logging.getLogger(__name__),
     )
 
 
