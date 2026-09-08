@@ -6,14 +6,16 @@ import { AccountsScreen } from './screens/AccountsScreen'
 import { MovementHistoryScreen } from './screens/MovementHistoryScreen'
 import { MoveMoneyScreen } from './screens/MoveMoneyScreen'
 import { OpenAccountScreen } from './screens/OpenAccountScreen'
+import { ReversalScreen } from './screens/ReversalScreen'
 
-type Screen = 'open' | 'move' | 'accounts' | 'history'
+type Screen = 'open' | 'move' | 'accounts' | 'history' | 'reversal'
 
 const SCREENS: { id: Screen; label: string }[] = [
   { id: 'open', label: 'Open account' },
   { id: 'move', label: 'Move money' },
   { id: 'accounts', label: 'Accounts' },
   { id: 'history', label: 'Movement history' },
+  { id: 'reversal', label: 'Reversal' },
 ]
 
 export default function App() {
@@ -45,6 +47,7 @@ export default function App() {
         {screen === 'move' && <MoveMoneyScreen ownerId={active.id} onSwitchIdentity={() => setScreen('open')} />}
         {screen === 'accounts' && <AccountsScreen ownerId={active.id} />}
         {screen === 'history' && <MovementHistoryScreen ownerId={active.id} />}
+        {screen === 'reversal' && <ReversalScreen ownerId={active.id} />}
       </div>
     </div>
   )

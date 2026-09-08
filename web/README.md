@@ -36,24 +36,26 @@ updated to use them as each landed on `main`, rather than waiting for a single b
 - **Accounts** — real `GET /accounts`, the caller's own accounts with their real, current balances.
   No client-side registry, no replay hack.
 - **Movement history** — real `GET /accounts/{id}/movements`: pick one of your own accounts, see its
-  ledger entries (direction, counterparty, amount), cursor-paginated ("Load more" — there is no total
-  count to build a numbered pager against). Each row also has a **Reverse (as admin)** action
-  (`POST /transfers/{transfer_id}/reversals`) — no separate "Reversal" tab or operator-identity
-  switch: that action always sends the platform's one fixed admin principal
-  (`00000000-0000-0000-0000-000000000003`, see the backend's own `README.md`) as `X-Caller-Id`,
-  regardless of whichever identity is active in the identity bar. Switching the whole app to
-  "Admin" instead would not work here — the admin owns no customer accounts, so it could never see
-  the movement it needs to reverse; overriding the caller id for just this one request is what
-  actually lets an operator act on an account they don't own. A rejected non-admin attempt, an
-  already-reversed transfer, and a negative resulting balance (correct per design, not an error)
-  are all shown honestly, the same way every other screen here shows its real backend responses.
+  ledger entries (direction, counterparty, amount, and the transfer id behind each row), cursor-paginated
+  ("Load more" — there is no total count to build a numbered pager against). A pure read screen — it
+  never triggers a reversal itself.
+- **Reversal** — its own screen, `POST /transfers/{transfer_id}/reversals`, by transfer id (copy one
+  from Movement history). `X-Caller-Id` is always whichever identity is active in the bar above, same
+  as every other screen — this screen displays the platform's one fixed admin principal
+  (`00000000-0000-0000-0000-000000000003`, see the backend's own `README.md`) so you know what to
+  paste into the identity bar's "Paste identity" before reversing, but never sends it as an override.
+  Attempting a reversal as anyone else correctly comes back as a real `403`, same as the backend
+  would give any other caller — this app never fakes the authorization check to make the button
+  always work. An already-reversed transfer (`409`) and a negative resulting balance (correct per
+  design, not an error) are shown the same honest way every other screen here shows its real backend
+  responses.
 
 ## Layout
 
 `src/api/` (fetch client, error mapper, DTO types), `src/money/` (minor-units parsing/formatting —
 string arithmetic only, never `parseFloat(x) * 100`), `src/identity/` (simulated-identity store, plus
 the one fixed admin principal), `src/screens/`, `src/components/`. No router, no state library, no
-UI component library — four screens, `useState` and `fetch`.
+UI component library — five screens, `useState` and `fetch`.
 
 ## Deliberately not built here
 

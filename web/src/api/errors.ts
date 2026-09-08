@@ -60,8 +60,8 @@ export function describeHttpError(status: number, rawDetail: unknown): Described
       return {
         status,
         title: "That's not the admin principal.",
-        detail: detail ?? 'Reversal is operator-only, checked against one fixed principal — see README.md.',
-        recovery: 'report',
+        detail: detail ?? 'Reversal is operator-only, checked against one fixed principal — see README.md. Switch to it via the identity bar above.',
+        recovery: 'switch-identity',
       }
     }
     if (lower.includes('system')) {
