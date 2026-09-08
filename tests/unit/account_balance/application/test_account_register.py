@@ -27,9 +27,9 @@ from modules.account_balance.application.gateways.models.find_accounts_criteria 
     FindAccountCriteria,
 )
 from modules.account_balance.application.use_cases.account_register import AccountRegister
-from modules.account_balance.domain.account import Account, AccountPurpose, AccountType
+from modules.account_balance.domain.account import Account, AccountPurpose, AccountType, UserAccount
 from modules.account_balance.domain.errors import InvalidAccountPurposeError
-from modules.account_balance.domain.identifiers import OwnerId
+from modules.account_balance.domain.identifiers import AccountId, OwnerId
 from modules.shared.application.services.id_generator import IdGenerator
 from modules.shared.domain.money import Currency
 
@@ -73,6 +73,17 @@ class _FakeAccountRepository(AccountRepository):
             )
         self.by_natural_key[key] = account
 
+    async def get_for_update(self, account_id: AccountId) -> UserAccount | None:
+        raise NotImplementedError("AccountRegister never locks accounts")
+
+    async def get_many_for_update(
+        self, account_ids: tuple[AccountId, ...]
+    ) -> tuple[UserAccount, ...]:
+        raise NotImplementedError("AccountRegister never locks accounts")
+
+    async def update(self, account: UserAccount) -> None:
+        raise NotImplementedError("AccountRegister never updates an existing account")
+
 
 def _use_case(repository: AccountRepository) -> AccountRegister:
     return AccountRegister(repository=repository, id_generator=IdGenerator())
@@ -88,6 +99,10 @@ async def test_first_open_creates_a_new_account() -> None:
     )
 
     assert result.created is True
+    # AO1: this door only opens `USER` accounts, so the union `Account` this
+    # port returns is always the `UserAccount` arm here -- narrowed rather
+    # than assumed, since only that arm has a balance to assert on.
+    assert isinstance(result.account, UserAccount)
     assert result.account.owner_id == owner_id
     assert result.account.account_type is AccountType.USER
     assert result.account.purpose is AccountPurpose.CHECKING

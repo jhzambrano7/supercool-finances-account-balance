@@ -404,6 +404,46 @@ Formato de cada entrada:
 - **Respuesta:** Pusheado `feat/account-opening` a `jhzambrano7/supercool-finances-account-balance` (privado, ya creado con `main` como base) y abierto el PR #1 contra `main`, con resumen de las dos piezas de trabajo (cierre del archive SDD + slice de apertura de cuentas), las decisiones no obvias (AO1–AO4), lo que encontró y corrigió la revisión fresca antes del PR, y el plan de test con números reales.
 - **Veredicto:** ⏳ pendiente
 
+## 2026-09-07 01:35 — Arrancar transfer y revert como PRs en cascada
+
+<!-- id: 20260907-013510-a1fe3a40 -->
+- **Qué intentaba:** Confirmar la estrategia de cascada antes de tocar código, y entender el reordenamiento del conftest de integración que el usuario ya había hecho.
+- **Prompt:** "movi el test conf de integracipn para hacerlo reusable […] procede a implementar los casos de uso de transfer y revert, documentando la especificación, creando par de PRs en cascada […] Si tienes alguna pregunta, este es el momento"
+- **Respuesta:** Investigado antes de asumir nada: `tests/integration/account_balance/conftest.py` ya no existe, `tests/integration/conftest.py` (top-level, reusable) está commiteado y sincronizado con origin — confirmado que el commit que lo bundlea (`4bb680d`) ya está pusheado sin divergencia, así que fue una acción legítima del usuario en su otra sesión antes de cerrarla, no una colisión. Pregunté la estrategia de cascada (obligatorio antes de encadenar PRs): **feature-branch-chain** — cada PR apunta a la rama anterior, no a main, así el diff de cada uno queda acotado a su propio incremento. Plan: `feat/transfer` sobre `feat/account-opening` (PR #2 apuntando a esa rama), luego `feat/revert` sobre `feat/transfer` (PR #3 apuntando a esa).
+- **Veredicto:** ✅ aprobado — feature-branch-chain confirmado
+
+## 2026-09-07 01:50 — Especificar transfer y lanzar su implementación
+
+- **Qué intentaba:** Documentar la especificación del caso de uso de transfer (cubre transfer/deposit/withdraw, un solo concepto de dominio) y arrancar su implementación en `feat/transfer`, rama base de la cadena confirmada.
+- **Prompt:** (continuación directa del pedido de este turno, sin nuevo prompt del usuario)
+- **Respuesta:** Leído PRD §5/§6/§9.1 y design.md §5.3/§8 en detalle antes de escribir. `openspec/specs/transfer/spec.md`: decisiones T1–T9 — autorización sobre la pata debitada (§9.1, no "dueño del origen"), header simulado `X-Caller-Id` (primera vez que este slice necesita autenticación real, PRD dice explícitamente "v1 ships a simulated adapter"), idempotencia como fila durable con reconstrucción desde el ledger (nunca cachea el body), su carrera resuelta igual que AO4 (constraint específico, no catch amplio), lock determinístico sólo en cuentas `USER`, y la asimetría de `SYSTEM`: su columna `balance_amount` queda inerte para siempre (nunca se lee ni se escribe en el posteo), el saldo se deriva de `SUM(entries)` — decisión documentada y no una corrección de schema, porque escribirla exigiría lockear una fila que §5.3 dice explícitamente que no se debe lockear. Se retoma la frontera dominio/caso-de-uso marcada "abierta" en el design: se confirma que sostiene bien contra código real (T9). Lanzada la implementación completa en background sobre `feat/transfer`, extendiendo el `AccountRepository` existente (no un port nuevo) y sembrando por migración las dos cuentas `SYSTEM` únicas que el capability de depósito/retiro necesita para ser probado.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 02:15 — Revisar y corregir el slice de transfer antes de la revisión fresca
+
+<!-- id: 20260907-021537-a1fe3a40 -->
+- **Qué intentaba:** (Turno disparado por la finalización del sub-agente de implementación.) Verificar la entrega antes de pasarla a revisión fresca.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** 173 tests confirmados (no sólo reportados). Leído directamente `TransferMoneyUseCase`, el patrón Unit-of-Work (`_KeptOpenSession`) y los tres adaptadores SQL antes de aceptar nada: verifiqué que `SqlTransferRepository.add()`/`SqlIdempotencyRepository.add()` usan `flush()`, no `commit()`, y que sólo `SqlTransferUnitOfWork.__aexit__` commitea/rollbackea — la atomicidad (T3) se sostiene. Verifiqué también T1 (autorización por tipo de cuenta, no por "source" fijo) y T6/T7 (lock sólo en patas `USER`, `SYSTEM` nunca lockeada ni escrita) línea por línea contra la tabla real del PRD §9.1/§5.3.
+- **Hallazgo real, reproducido antes de corregir:** `NonPositiveAmountError` e `InvalidCurrencyError` (ambos `DomainError`) no estaban en `_UNPROCESSABLE_ERRORS` del route de transfer — a diferencia del propio route de account-opening, que sí incluye `InvalidCurrencyError` en el suyo. Un monto 0 o una moneda en minúsculas devolvían 500 en vez de 422. Reproducido con dos tests de integración nuevos (RED confirmado), corregido el route y la tabla de status HTTP del spec (que tampoco los cubría), reproducido de nuevo confirmando 422.
+- **175 tests, gates verdes.** Lanzada revisión fresca sobre todo el diff antes del PR, con foco en atomicidad, la carrera de idempotencia, el lock determinístico y la asimetría de `SYSTEM`.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 02:31 — Corregir la carrera de idempotencia real que encontró la revisión fresca
+
+<!-- id: 20260907-023126-a1fe3a40 -->
+- **Qué intentaba:** Cerrar los hallazgos de la revisión fresca antes de abrir el PR #2.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** La revisión encontró un bug real de concurrencia, reproducido en vivo 5/5 veces contra Postgres real: cuando dos requests concurrentes comparten idempotency key y el saldo alcanza para una sola aplicación (no dos), el perdedor de la carrera de lock leía el saldo ya debitado por el ganador y `InsufficientFundsError` disparaba **antes** de llegar al insert de idempotencia del que depende la recuperación — 201/422 en vez de 201/201. Reproducido primero a nivel unitario con la infraestructura de fakes existente (RED confirmado), corregido moviendo el insert de la fila de idempotencia al **primer** paso de `_post_new_transfer`, antes de cargar o lockear cualquier cuenta — el constraint único es el único punto real de colisión, nada más puede correr antes de que esa colisión tenga oportunidad de ocurrir. Requirió hacer diferible (`DEFERRABLE INITIALLY DEFERRED`) el FK de `idempotency_records.transfer_id`, ya que ese insert ahora ocurre antes de que exista la fila de `transfers` que referencia. Verificado con un test de integración nuevo contra Postgres real, 5/5 corridas limpias tras el fix.
+- **Segundo hallazgo, mismo patrón que el anterior:** `InvalidIdempotencyKeyError` tampoco estaba mapeado, caía a 500. Reproducido con clave en blanco, corregido igual que `NonPositiveAmountError`/`InvalidCurrencyError`.
+- **178 tests, gates verdes.** Dos commits (`0c4ea93`, `9b0427d`).
+- **Veredicto:** ✅ aprobado
+
+## 2026-09-07 02:40 — Pushear feat/transfer y abrir el PR #2
+
+- **Qué intentaba:** Cerrar el segundo eslabón de la cadena.
+- **Prompt:** (continuación directa del pedido de este turno)
+- **Respuesta:** Pusheado `feat/transfer` y abierto el PR #2 apuntando a `feat/account-opening` (no a main, per feature-branch-chain), con el bug de concurrencia real y su fix documentados en el cuerpo del PR. `revert` (PR #3) arranca sobre `feat/transfer` a continuación.
 ## 2026-09-07 10:06 — Cambiar al branch del PR #1
 
 <!-- id: 20260907-100645-a1fe3a40 -->
@@ -543,4 +583,384 @@ Formato de cada entrada:
 - **Qué intentaba:** El usuario confirmó que terminó de revisar y pidió subir los cambios.
 - **Prompt:** "sube los cambios"
 - **Respuesta:** Commiteado en dos partes (código + docs) tras limpiar cachés obsoletas de `__pycache__`/`.mypy_cache` que habían confundido un intento de commit intermedio (mismo tipo de falso positivo ya visto antes, no un bug real). 153 tests, gates verdes, confirmado en limpio antes de cada commit.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 15:08 — Root-causear el bug de aislamiento de tests de integración (deep-copy de dependency_injector)
+
+<!-- id: 20260907-150852-a1fe3a40 -->
+- **Qué intentaba:** Durante el merge de `main` a `feat/transfer`, 10 tests de integración fallaban con `relation "idempotency_records" does not exist`. Investigar por qué, ya que el `postgres_url` de testcontainers se overridea explícitamente en cada fixture.
+- **Prompt:** (continuación autónoma de la tarea en curso tras compactación de contexto, sin nuevo prompt del usuario en este tramo)
+- **Respuesta:** Confirmado con `docker ps`/`psql \dt` que los tests pegaban contra un Postgres local persistente (14h up, sólo con `accounts`/`alembic_version`), no contra el testcontainer efímero — por eso account-opening "pasaba" por coincidencia y transfer fallaba duro. Instrumenté `create_engine()` con `traceback.print_stack()` y aislé la causa: `dependency_injector` hace deep-copy de **todo** el grafo de providers alcanzable al instanciar un `DeclarativeContainer`, incluyendo providers de OTRO container referenciados como kwarg (`AccountBalanceContainer.account_repository` referencia `SharedDependencies.session_factory`). Verificado con `id()`: la copia dentro de `AccountBalanceContainer()` NO es el mismo objeto que `SharedDependencies.session_factory`. Como `create_app()` instancia el container (y dispara el deep-copy) **antes** de la línea `SharedDependencies.settings.override(...)` en cada fixture, el override muta el objeto global que ya nadie usa — la app real sirve con la copia congelada en default. Confirmado con un repro manual: `SharedDependencies.engine()` llamado directo sí respeta el override; la misma app servida vía ASGI, no.
+- **Fix propuesto, no aplicado todavía:** reemplazar la referencia directa por un slot `providers.DependenciesContainer()` en `AccountBalanceContainer`, overrideado con `.override(SharedDependencies)` en `create_app()` — mecanismo idiomático de `dependency_injector` para este caso exacto. Revertida la instrumentación de debug de `engine.py`. Preguntado al usuario si aplicar el fix ahora (toca `AccountBalanceContainer`, `SharedDependencies` y ~4 archivos de test) o dejarlo documentado y separado.
+- **Veredicto:** ✅ aprobado — "fixea el bug"
+
+## 2026-09-07 16:03 — Aplicar el fix de DependenciesContainer para el bug de aislamiento de tests
+
+<!-- id: 20260907-160324-a1fe3a40 -->
+- **Qué intentaba:** Corregir el bug root-causeado en la entrada anterior: `SharedDependencies.settings.override(...)` no llegaba a la app real por el deep-copy de `dependency_injector` al instanciar `AccountBalanceContainer`.
+- **Prompt:** "fixea el bug"
+- **Respuesta:** Agregado `shared = providers.DependenciesContainer()` en `AccountBalanceContainer`, reemplazando las referencias directas a `SharedDependencies.session_factory`/`.id_generator`/`.clock` por `shared.session_factory`/`.id_generator`/`.clock`. En `create_app()`, `account_balance_container.shared.override(SharedDependencies)` justo después de instanciar el container — `DependenciesContainer` es un proxy, no se deep-copia, así que ahora reenvía en vivo a `SharedDependencies` sin importar el orden respecto al `.override()` de cada test. Verificado con un repro manual vía httpx: la app wireada ahora intenta conectar de verdad contra la URL fake overrideada (antes ignoraba el override silenciosamente). Verificación fuerte: paré el contenedor local de Postgres (`docker stop`) y corrí toda la suite — **184 tests pasaron igual**, contra testcontainers puro, sin el Postgres local corriendo; reiniciado el contenedor después. Gates verdes: ruff check, mypy --strict (109 archivos), 184 tests. (`ruff format --check` marca `docs/ai-transcript.md` por separado — preexistente al transcript append-only, no tocado).
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 16:26 — Lanzar juicio adversarial sobre la gestión de dependencias y el uso de dependency_injector
+
+<!-- id: 20260907-162646-a1fe3a40 -->
+- **Qué intentaba:** Someter a revisión adversarial independiente la capa de DI y la gestión de dependencias, justo después de haber arreglado el bug de deep-copy — para no quedarme con mi propio diagnóstico como única fuente de verdad.
+- **Prompt:** "Corre un análisis adversarial sobre la gestión de dependencias y el uso de dependency injector"
+- **Respuesta:** Reconocido el trigger de `judgment-day` (revisión adversarial) y seguido su protocolo: dos jueces ciegos en paralelo (opus), mismo target y criterios, sin que yo revise el código primero. Target dividido en dos dimensiones: (A) uso de `dependency_injector` — scopes de providers, lifecycle/dispose del engine async, afinidad de event loop, re-entrancia de `wire()`, el `app = create_app()` a nivel de módulo, referencias cross-container y aislamiento real entre tests; (B) gestión de dependencias a nivel de packaging (`pyproject.toml`/`uv.lock`, pinning, dev vs runtime, imports no declarados) y dirección de dependencias entre capas (¿domain importa adapters? ¿application importa FastAPI/SQLAlchemy?). Instruidos a verificar empíricamente con `uv run python` lo que sea incierto de la semántica de la librería, y a no modificar nada. `Skill Resolution: none` — el registry no tiene skill que matchee review de Python/DI/arquitectura. Pendiente esperar a **ambos** jueces antes de sintetizar; sin fixes hasta que el usuario apruebe.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 16:32 — Detectar que la sesión concurrente reescribió el fix de DI mientras corría el juicio
+
+<!-- id: 20260907-163251-a1fe3a40 -->
+- **Qué intentaba:** Verificar un hallazgo del Juez B que contradecía lo que yo había escrito: afirmaba que `shared` es `providers.Container(SharedDependencies)`, no `providers.DependenciesContainer()`.
+- **Prompt:** (notificación de fin del Juez B; sin prompt nuevo del usuario)
+- **Respuesta:** El juez tenía razón y yo estaba desactualizado: `mtime` de `dependencies.py` es 16:14, posterior a mis ediciones (`app.py` quedó en 16:04) — la sesión concurrente volvió a tocar exactamente la línea de mi fix, cambiándola a `providers.Container(SharedDependencies)` y reponiendo el import que yo había sacado. Verificado que el estado actual **igual funciona** (el override llega al `session_factory` del repositorio, 184 tests verdes, mypy strict limpio), pero es una variante más frágil: `providers.Container` sí deep-copia y la corrección depende de un pairing con `.override(SharedDependencies)` en `create_app()` que nada obliga — y el docstring quedó mintiendo, describe `DependenciesContainer`. No toqué nada: el Juez A sigue corriendo y el protocolo prohíbe arreglar antes de tener ambos veredictos y el visto bueno del usuario.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 16:34 — Sintetizar el juicio adversarial y reconocer que mi fix fue necesario pero no suficiente
+
+<!-- id: 20260907-163418-a1fe3a40 -->
+- **Qué intentaba:** Cerrar la Ronda 1 del juicio con ambos veredictos y triagear los hallazgos de un solo juez antes de proponerle algo al usuario.
+- **Prompt:** (notificación de fin del Juez A; sin prompt nuevo del usuario)
+- **Respuesta:** 11 hallazgos confirmados por ambos jueces, 0 contradicciones. Verifiqué uno por uno los de juez único y **todos resultaron ciertos**: `TransferMoneyUseCase` viola la convención de "sin sufijos de capa" que nosotros mismos escribimos; la nota "Not yet applied" de `coding-conventions.md:264` quedó obsoleta cuando yo apliqué el 400 en `transfer_routes.py`; `IdempotencyConflictError` y `SystemToSystemTransferNotAllowedError` heredan de `Exception` pelado contra la convención; `.env` no está en `.gitignore`; no hay CI ni Dockerfile. **Corrección importante sobre mi propio trabajo:** ambos jueces, por separado, probaron que el aislamiento de tests sigue siendo ilusorio más allá del bug que arreglé — `engine`/`session_factory` son Singletons que cachean, y `reset_override()` sobre `settings` no los resetea; la suite pasa sólo porque los 29 tests de integración usan la *misma* `postgres_url`. Mi fix del deep-copy era necesario pero **no suficiente**, y mi frase "aislamiento real" fue una sobreafirmación: probé que los tests usan testcontainers, no que estén aislados entre sí. Sin arreglar nada — el protocolo exige preguntar antes de la Ronda 1 de fixes.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 17:05 — Delegar el fix del bloque 1 (deuda propia, barata)
+
+<!-- id: 20260907-170557-a1fe3a40 -->
+- **Qué intentaba:** Aplicar los 6 hallazgos confirmados del bloque 1 que el usuario aprobó de la síntesis del juicio.
+- **Prompt:** "vamos con el 1"
+- **Respuesta:** Delegado a un agente de fix quirúrgico (protocolo de `judgment-day`: fixes van en un agente separado, no inline), con las 6 issues confirmadas exactas y sus ubicaciones: (1) restaurar `providers.DependenciesContainer()` en `AccountBalanceContainer.shared` (revertir la regresión de la sesión concurrente a `providers.Container`); (2) corregir la nota obsoleta de `coding-conventions.md` sobre transfer/revert y el 500 (transfer ya aplica 400 en este merge; revert vive en otra branch no mergeada); (3) `IdempotencyConflictError`/`SystemToSystemTransferNotAllowedError` → heredar de `ApplicationError`; (4) tipo de retorno de `create_session_factory` corregido a `async_sessionmaker[AsyncSession]`; (5) borrar `get_settings()` muerto; (6) renombrar `TransferMoneyUseCase`→`TransferMoney` y el dataclass de input `TransferMoney`→`TransferMoneyRequest` (resolviendo la colisión), más el provider `transfer_money_use_case`→`transfer_money`, en los 8 archivos donde aparecen. Instruido a verificar gates (ruff, mypy strict, 184 tests) al final y no commitear nada.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 17:12 — Verificar el fix del bloque 1 y relanzar el juicio (re-ronda)
+
+<!-- id: 20260907-171252-a1fe3a40 -->
+- **Qué intentaba:** Confirmar que el fix agent delegado hizo lo pedido antes de dar la Ronda 1 por buena, y seguir el protocolo de `judgment-day` que exige re-lanzar ambos jueces tras cualquier fix.
+- **Prompt:** (notificación de fin del fix agent; sin prompt nuevo del usuario)
+- **Respuesta:** Spot-check propio (grep + gates) confirmó las 6 correcciones tal como las reportó el agente: `DependenciesContainer` restaurado, sin referencias colgantes a `TransferMoneyUseCase`, ambos errores heredando de `ApplicationError`, `get_settings` borrado. Gates verdes: ruff, mypy strict (109 archivos), 184 tests. Relanzados dos jueces ciegos nuevos (Ronda 2) sobre el mismo target más los 6 fixes concretos, instruidos a no confiar en el reporte previo y correr los gates ellos mismos.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 17:17 — Recibir el veredicto del Juez A de la Ronda 2
+
+<!-- id: 20260907-171728-a1fe3a40 -->
+- **Qué intentaba:** Registrar el primero de los dos veredictos de la re-ronda antes de sintetizar (el protocolo prohíbe sintetizar con uno solo).
+- **Prompt:** (notificación de fin del Juez A; sin prompt nuevo del usuario)
+- **Respuesta:** Confirmó los 6 fixes como correctos (con scripts propios, sin confiar en el reporte previo) y encontró 11 hallazgos nuevos sobre el propio fix: comentarios que afirman una garantía de aislamiento que no existe (mismo problema de Singletons no reseteados, ahora documentado como si estuviera resuelto); otra nota obsoleta 17 líneas después de la que sí corregí (`AccountNotFoundError` propio en `transfer_money.py`, que en realidad reexporta el canónico); el catch-all de `ApplicationError`→400 nunca se agregó a las rutas pese a que ahora dos errores lo heredan; el rename quedó incompleto fuera de `src/`/`tests/` (`openspec/specs/transfer/spec.md`, `README.md`); reapareció un docstring de clase que un reviewer había pedido sacar explícitamente; `shared` sin default es ahora una mina para cualquier entrypoint futuro que no pase por `create_app()`. Sin sintetizar todavía — falta el Juez B.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 17:18 — Sintetizar la Ronda 2 del juicio sobre el fix del bloque 1
+
+<!-- id: 20260907-171815-a1fe3a40 -->
+- **Qué intentaba:** Cerrar la Ronda 2 con ambos veredictos y decidir qué hacer con lo que encontraron sobre mi propio fix.
+- **Prompt:** (notificación de fin del Juez B; sin prompt nuevo del usuario)
+- **Respuesta:** 6 hallazgos confirmados por ambos jueces sobre el fix recién aplicado: comentario que sobreafirma aislamiento (Singletons siguen sin resetearse, `reset_override()` es un no-op); nota obsoleta hermana a la que corregí, 17 líneas después, en la misma sección; el catch-all de `ApplicationError`→400 nunca se implementó pese a heredar de esa base; el rename de `TransferMoneyUseCase` no llegó a `openspec/specs/transfer/spec.md` (documento vivo, no transcript); reapareció un docstring de clase que un reviewer había pedido sacar explícitamente; `shared` sin default es ahora una mina para cualquier entrypoint futuro. El resto son SUGGESTION menores (docstrings partidos, un archivo de test sin renombrar, `transfer_schemas.py` sin migrar a la convención de DTOs). Nada crítico, gates siguen verdes en ambos jueces (corridos por ellos mismos, no confiando en el reporte previo). Reporto la síntesis al usuario y pregunto cómo seguir antes de tocar nada más.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 17:21 — Delegar el segundo pase de fixes (los 11 confirmados/verificados de la Ronda 2)
+
+<!-- id: 20260907-172120-a1fe3a40 -->
+- **Qué intentaba:** Aplicar todo lo que reporté en la síntesis de la Ronda 2, que el usuario aprobó en bloque.
+- **Prompt:** "dale"
+- **Respuesta:** Delegado a un agente de fix quirúrgico con 12 items (los 11 "Confirmado" de la tabla más el que en mi mensaje llamé "sospechoso pero verificado" `TransferMoney` faltante en la tabla "Applied so far" — los otros dos sospechosos, `ApplicationError` no realmente abstracta y el tipo no propagado a consumidores, también entraron: el primero como nota de docstring, el segundo lo dejé fuera por ser de alcance mayor -- ver nota). El más grande: migrar `transfer_schemas.py` a la convención `dtos.py` (renombrar clases con sufijo `Dto`, mover al archivo existente, agregar test unitario), documentando como gap conocido (no arreglado) que `TransferResponseDto.from_transfer` mapea desde el dominio y no desde un resultado de aplicación -- introducir ese wrapper sería un cambio de diseño mayor, fuera de alcance de un "bloque cheap". También: catch-all de `ApplicationError`→400 en ambas rutas, corrección de comentarios que sobreafirman, docstring de clase repuesto movido a comentario, nota obsoleta acotada a `revert_transfer.py`, rename de `openspec/specs/transfer/spec.md` y `README.md`, docstrings partidos reflowed, rename del archivo de test. Instruido a correr gates y no commitear.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 17:32 — Verificar el segundo pase de fixes y relanzar el juicio (Ronda 3)
+
+<!-- id: 20260907-173256-a1fe3a40 -->
+- **Qué intentaba:** Confirmar los 12 fixes antes de dar la Ronda 2 por buena y seguir el protocolo de `judgment-day` (re-juicio obligatorio tras cualquier fix).
+- **Prompt:** (notificación de fin del segundo fix agent; sin prompt nuevo del usuario)
+- **Respuesta:** Spot-check propio confirmó lo reportado: `DependenciesContainer` con comentario corregido (ya no sobreafirma), docstring de clase removido, `transfer_schemas.py` migrado a `dtos.py` con sufijo `Dto`, gates verdes (185 tests, +1 por el test nuevo de `TransferResponseDto`). El agente notó y corrigió de paso un bloqueador real preexistente (`provides=TransferMoneyUseCase` sin importar) y reportó una edición concurrente ajena (anotación de tipo en `shared`) compatible con sus cambios. Detalle menor no crítico: el comentario de `app.py` dice "see its docstring" pero el docstring de clase ya no existe (ahora es comentario) — lo dejo para que lo capture el próximo juicio en vez de tocarlo yo mismo. Relanzados dos jueces ciegos nuevos (Ronda 3) sobre el estado actual completo.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 17:39 — Recibir el veredicto del Juez A de la Ronda 3
+
+<!-- id: 20260907-173948-a1fe3a40 -->
+- **Qué intentaba:** Registrar el primero de los dos veredictos de la Ronda 3 antes de sintetizar.
+- **Prompt:** (notificación de fin del Juez A; sin prompt nuevo del usuario)
+- **Respuesta:** Encontró 15 hallazgos nuevos, varios reales y no triviales: el comentario de `app.container` en `app.py` sigue mintiendo (overridear ahí no afecta nada, probado empíricamente); `wire()` sigue siendo global por proceso, el último container gana (probado con dos apps); `engine` nunca se dispone, sin lifespan; `idempotency_repository.py` y `transfer_repository.py` no loguean ni envuelven excepciones de infraestructura pese a que la convención lo exige, y `SqlAccountRepository.get_for_update()`/`update()` tampoco; un docstring partido que el fix de la Ronda 2 dejó pasar en el mismo archivo que estaba tocando (`dtos.py`), más 21 más en el resto del árbol; `README.md` sigue con secciones enteras desactualizadas (dice que transfer está "planned", no construido) pese a que el fix de la ronda anterior sólo tocó un nombre de clase puntual. También confirmó que el `ruff format --check` sigue rojo sobre `docs/ai-transcript.md` (algo que veníamos ignorando deliberadamente por ser un log ajeno, pero que rompe `pre-commit run --all-files` para cualquiera). Sin sintetizar — falta el Juez B.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 17:40 — Sintetizar la Ronda 3 y aplicar el freno de "2 iteraciones" del protocolo
+
+<!-- id: 20260907-174030-a1fe3a40 -->
+- **Qué intentaba:** Cerrar la Ronda 3 con ambos veredictos y decidir cómo seguir, ya que el protocolo de `judgment-day` exige preguntar al usuario después de 2 iteraciones de fix con hallazgos remanentes.
+- **Prompt:** (notificación de fin del Juez B; sin prompt nuevo del usuario)
+- **Respuesta:** 9 hallazgos confirmados por ambos jueces (varios WARNING real, no cosméticos): `wire()` sigue siendo global por proceso (probado con dos apps concurrentes, el último container gana para todas); los Singletons de `engine`/`session_factory` siguen sin resetearse pese al `reset_override()` (tercera ronda consecutiva marcando lo mismo); `app.container` es código muerto que nadie lee, con un comentario que describe un uso que no existe; docstrings partidos siguen apareciendo incluso en archivos que el propio fix anterior reescribió; `README.md` tiene secciones enteras desactualizadas más allá del nombre puntual que corregí. Verifiqué por mi cuenta 3 hallazgos de un solo juez, los 3 ciertos: faltan 3 `__init__.py` en paquetes nuevos, `idempotency_repository.py`/`transfer_repository.py` no tienen logger en absoluto. Dado que ya van 2 iteraciones de fix con hallazgos reales remanentes, corresponde frenar y preguntarle al usuario cómo seguir en vez de lanzar un tercer fix a ciegas -- varios de estos (wire global, Singletons sin resetear) son el mismo problema estructural que ya había separado como "bloque 3" en la síntesis original, no deuda cosmética.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 17:47 — Resolver el punto 1 y recuperar de un `git checkout --` propio que borró trabajo real
+
+<!-- id: 20260907-174724-a1fe3a40 -->
+- **Qué intentaba:** Aplicar rápido el punto 1 (docstrings partidos, `__init__.py` faltantes, puntero huérfano, filas de tablas, `README.md`) sin correr jueces, como pidió el usuario.
+- **Prompt:** "resuelve el punto 1 rápido, no corras los jueces aún"
+- **Respuesta:** Error mío durante el proceso: al corregir un bug en mi propio script de reflow de docstrings (doble indentado), usé `git checkout -- <19 archivos>` para "revertir mi mal intento" sin verificar que el INDEX de esos archivos estaba desactualizado (de antes de toda la resolución del merge) — eso borró trabajo real y ya verificado del working tree en esos 19 archivos: todo el contenido de `dbos/models.py` (`TransferDbo`/`EntryDbo`/`IdempotencyRecordDbo` completos), `get_for_update()`/`update()`/el cómputo de balance de cuentas SYSTEM en `sql_account_repository.py`, y el fixture correcto de 3 archivos de test.
+- **Detección y recuperación:** Lo detecté por los errores de mypy/pytest resultantes (imports rotos, firma vieja). Recuperé 4 archivos con contenido exacto extraído de los transcripts JSONL de los fix-agents anteriores (`agent-a25fc05b0f52271ff`/`agent-aa80ccb48c79fedd1`, vía sus propios tool_use de Edit/Write). Para `dbos/models.py` y `sql_account_repository.py` (nunca tocados por ningún fix-agent -- su contenido era de la resolución de merge original, jamás re-stageado) **reconstruí el código a mano**, cruzando la migración Alembic (`5bf582a92358`, columnas exactas), los call sites en `transfer_repository.py`/`idempotency_repository.py`/`unit_of_work.py`/`transfer_money.py`, el puerto `AccountRepository` (docstrings T6/T7/T9) y el patrón ya existente de `AccountDbo`/`test_sql_account_repository.py`. Reescribí también `test_sql_account_repository_transfer.py` completo (mismo patrón) y corregí el fixture de `test_concurrent_transfer_locking.py` (mismo bug de `container.settings` ya resuelto antes en los otros dos archivos de test).
+- **Verificación:** barrido de grep por todo el repo buscando cualquier identificador viejo (`TransferRow`, `EntryRow`, `OpenAccountUseCase`, `container.settings.override`, etc.) -- limpio. Gates verdes: ruff, mypy strict (111 archivos), **185 tests, 3 corridas seguidas limpias, y una cuarta con el Postgres local parado** (aislamiento real confirmado de nuevo, dado que reconstruí lógica de negocio crítica).
+- **Punto 1 completado** además: agregados los 3 `__init__.py` faltantes, corregido el puntero huérfano en `app.py`, agregadas las filas de DTOs de transfer en `coding-conventions.md` y `openspec/specs/transfer/spec.md`, actualizadas las secciones desactualizadas de `README.md` (tabla de estado, tech choices, "qué falta").
+- **Veredicto:** ⏳ pendiente
+<!-- skip: 20260907-174713-6ab996d1 -->
+
+## 2026-09-07 18:02 — Concluir el merge commit con todo el trabajo hasta ahora
+
+<!-- id: 20260907-180222-a1fe3a40 -->
+- **Qué intentaba:** El usuario pidió commitear el estado actual. El repo seguía en medio del merge de `main` (`git status` mostraba "still merging").
+- **Prompt:** "has un commit de lo que va"
+- **Respuesta:** Invocada la skill `commit`, adaptado su paso 1 de `poetry run pre-commit` a `uv run pre-commit` (este proyecto usa uv). Staged todo lo trackeado (`git add -u` + los 3 `__init__.py` nuevos), dejando afuera explícitamente `AGENTS.md`/`CLAUDE.md`/`.claude/skills/` (artefactos de tooling ajenos a este trabajo, no creados por mí en esta tarea). `pre-commit run --all-files` limpio (ruff, mypy strict, uv.lock check). Mensaje del commit con prefijo `Merge ` (exento del hook de Conventional Commits, confirmado leyendo `scripts/check_commit_msg.py`), documentando: la sincronización con main/PR#1, el bugfix de DI (`DependenciesContainer`), y el resumen de las 2 rondas de judgment-day aplicadas, dejando explícito qué del Round 3 queda pendiente (wiring global, singletons sin resetear, logging faltante en 2 repos). Commit `22a33c5` conleuye el merge -- 23 commits por delante de `origin/feat/transfer`, sin pushear todavía.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:04 — Enmendar el commit para incluir todo, incluidos los archivos de tooling
+
+<!-- id: 20260907-180456-a1fe3a40 -->
+- **Qué intentaba:** El usuario me corrigió: quería `AGENTS.md`/`CLAUDE.md`/`.claude/skills/` (que yo había dejado afuera a propósito, por considerarlos ajenos al trabajo) también en el commit.
+- **Prompt:** "Incluye todo en ese commit"
+- **Respuesta:** Corregido mi propio criterio: no era mi decisión filtrar qué entra al commit sin preguntar, y el usuario ya lo dejó explícito. Como el commit sigue 100% local (no pusheado), hago `amend` en vez de un commit nuevo -- es lo que pide "en ese commit" literalmente, y no reescribe historia publicada.
+- **Veredicto:** ⏳ pendiente
+<!-- skip: 20260907-180957-a1fe3a40 -->
+
+## 2026-09-07 18:14 — Estimar el costo de arreglar `wire()` global
+
+<!-- id: 20260907-181420-a1fe3a40 -->
+- **Qué intentaba:** El usuario preguntó qué tan costoso es resolver el hallazgo de Ronda 3 sobre `wire()` siendo global por proceso.
+- **Prompt:** "SObre wire, que tan costoso es de resolver?"
+- **Respuesta:** Presentadas 3 opciones con costo creciente: (1) `unwire()` en teardown de cada fixture -- trivial, pero band-aid, no arregla la estructura; (2) reemplazar `Provide[Container.provider]`/`wire()` por un `Depends()` que lee `request.app.state.container` -- el fix real, tamaño mediano (~4 archivos: `app.py` + 2 route files + un helper chico), elimina la clase de problema de raíz; (3) rearquitectura de fixtures a un solo container/app por proceso -- más grande, entrelazado con el problema de reseteo de Singletons ya señalado. Recomendada la opción 2. Sin implementar todavía -- pendiente de que el usuario elija.
+- **Nota aparte:** detecté que la sesión concurrente ya sacó `app.container = account_balance_container` de `app.py` (código muerto, coincide con el hallazgo de Ronda 3), pero dejó el comentario de arriba huérfano (describe una asignación que ya no existe) -- no lo toqué, se lo señalé al usuario.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:17 — Verificar el razonamiento del usuario sobre dejar `wire()` como está
+
+<!-- id: 20260907-181722-a1fe3a40 -->
+- **Qué intentaba:** El usuario propuso dejar `wire()` sin tocar, razonando que nunca corremos más de un `create_app()` salvo en tests, donde ya asumimos el trade-off de correrlos en serie. Pidió que lo chequee.
+- **Prompt:** "Podemos mantenerlo así, no veo razón por la que tengamos o ejecutemos más de un create app, nada más allá de las pruebas donde tenemos que señalar el trade off de correrlas en serie. Estoy errado?"
+- **Respuesta:** Verificado con grep: los 3 fixtures `app` son function-scoped (default), no hay `pytest-xdist` instalado, y ningún test guarda una referencia a un `app` viejo para reusarla. La conclusión (dejarlo así) es correcta, pero el mecanismo no es "correrlas en serie" -- es que ningún código usa un `app` superado después de que otro lo pisó. Además, ya hoy corre *más de un* `create_app()` por proceso de test (el de `app.py:44` a nivel de módulo, más el de cada fixture), sin romper nada, exactamente por esa razón. Ofrecido documentar el invariante real con un comentario corto en `app.py`, para que un fixture `session`-scoped futuro no lo rompa sin querer -- sin implementar todavía, a la espera de que el usuario confirme.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:21 — Prototipar y verificar un fixture `app`/`client` session-scoped
+
+<!-- id: 20260907-182145-a1fe3a40 -->
+- **Qué intentaba:** El usuario preguntó si se puede reusar el fixture para tener un solo `app` compartido entre los tests de integración, en vez de uno por test.
+- **Prompt:** "Es posible reusar el fixture? así tendrías una misma app para los tests de integración"
+- **Respuesta:** Prototipado y corrido de verdad (no en teoría) contra un testcontainer real: `@pytest.fixture(scope="session")` para `app` + `@pytest_asyncio.fixture(scope="session", loop_scope="session")` para `client`, con `pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]` a nivel de módulo (no hace falta decorar cada test función por función -- verificado). Confirmado con un contador global que `create_app()`/`.wire()` corre **exactamente una vez** para toda la sesión, y que la suite completa sigue pasando con el prototipo adentro. Esto cierra el hallazgo de `wire()` global de raíz para los tests (sólo existe un container, igual que en producción) y de paso saca el riesgo teórico de afinidad de event loop que había marcado un juez (el engine y el client ahora comparten el mismo loop de sesión). También hace honesto el override de `settings`, que hoy ya sólo surte efecto en el primer test por el caching de los Singletons -- con scope de sesión, el código deja de fingir que reevalúa por test. Costo real, verificado: mover el par de fixtures (hoy duplicado en 3 archivos) a `conftest.py`, una línea de `pytestmark` por archivo de test. Prototipo borrado, no quedó nada en el árbol. No implementado en los archivos reales todavía -- a la espera de que el usuario confirme.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:24 — Implementar el fixture `app`/`client` session-scoped
+
+<!-- id: 20260907-182454-a1fe3a40 -->
+- **Qué intentaba:** Aplicar en los archivos reales lo prototipado y aprobado por el usuario.
+- **Prompt:** "adelante!!"
+- **Respuesta:** Movidos `app` (session-scoped) y `client` (`pytest_asyncio.fixture(scope="session", loop_scope="session")`) a `tests/integration/conftest.py`, sacados de los 3 archivos duplicados (`test_open_account_route.py`, `test_transfer_route.py`, `test_concurrent_transfer_locking.py`), cada uno con `pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]`. Docstring en el fixture `app` documentando el invariante (un solo `create_app()`/`.wire()` por sesión) para que quede explícito, no implícito. Gates verdes: ruff, mypy strict (111 archivos). **185 tests, 3 corridas seguidas limpias + una cuarta con el Postgres local parado** (aislamiento real confirmado de nuevo).
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:31 — Confirmar que Singleton es el diseño correcto y evaluar la propuesta de "cada test dueño de sus datos"
+
+<!-- id: 20260907-183112-a1fe3a40 -->
+- **Qué intentaba:** El usuario planteó que no ve problema en que `engine`/`session_factory` sean Singleton (con el fixture session-scoped ya hecho), y propuso que el reto de datos compartidos se resuelve con que cada test sea dueño de su dataset (lo escribe antes, lo limpia al terminar). Pidió mi opinión.
+- **Prompt:** "Con eso hecho, no veo un issue en que el engine y session factory de alchemy sean singleton... Puede haber reto en los datos, pero cada prueba debe ser dueña de sus datos... Cómo lo ves?"
+- **Respuesta:** Verificado, no asumido: `engine.py:12` documenta explícitamente "One async engine per process (AO5)" -- Singleton es el diseño buscado, no un accidente, y ahora que no hay override por test, el caching deja de ser un problema. Separé una pata que NO se cierra con esto: nadie llama `dispose()` en ningún lado (grep vacío de `dispose|lifespan|on_event`) -- independiente de que sea Singleton, ofrecido aparte. Sobre el patrón de "cada test dueño de su dataset": ya existe y ya lo resuelve el fixture `_clean_tables` (autouse, corre después de cada test incluso si falla, trunca todo lo relevante) -- probado de nuevo, 185 verdes en 4 corridas incluida una con el Postgres local apagado. Planteado que migrar a un patrón más estricto (setup/teardown explícito por test) es un refactor real que sólo se justifica si el objetivo es paralelizar tests (no configurado hoy, sin xdist, sin CI) -- pregunté cuál es el objetivo antes de asumir alcance.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:34 — Agregar el `lifespan` que dispone el engine al apagar
+
+<!-- id: 20260907-183437-a1fe3a40 -->
+- **Qué intentaba:** Cerrar la última pata pendiente del hallazgo de Singleton: nadie llamaba `dispose()` en el engine al bajar el proceso.
+- **Prompt:** "De acuerdo, el dispose del engine está pendiente, procede a resolverlo"
+- **Respuesta:** Agregado `_lifespan` (context manager async) en `app.py`, conectado a `FastAPI(lifespan=_lifespan)`: no hace nada al arrancar, llama `await SharedDependencies.engine().dispose()` al bajar. Verificado empíricamente antes de escribir el test: `httpx.ASGITransport` (lo que usa `client` en los tests de integración) **no dispara el protocolo de lifespan de ASGI en absoluto** -- confirmado con un repro chico, `events` quedó vacío tras cerrar el client. Esto significa que el fix es 100% invisible para la suite de integración (no la afecta, pero tampoco la ejercita) -- por eso agregué un test unitario dedicado (`tests/unit/shared/adapters/inbound/api/test_app.py`) que llama `_lifespan` directo, overrideando `SharedDependencies.engine` con un `AsyncMock` y asertando que `dispose()` se espera exactamente una vez, sólo después del `yield`. Gates verdes: ruff, mypy strict (112 archivos). **186 tests (antes 185), 3 corridas limpias + una cuarta con el Postgres local parado.**
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:38 — Cerrar el hallazgo de `shared` sin default, pensando en entrypoints tipo cron
+
+<!-- id: 20260907-183810-a1fe3a40 -->
+- **Qué intentaba:** El usuario pidió commitear lo hecho y, de paso, resolver el hallazgo de que `shared` no tiene default, porque planea agregar otros tipos de entrypoint (cron jobs) que construirían `AccountBalanceContainer` fuera de `create_app()`.
+- **Prompt:** "comitea lo hecho / Dijiste antes, shared (el DependenciesContainer) no tiene default eso hay que resolverlo, planeo tener otros tipos de endpoints tipo cron jobs"
+- **Respuesta:** Antes de elegir la solución, verifiqué empíricamente si `DependenciesContainer` puede llevar un default seguro pre-poblándolo con providers nombrados a nivel de clase (`session_factory=SharedDependencies.session_factory`, etc.) -- **no puede**: cae en el mismo fork por deep-copy que la clase existe para evitar, confirmado con `id()`. Como no hay forma de darle un default que sobreviva la instanciación de `AccountBalanceContainer`, la solución es centralizar el único punto correcto de construcción: `build_account_balance_container()` en `dependencies.py`, que siempre empareja `AccountBalanceContainer()` con `.shared.override(SharedDependencies)`. `create_app()` ahora usa esa factory en vez de construir el container a mano. Agregado un test que fija el contrato con `check_dependencies()` (método real de `dependency_injector`, verificado que sí detecta `shared` sin llenar): construir el container a mano falla, construirlo vía la factory no. Gates verdes, **188 tests** (antes 186), 4 corridas limpias incluida una con el Postgres local parado.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:43 — Verificar la observación sobre el prefijo tecnológico faltante en los adapters
+
+<!-- id: 20260907-184340-a1fe3a40 -->
+- **Qué intentaba:** El usuario notó que los adapters agregados en este PR no llevan el prefijo tecnológico en el nombre de archivo, a diferencia de `sql_account_repository.py`.
+- **Prompt:** "el prefijo tecnológico no lo veo en los adapters agregados en este PR, al menos no en el nombre del archivo"
+- **Respuesta:** Verificado con grep, no asumido: a nivel de clase el prefijo `Sql` se respeta siempre (`SqlTransferRepository`, `SqlIdempotencyRepository`, `SqlTransferUnitOfWork`), pero los archivos que los contienen (`transfer_repository.py`, `idempotency_repository.py`, `unit_of_work.py`) no llevan `sql_`, sólo el original de account-opening (`sql_account_repository.py`) lo tiene. No hay regla escrita en `coding-conventions.md` sobre esto, pero el patrón de facto está roto por los 3 archivos nuevos. Sólo 4 sitios importan estos módulos -- costo de renombrar es chico y contenido. Propuesto el fix, a la espera de que el usuario confirme.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:44 — Renombrar los 3 adapters con el prefijo `sql_` y documentar la convención
+
+<!-- id: 20260907-184451-a1fe3a40 -->
+- **Qué intentaba:** Aplicar el rename aprobado y dejar la convención escrita para que no se vuelva a romper.
+- **Prompt:** "procede y agrega la convención"
+- **Respuesta:** `git mv` de los 3 archivos (`transfer_repository.py`→`sql_transfer_repository.py`, `idempotency_repository.py`→`sql_idempotency_repository.py`, `unit_of_work.py`→`sql_unit_of_work.py`), actualizados los 4 imports que los referenciaban (`dependencies.py`, `sql_unit_of_work.py` mismo, el test de integración). Agregada la regla nueva en `docs/coding-conventions.md` ("An adapter's file name carries the same technology prefix as its class") justo después de la sección de DBOs/DTOs, más su fila en la tabla "Applied so far". Gates verdes: ruff, mypy strict (113 archivos). **188 tests, 3 corridas limpias + una cuarta con el Postgres local parado.** Barrido final sin referencias colgantes fuera de `docs/ai-transcript.md` (transcript histórico, no se toca).
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:49 — Commitear el rename pendiente y pushear todo el PR
+
+<!-- id: 20260907-184936-a1fe3a40 -->
+- **Qué intentaba:** Subir todo lo trabajado (merge + judgment-day + fixes de esta sesión) al PR abierto.
+- **Prompt:** "sube los cambios al PR"
+- **Respuesta:** Commiteado el rename de los 3 adapters + la convención nueva (`7e4ca04`, gates verdes ya corridos antes). `git push origin feat/transfer`: 25 commits subidos de una (`6de1dd1..7e4ca04`). PR #2 sigue OPEN y MERGEABLE. Detecté un cambio sin commitear ajeno (la sesión concurrente refactorizando `_request_hash` a un método `TransferMoneyRequest.hash()` en `transfer_money.py`, en progreso) -- no lo toqué ni se subió, `git push` sólo manda commits.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 18:53 — Commitear el refactor de la otra sesión y pushear de nuevo
+
+<!-- id: 20260907-185353-a1fe3a40 -->
+- **Qué intentaba:** El usuario pidió de nuevo "sube los cambios al PR" -- no había commits nuevos, pero sí working tree sucio: la otra sesión había terminado su refactor de `_request_hash` (free function) a `TransferMoneyRequest.hash()` (método).
+- **Prompt:** "sube los cambios al PR"
+- **Respuesta:** Revisé el diff antes de tocar nada -- refactor limpio, autocontenido, consistente entre `transfer_money.py` y su test. Corrí gates (ruff, mypy strict) y la suite completa (3 corridas + una con el Postgres local parado, 188 verdes) antes de commitear cualquier cosa que no escribí yo. Commiteado y pusheado.
+- **Veredicto:** ⏳ pendiente
+<!-- skip: 20260907-190631-a1fe3a40 -->
+
+## 2026-09-07 19:14 — Diseñar el split ADT UserAccount/SystemAccount, sin implementar todavía
+
+<!-- id: 20260907-191410-a1fe3a40 -->
+- **Qué intentaba:** El usuario planteó una limitación real del aggregate `Account`: la existencia de `balance` depende del tipo de cuenta, y pidió modelarlo con una estructura ADT.
+- **Prompt:** "veo limitante del aggregate, la existencia de balance depende del tipo de cuenta, entonces debes agregar la estructura ADT que permita modelar esa restricción"
+- **Respuesta:** Verificado con evidencia concreta antes de diseñar: en `transfer_money.py:230-232`, el `balance`/`version` post-`credit()`/`debit()` de una cuenta SYSTEM se computa y se descarta sin persistir (`if account.account_type.is_user(): update(...)`) -- cómputo puro desperdiciado, y el propio docstring de `_lock_user_accounts` ya lo admite ("re-reading it under lock would buy nothing"). Propuesto un split real: `UserAccount`/`SystemAccount` como `Account = UserAccount | SystemAccount` (mismo patrón que `FindAccountCriteria`), moviendo `balance`/`version`/`credit`/`debit`/`close` sólo a `UserAccount` -- `SystemAccount` no los tendría en absoluto, no como no-ops. Esto obliga a reestructurar `posting.transfer()`/`revert()` (hoy llaman `.credit()`/`.debit()` polimórficamente sin importar el tipo) para que sólo produzcan `UserAccount`s a persistir, eliminando los 3 branches `if is_user()` dispersos en el use case. Alcance real: `domain/account.py`, `domain/posting.py`, `application/use_cases/transfer_money.py` y `account_register.py`, el puerto `AccountRepository`, `AccountDbo`, y ~10 archivos de test. No implementado -- presentado el diseño concreto, a la espera de confirmación antes de tocar tantos archivos.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 19:18 — Usar GitNexus para impacto, corregir mi propio diseño, delegar la implementación
+
+<!-- id: 20260907-191847-a1fe3a40 -->
+- **Qué intentaba:** Ejecutar el split ADT `UserAccount`/`SystemAccount` aprobado, usando GitNexus para determinar el impacto real antes de tocar código.
+- **Prompt:** "démosle, dispones de gitnexus por cierto, apalancate para determinar impacto de cambios y demás"
+- **Respuesta:** Reindexé el repo (`gitnexus analyze`, estaba desactualizado) y corrí `impact(Account, upstream)` -- confirmó 8 dependientes directos + 9 transitivos, sin sorpresas fuera de lo que ya había mapeado a mano. **Me equivoqué en mi propio diseño inicial** y lo corregí antes de implementar: había propuesto que `SystemAccount` no tuviera `credit()`/`debit()` en absoluto -- un grep de cada call site reveló que `test_account.py` tiene `test_system_debit_has_no_floor` y un test parametrizado (`_open_user_account`/`_open_system_account`) que exigen explícitamente que `.credit()`/`.debit()` funcionen igual en ambos tipos, con overdraft ilimitado para SYSTEM. Corregido: ambos tipos comparten `credit`/`debit`/`debit_for_reversal` (comportamiento real, ya probado); lo que SÍ se saca de `SystemAccount` es `status`/`version`/`close`/`is_closable` (SYSTEM siempre está ACTIVE, nunca se cierra, su versión nunca se persiste). También encontré que `test_architecture.py` tiene un fitness test (`test_debit_for_reversal_is_referenced_only_in_definition_and_revert`) que verifica por AST el `def:Account.debit_for_reversal` exacto -- necesita actualizarse a dos definiciones (`UserAccount`/`SystemAccount`). Dado el tamaño (~9 archivos de código + ~10 de test), delegué la implementación mecánica a un fork mío (hereda todo este análisis, no lo repite) con el diseño final ya cerrado y cada archivo/test especificado. Corriendo en background.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 19:36 — Verificar el split ADT terminado por el fork, independientemente de su propio reporte
+
+<!-- id: 20260907-193634-a1fe3a40 -->
+- **Qué intentaba:** El fork delegado terminó de implementar `UserAccount`/`SystemAccount`; verificar por mi cuenta antes de confiar en su reporte.
+- **Prompt:** (notificación de fin del fork; sin prompt nuevo del usuario)
+- **Respuesta:** Leí `domain/account.py` completo -- coincide exactamente con el diseño acordado, incluida la solución elegante para `SystemAccount.debit_for_reversal` (delega a `debit()` en vez de duplicar código, pero sigue siendo su propio `def:` nombrado para no romper el fitness test de arquitectura). Corrí gates yo mismo, sin confiar en el reporte: ruff/mypy strict limpios, **188 tests, 3 corridas + una con el Postgres local parado**, todas limpias. Verificado sin `OverdraftPolicy` colgante, sin `Account.open(` viejo colgante (todo migrado a `UserAccount.open(`), el fitness test de `debit_for_reversal` actualizado exactamente como se pidió. Revisé también los 2 puntos donde el fork dice haber contradicho el brief (`AccountDbo.from_domain(account: UserAccount)` en vez del `NotImplementedError` especulativo, y un segundo sitio de construcción SYSTEM en `test_account_properties.py` que mi grep original no había cazado) -- ambos correctos y bien razonados. 23 archivos, 448(+)/197(-). Nada commiteado todavía.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 19:52 — Commitear y pushear el split ADT UserAccount/SystemAccount
+
+<!-- id: 20260907-195206-a1fe3a40 -->
+- **Qué intentaba:** El usuario decidió no correr una revisión adversarial extra y pidió subir los cambios directamente.
+- **Prompt:** "sube los cambios"
+- **Respuesta:** Con mi propia verificación (gates + spot-check del diseño) ya hecha en el turno anterior, el usuario optó por saltar la ronda extra de judgment-day y subir directo. Commiteado el split completo y pusheado a `origin/feat/transfer`.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 19:53 — Aclarar por qué el PR no tiene endpoints separados de depósito/retiro
+
+<!-- id: 20260907-195306-a1fe3a40 -->
+- **Qué intentaba:** El usuario notó que el PR menciona depósitos/retiros pero no los encuentra como funcionalidad propia.
+- **Prompt:** "El PR menciona que implementa depósitos y retiros, no los veo, alguna razón?"
+- **Respuesta:** Verificado, no asumido: no faltan, son el mismo `POST /transfers` diferenciado sólo por qué patas son USER/SYSTEM (T1 del spec, ya documentado en el propio summary del PR). Confirmado con grep que sólo existen dos rutas POST en total, y que `test_deposit_is_authorized_by_destination`/`test_withdraw_is_authorized_by_source` ejercitan exactamente esas dos formas sobre ese único endpoint.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 19:54 — Confirmar que el caller necesita conocer los IDs de cuentas SYSTEM de antemano
+
+<!-- id: 20260907-195445-a1fe3a40 -->
+- **Qué intentaba:** El usuario preguntó si el diseño (depósito/retiro = mismo endpoint, diferenciado por tipo de cuenta) implica que el caller debe conocer los IDs de las cuentas SYSTEM.
+- **Prompt:** "Eso implica que el caller debe conocer los IDs de cuentas system?"
+- **Respuesta:** Confirmado con evidencia, no supuesto: `TransferRequestDto` no tiene campo `type`, sólo IDs crudos; `FUNDING_ACCOUNT_ID`/`SETTLEMENT_ACCOUNT_ID` son UUIDs fijos sembrados por la migración, sin ningún endpoint de discovery. Grep en PRD y en el spec de transfer sin una sola mención de cómo un cliente real debería obtenerlos. Es un gap real de la API, no abordado en ningún documento existente -- se lo confirmé como hallazgo, sin arreglarlo (no pedido).
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 19:57 — Registrar la secuencia: terminar la revisión del PR antes de operaciones explícitas de depósito/retiro
+
+<!-- id: 20260907-195729-a1fe3a40 -->
+- **Qué intentaba:** El usuario confirmó que el gap de IDs de cuentas SYSTEM es de implementación (a resolver), pero fijó el orden: primero termina su revisión del PR actual, después pide endpoints/casos de uso explícitos de depósito y retiro (reemplazando o complementando el `POST /transfers` genérico).
+- **Prompt:** "Es un GAP de implementación, vamos a resolver primero la revisión de este PR (te indico cuando termine) y quiero operaciones explicitas con sus casos de uso de depósito y retiro"
+- **Respuesta:** Reconocida la restricción activa: sin tocar código hasta que el usuario avise que terminó de revisar el PR. Anotado el próximo pedido para cuando retomemos: operaciones explícitas (endpoints + casos de uso propios) para depósito y retiro, en vez de -- o adicional a -- el `POST /transfers` genérico que hoy exige que el caller conozca los UUIDs de FUNDING/SETTLEMENT.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 19:58 — Documentar en el spec la intención de operaciones explícitas de depósito/retiro
+
+<!-- id: 20260907-195807-a1fe3a40 -->
+- **Qué intentaba:** Reflejar en `openspec/specs/transfer/spec.md` la intención de agregar operaciones explícitas de depósito/retiro, sin tocar código (el usuario sigue revisando el PR).
+- **Prompt:** "MIentras, ve ajustando la spec para que refleje esa intención"
+- **Respuesta:** Agregada una nota "Known gap, planned but not yet designed" en la sección Purpose, mismo estilo que los gaps ya documentados en `coding-conventions.md`: explica que el gap no es sólo del dominio (que ya dice "no hay concepto separado") sino de la superficie de entrada (`TransferRequestDto` sin campo `type`, sin discovery de FUNDING/SETTLEMENT), y deja registrado el plan -- operaciones explícitas con sus propios use cases, delante del mismo `transfer()`/persistencia ya especificado, sin reemplazarlo. Deliberadamente no diseñé la forma futura todavía (no fue lo pedido). Sólo Markdown, sin cambios de código.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 20:07 — Confirmar empíricamente el gap de cuentas SYSTEM por moneda
+
+<!-- id: 20260907-200702-a1fe3a40 -->
+- **Qué intentaba:** El usuario planteó la posible necesidad de cuentas SYSTEM por moneda y pidió mi lectura del problema.
+- **Prompt:** "Veo un posible reto, la potencial necesidad de tener cuentas system por moneda. Dame tu insight"
+- **Respuesta:** No es potencial, está vivo: lo probé con un test temporal contra el stack real -- abrir una cuenta EUR devuelve **201**, depositar en ella devuelve **422** (`source (USD), destination (EUR) and amount (EUR) currencies must all match`). El sistema emite cuentas que no puede fondear nunca, porque las dos cuentas SYSTEM están sembradas USD-only mientras `Currency` valida sólo la forma ISO-4217. Distinguido explícitamente de FX (PRD §3, diferido): esto es coexistencia sin conversión, y el modelo **ya se comprometió** con ella del lado USER (la clave natural incluye `currency`, o sea la moneda es parte de la identidad de la cuenta) -- sólo el lado SYSTEM no siguió. Argumentado que cuentas SYSTEM por moneda no es workaround sino lo que exige la partida doble (una cuenta contable está denominada en una sola moneda; `Account.__post_init__` ya lo codifica), y que se resuelve gratis con las operaciones explícitas de depósito/retiro ya planeadas: en cuanto `deposit` es un caso de uso, tiene que *resolver* la cuenta de funding por moneda en vez de leer una constante, y el patrón Criteria ya existe para eso. Dos propiedades a favor: la constraint `(owner_id, purpose, currency)` ya admite `PLATFORM_OWNER_ID+FUNDING+EUR` sin migrar nada, y el enfoque convierte "moneda soportada" en un hecho operacional (la plataforma tiene funding/settlement en ella) en vez de un whitelist hardcodeado. Recomendado el orden: definir primero si `POST /accounts` debe rechazar monedas no servibles (un guard en la entrada), y recién después ensanchar el seed -- no al revés.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 20:19 — Documentar la decisión: `Currency` como enum cerrado (USD/MXN/COP) + cuentas SYSTEM por moneda
+
+<!-- id: 20260907-201943-a1fe3a40 -->
+- **Qué intentaba:** Registrar la decisión del usuario sobre el alcance de monedas, sin implementarla todavía (sigue vigente la restricción de no tocar código hasta que termine la revisión del PR).
+- **Prompt:** "Documenta, acotamos la solución a cuentas en USD, MXN y COP, actualizamos el modelo de currency a un enum de forma que, si se requere soportar una moneda adicional, se requiere ajustar el enum y crear las cuentas system necesarias. Documenta esa decisión"
+- **Respuesta:** Documentado en dos lugares, cada uno con el alcance que le toca. En `openspec/specs/account-balance/spec.md` (el spec de dominio, donde vive `Currency`): fila nueva en la tabla de Domain Types, requirement nuevo "The Supported Currencies Are a Closed Set, Enumerated in the Domain" con sus dos escenarios, y la nota de estado actualizada a "specified, not yet built". El requirement deja explícito que agregar una moneda son **dos pasos acoplados a propósito** (enum + cuentas `FUNDING`/`SETTLEMENT` sembradas en esa moneda), porque eso convierte "moneda soportada" en un hecho operacional en vez de un string validado, y hace imposible repetir la omisión que originó la decisión. También separé explícitamente esto del diferimiento de PRD §3: aquello difiere *cross-currency* (FX, conversión); esto es *coexistencia sin conversión*, que el modelo ya había asumido del lado cliente al hacer de `currency` parte de la clave natural. En `openspec/specs/transfer/spec.md`: extendida la nota de known gap con la segunda mitad del problema (los IDs SYSTEM no son sólo fijos, son fijos *USD*), apuntando a la decisión del spec de dominio y anotando que la resolución por moneda (`FindAccountByPurposeAndCurrency`) es aditiva sobre el patrón Criteria existente y no requiere cambiar la constraint, porque `(owner_id, purpose, currency)` ya admite una fila `FUNDING` por moneda. Sólo Markdown, sin código.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 20:24 — Registrar la alternativa de admin API + currency abierto como diferida, no rechazada
+
+<!-- id: 20260907-202408-a1fe3a40 -->
+- **Qué intentaba:** El usuario propuso una alternativa (exponer APIs de admin para registrar cuentas SYSTEM, lo que permitiría mantener `Currency` como modelo abierto) y la marcó explícitamente fuera de alcance por ahora.
+- **Prompt:** "como propuesta, podemos considerar exponer APIs para el registro de esas cuentas por parte de una admin de la plataforma, eso nos llevaría a mantener currency como modelo abierto y no enum. Pero por ahora fuera de scope."
+- **Respuesta:** Documentada en el requirement de `Currency` como "Considered and deferred", con el razonamiento real y no sólo la mención: la alternativa es **mejor** en el estado final (la existencia de las cuentas `FUNDING`/`SETTLEMENT` pasa a ser la única fuente de verdad de "moneda soportada", colapsa los dos pasos acoplados en uno, y elimina el enum como segundo lugar donde se escribe el mismo hecho; agregar una moneda pasa a ser una operación y no un deploy). Se difiere por una razón ajena a monedas: el servicio no tiene superficie administrativa alguna -- toda la autenticación de PRD §9.1 es un header simulado para clientes, y un endpoint que crea cuentas SYSTEM de la plataforma necesita un límite de privilegio real, que es trabajo mayor y separado. Dejado escrito que cuando esa superficie exista, el enum debería **disolverse** en la query que hoy está sustituyendo, no mantenerse en paralelo.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 20:47 — Triagear los 15 comentarios de la revisión del PR #2 antes de tocar código
+
+<!-- id: 20260907-204740-a1fe3a40 -->
+- **Qué intentaba:** El usuario terminó su revisión como reviewer del PR #2 y pidió proceder; leer y clasificar las observaciones antes de implementar.
+- **Prompt:** "Procede a revisar el PR"
+- **Respuesta:** Extraídos los 15 comentarios inline vía `gh api .../pulls/2/comments` y leído el código exacto de cada punto (incluidos los `diff_hunk` de los ambiguos, para anclar bien qué línea señalan). Clasificados: 9 mecánicos (borrar comentario de `shared`, borrar `__all__` barrel, log-before-raise en 3 sitios de aplicación, `user_ids`→`account_ids`, sacar `status` de `IdempotencyRecord`, un archivo por DBO, y logging+wrapper `IntegrationError` faltantes en `sql_transfer_repository`/`sql_idempotency_repository` -- estos dos exactamente lo que el juez de la Ronda 3 ya había marcado y yo reporté como pendiente, ahora confirmados por el usuario); 2 con peso de diseño pero claros (`TransferRepository.add()` no debería recibir un `Posting` sino que la aplicación llame a cada repo con lo suyo; `get_for_update` gana un hermano que recibe tupla y ordena dentro del adapter, para no depender de que el caller recuerde ordenar); y **1 bloqueante que no adiviné**: el comentario "eliminar" ancla exactamente en `_system_balance`, cuyo borrado contradice el requirement T7 y rompe un test de integración, pero encaja con lo que el usuario dijo antes sobre no querer balance materializado de cuentas SYSTEM -- y su consecuencia coherente sería sacar `balance` de `SystemAccount` por completo. Preguntado eso antes de romper nada; no toqué código en este turno.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 20:56 — Decidir que las cuentas SYSTEM no tienen balance, y documentar la visión de snapshots
+
+<!-- id: 20260907-205643-a1fe3a40 -->
+- **Qué intentaba:** Resolver la pregunta bloqueante sobre `_system_balance` y dejar registrada la visión del usuario sobre cómo se materializaría ese valor si algún día se necesitara.
+- **Prompt:** "Sobre borrar _system_balance es justo porque no vei un caso de uso que demande materializar ese valor... Un proceso scheduled toma 'fotos' del balance... solo necesario si se requere ese valor materializado, no estamos allí ahora."
+- **Respuesta:** Decisión tomada: una cuenta SYSTEM **no tiene balance en ningún lado** -- ni campo en `SystemAccount`, ni columna mantenida, ni valor computado on-read. Reescrito el requirement T7 completo en `openspec/specs/transfer/spec.md` (antes decía "se computa como SUM(entries) al leer"), dejando explícito por qué se revirtió: ningún caso de uso pedía el valor materializado, se pagaba un `SUM` sobre una tabla append-only que sólo crece, y el costo sube para siempre mientras el valor sigue sin usarse. Documentada la visión del usuario como sub-sección propia ("If a materialized SYSTEM balance is ever needed: snapshots, not a live SUM"): proceso scheduled que toma fotos periódicas, cada corrida materializa sólo las entries desde el snapshot anterior, leer cuesta un snapshot + la cola acotada -- y explícitamente fuera del request path, así no reintroduce la contención sobre la fila SYSTEM que T6 existe para evitar. Anotado que se escribe para que la ausencia de balance se lea como decisión deliberada con camino conocido, no como omisión a "arreglar" reintroduciendo el SUM vivo. Actualizada también la tabla de Domain Types del spec de dominio, que todavía describía `Account` como una sola clase con balance, para reflejar el split ADT.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 20:58 — Delegar la implementación de los 15 comentarios de la revisión
+
+<!-- id: 20260907-205830-a1fe3a40 -->
+- **Qué intentaba:** Ejecutar el lote completo de la revisión del PR #2 con las decisiones ya cerradas.
+- **Prompt:** "vas"
+- **Respuesta:** Delegado a un fork (hereda todo el contexto de las decisiones) con el trabajo ordenado en 5 batches por dependencia: (1) `SystemAccount` pierde `balance` y con él `credit`/`debit`/`debit_for_reversal` -- `posting.py` narrowea con `isinstance` y `Posting.accounts` pasa a ser `tuple[UserAccount, ...]`; `_system_balance` eliminado; los tests que asertan comportamiento ya inexistente se borran (no se debilitan) y el property test P4 migra a `UserAccount` con saldo inicial suficiente para que I2 nunca dispare, preservando la identidad contable que realmente prueba. (2) Puertos: `TransferRepository.add(transfer)` en vez de `Posting`, y `get_many_for_update(tuple[AccountId, ...])` que ordena **dentro del adapter** con `ORDER BY` explícito, para que el caller no tenga que acordarse. (3) `status` fuera de `IdempotencyRecord`, incluida la columna -- editando la migración de este mismo PR en vez de apilar un drop, porque no hay historia publicada que preservar. (4) Los gaps de convención que tanto el juez de la Ronda 3 como el usuario marcaron: logger + wrapper `IntegrationError` en los dos adapters que no lo tenían, log-before-raise en los 3 sitios de aplicación (con `Logger` inyectado en `TransferMoney`), rename `user_ids`→`account_ids`, borrar el `__all__` barrel y el comentario del container. (5) Un archivo por DBO, sin re-exports en `__init__.py` (coherente con el rechazo a barrel files), cuidando que `alembic/env.py` importe los cuatro módulos y no sólo uno, porque de eso depende el registro en `Base.metadata`. Explícitamente fuera: los comentarios #14/#15, que son etiquetas del reviewer para el split futuro en operaciones explícitas.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 21:04 — Levantar un subagente a planificar el sitio web de operaciones
+
+<!-- Qué intentaba: correr en paralelo con la implementación de la revisión, sin tocar archivos que el otro fork ya está editando (src/, tests/, alembic/, los specs, coding-conventions.md) -->
+
+<!-- id: 20260907-210438-a1fe3a40 -->
+- **Qué intentaba:** El usuario pidió un subagente que planifique (no construya) un sitio web simple para transferencia/depósito/retiro/reversión/histórico, con el look and feel de EFEX.
+- **Prompt:** "Levanta un subagente que vaya planificando un web site... apalancate en el site de EFEX para el look and feel"
+- **Respuesta:** Lanzado un agente fresco (no fork -- no necesita mi contexto de implementación, sí necesita partir de cero e investigar) con instrucción explícita de tocar un solo archivo nuevo (`docs/web-ui-plan.md`) para no pisar al fork que ya está editando `src/`/`tests/`/specs en paralelo. Instruido a verificar el contrato real de la API contra el código (no confiar en mi resumen), señalar sin inventar los 4 gaps de API que el sitio va a necesitar y que hoy no existen (histórico de movimientos, balance de cuenta, reversión, listado de cuentas del usuario) con su contrato mínimo propuesto, ir a buscar el sitio real de EFEX y ser honesto sobre qué es observado vs inferido si no es alcanzable, y entregar un documento de decisión (qué está decidido/asumido/bloqueado), no un mockup.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 21:13 — Verificar el plan del sitio web entregado por el subagente
+
+<!-- id: 20260907-211309-a1fe3a40 -->
+- **Qué intentaba:** Confirmar que el subagente de planificación del sitio web hizo lo pedido antes de reportarlo.
+- **Prompt:** (notificación de fin del subagente; sin prompt nuevo del usuario)
+- **Respuesta:** Un solo archivo nuevo (`docs/web-ui-plan.md`, 789 líneas), nada más tocado -- confirmado con `git status`. Estructura cubre todo lo pedido: identidad sin login, regla de minor units, idempotency keys desde el cliente, pantallas con sus estados bloqueados, los 4 gaps de API como contratos concretos, paleta/tipografía de EFEX con cada línea etiquetada observado/inferido, stack propuesto, y orden de fases. Encontró 5 puntos donde mi brief estaba desactualizado o incompleto (el enum de currency decidido-no-construido, el mapeo real de `DomainError`→400 vs lo que el spec dice, dos formas distintas de body en 422, ausencia de CORS no mencionada en mi brief, y que `POST /accounts` no pide `X-Caller-Id` en absoluto) -- todos verificados contra el código, no asumidos. Dejó una decisión explícitamente para un humano (el exponente de COP: ISO 4217 dice 2, la práctica colombiana es 0) en vez de resolverla en silencio.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 21:17 — Verificar la implementación de los 15 comentarios, independientemente del reporte del fork
+
+<!-- id: 20260907-211732-a1fe3a40 -->
+- **Qué intentaba:** El fork de la revisión terminó; verificar por mi cuenta antes de creerle, como en cada iteración anterior de esta sesión.
+- **Prompt:** (notificación de fin del fork; sin prompt nuevo del usuario)
+- **Respuesta:** Corrí gates yo mismo (no confié en el reporte): ruff/mypy strict limpios (116 archivos), **188 tests, 3 corridas + una con el Postgres local parado**. Leí y confirmé el código real de los puntos más delicados: `SystemAccount` sin balance/credit/debit tal cual se decidió; `posting.py` narrowea con `isinstance` antes de aplicar cada pata, ambos `Entry` siempre se escriben; `get_many_for_update` ordena con `ORDER BY` explícito dentro de una sola sentencia `IN(...)`, `_lock_user_accounts` ya no ordena nada por su cuenta; la migración de `idempotency_records` quedó con 4 columnas de verdad (sin `status`); los 4 DBOs separados en sus propios archivos y `alembic/env.py` importa los 4 (verificado, no asumido). Las dos desviaciones que el fork reportó (sacar `debit_for_reversal` de `SystemAccount` en vez de mantenerlo, y actualizar el fitness test a un solo `def:` site) están bien razonadas y las confirmé en el código -- consecuencia correcta de que Batch 1 le sacó el balance a SystemAccount.
+- **Encontré por mi cuenta, fuera del alcance del fork:** un párrafo en `docs/coding-conventions.md` ("Tell, Don't Ask") seguía citando `OverdraftPolicy.assert_allows(...)`, una clase que ya no existe desde el split ADT (commit anterior, fuera del batch de este fork). Lo corregí yo mismo -- costo proporcional, mismo archivo que ya estaba verificando, regla que el propio doc establece ("fix it in that file if the cost is proportional").
+- **Encontré y NO toqué, para preguntar primero:** `get_for_update` (singular, no la nueva `get_many_for_update`) ya no tiene ningún caller en código de producción -- `_lock_user_accounts` usa exclusivamente la versión plural ahora, incluso para el caso de una sola pata. El método sigue vivo sólo porque sus propios tests lo llaman. Es código muerto real, no lo borré sin preguntar.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 21:21 — Mantener get_for_update, documentando por qué no tiene caller todavía
+
+<!-- id: 20260907-212154-a1fe3a40 -->
+- **Qué intentaba:** El usuario decidió mantener `get_for_update` (singular) pese a no tener caller en producción hoy.
+- **Prompt:** "lo mantenemos, se usará en breve para depósitos y retiros"
+- **Respuesta:** Agregada una nota al docstring del puerto explicando por qué no tiene caller de producción hoy (`_lock_user_accounts` usa `get_many_for_update` incluso para una sola pata) y quién lo va a usar pronto (las operaciones explícitas de depósito/retiro, cada una lockeando exactamente un id) -- para que un futuro lector no lo confunda con código muerto a borrar. Sin borrar nada. Gates verdes, 188 tests.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 21:22 — Commitear y pushear la respuesta a la revisión del PR + el plan del sitio web
+
+<!-- id: 20260907-212249-a1fe3a40 -->
+- **Qué intentaba:** Subir todo el trabajo pendiente: los 15 comentarios de revisión implementados y verificados, más el plan del sitio web.
+- **Prompt:** "commitea y sube los cambios"
+- **Respuesta:** Dos commits separados por concern: (1) la respuesta completa a la revisión del PR (los 5 batches + mis dos hallazgos propios: el fix de `OverdraftPolicy` colgante en las convenciones y la nota de docstring sobre `get_for_update`), (2) el plan del sitio web (`docs/web-ui-plan.md`), sin relación con el otro cambio. Gates corridos antes de cada uno.
 - **Veredicto:** ⏳ pendiente

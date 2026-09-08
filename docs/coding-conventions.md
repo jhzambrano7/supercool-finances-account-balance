@@ -52,13 +52,15 @@ owned by the type is fixed once.
 | `AccountStatus` | `is_active()`, `is_closed()` | `status is AccountStatus.ACTIVE` |
 | `AccountType` | `is_user()`, `is_system()` | `account_type is AccountType.SYSTEM` |
 | `AccountPurpose` | `matches_type(account_type)` | `purpose.account_type is not account_type` |
-| `Account` | `is_active()`, `is_closable()` | reading `.status`/`.account_type` and combining externally |
+| `UserAccount` | `is_active()`, `is_closable()` | reading `.status`/`.account_type` and combining externally |
 
-`OverdraftPolicy.assert_allows(...)` (already in the codebase before this rule was named) is the
-sharper form of the same idea: instead of `Account` asking `overdraft_policy` what it permits and
-branching itself, `Account` tells the policy "assert you allow this" and the policy raises. Prefer
-that shape — *tell an object to enforce a rule and let it raise* — over a boolean the caller then
-branches on, whenever the object can name and raise the specific failure itself.
+**Update:** `OverdraftPolicy` — an enum `UserAccount`/`SystemAccount` used to ask "what do you permit"
+before branching on the answer — is gone. The `Account = UserAccount | SystemAccount` split
+(`docs/decision-log.md`, the ADT-split entries) made the question itself unaskable of a `SystemAccount`:
+it has no `debit()` to guard, because it has no balance to protect (T7). `UserAccount.debit()` now
+states its own rule inline (`if resulting.is_negative: raise InsufficientFundsError(...)`) rather than
+asking a shared policy object — the sharper form of *tell, don't ask* here was not "ask a smarter
+object", it was "make the question type-level, so only the type that has an answer can be asked".
 
 ### Where this rule does not apply
 
@@ -141,6 +143,16 @@ reconstituting a row the domain would refuse to *construct* fresh, e.g. a negati
 the mapping uses `reconstitute()` and never re-asserts an invariant the domain only enforces on the
 write path).
 
+### An adapter's file name carries the same technology prefix as its class
+
+**Rule:** `SqlAccountRepository` lives in `sql_account_repository.py`, not `account_repository.py`
+— the file name is the class name, lowercased with underscores, prefix included. The prefix is what
+lets a reader (or a directory listing) tell adapters for the same port apart before opening any of
+them; dropping it from the file while keeping it on the class means the two names disagree about
+what the file is. Applies uniformly across a directory once one adapter in it has set the pattern —
+a second, third or fourth adapter added later must match the first, not restart the naming from
+scratch.
+
 ### Log every exception the adapter catches; wrap only the ones you didn't expect
 
 **Rule:** `logger.exception(...)` fires unconditionally for every exception an adapter method catches
@@ -160,6 +172,21 @@ except IntegrityError as exc:
         raise AccountAlreadyExistsError(...) from exc  # recognized — its own typed error
     raise AccountRepositoryError(operation="add", cause=exc, metadata=...) from exc  # not — wrapped
 ```
+
+### Log before you raise — everywhere except the domain
+
+**Rule:** a raise in an adapter or a use case is preceded by a log line carrying the identifiers the
+raise itself cannot: which caller, which key, which account. Pick the level for the reader, not the
+raise — `logger.exception` where an exception is in hand, `warning` for a client's own mistake
+(a reused idempotency key with a different payload), `error` for a should-never-happen the service
+must be told about (an idempotency record naming a transfer that does not exist).
+
+**The domain layer is the exception, deliberately.** Domain types raise to *state a rule*, not to
+report an incident: `InsufficientFundsError` is the answer to a question the caller asked, and it is
+the caller — the use case — that knows whether that answer is routine (a client mistake, refused and
+returned as a `422`) or alarming. Giving the domain a logger would also hand it an infrastructure
+dependency it otherwise does not have, for no gain: the layer that catches is the layer that knows
+what the raise *means*.
 
 ### Where each error type lives is decided by its base class, not by which file raises it
 
@@ -188,6 +215,8 @@ recover a fact the raiser already had as a typed value.
 # Before — the caller gets a string, and has to parse it back into a fact
 class AccountAlreadyExistsError(Exception):
     """Raised when `add()` loses the natural-key race (AO4)."""
+
+
 # raised as: raise AccountAlreadyExistsError(f"account already exists for natural key (owner={owner_id}, ...)")
 ```
 
@@ -226,6 +255,7 @@ HTTP status code to know what happened.
 class OpenAccountResult:
     account: Account
     created: bool
+
     @property
     def http_status(self) -> int:
         return 201 if self.created else 200
@@ -237,6 +267,7 @@ class OpenAccountResult:
 class OpenAccountResult:
     account: Account
     created: bool
+
 
 # in the route:
 response.status_code = status.HTTP_201_CREATED if result.created else status.HTTP_200_OK
@@ -257,9 +288,8 @@ a business-rule violation over the request or the system's current state — the
 least the caller's to know about), not evidence the service itself is broken. Default that catch-all
 to `400 Bad Request`, not `500`. A specific error the endpoint already names explicitly (e.g. a
 resource-conflict error mapped to `409`) still takes priority over the catch-all; this only changes
-what an *unnamed* one defaults to. **Not yet applied everywhere**: `transfer`'s and `revert`'s routes
-(earlier PRs in this repo) still default to `500` for this same catch-all — reconcile the next time
-either is touched, rather than silently diverging further.
+what an *unnamed* one defaults to. **Not yet applied everywhere**: `revert`'s routes (a separate branch, not yet merged into this one)
+still default to `500` for this same catch-all — reconcile once that branch merges here.
 
 ### Applied so far
 
@@ -267,20 +297,28 @@ either is touched, rather than silently diverging further.
 | --- | --- | --- |
 | `AccountRepository` | collection-like (`find`/`get`/`add`), no `find_by_x` methods | `application/gateways/account_repository.py` |
 | `FindAccountCriteria` | extensible Criteria, one dataclass per lookup shape | `application/gateways/models/find_accounts_criteria.py` |
-| `AccountDbo` | DBO naming, `from_domain`/`as_domain` colocated + unit-tested | `adapters/outbound/repositories/sql/dbos/models.py` |
+| `AccountDbo` | DBO naming, `from_domain`/`as_domain` colocated + unit-tested | `adapters/outbound/repositories/sql/dbos/account_dbo.py` |
+| `AccountDbo` / `TransferDbo` / `EntryDbo` / `IdempotencyRecordDbo` | one module per DBO, file name = class name snake_cased; no barrel re-export in `dbos/__init__.py`, importers name the module they need | `adapters/outbound/repositories/sql/dbos/` |
+| `TransferRepositoryError` / `IdempotencyRepositoryError` | `IntegrationError` wrapper, logged unconditionally, wrapped only when unrecognized | `application/gateways/transfer_repository.py`, `application/gateways/idempotency_repository.py` |
 | `AccountRepositoryError` | `IntegrationError` wrapper, logged unconditionally, wrapped only when unrecognized | `adapters/outbound/repositories/sql/sql_account_repository.py` |
+| `SqlTransferRepository` / `SqlIdempotencyRepository` / `SqlTransferUnitOfWork` | file name carries the same `sql_` prefix as the class | `adapters/outbound/repositories/sql/sql_transfer_repository.py`, `sql_idempotency_repository.py`, `sql_unit_of_work.py` |
 | `AccountNotFoundError` / `AccountAlreadyExistsError` | structured body (see below), not a bare message string | `application/gateways/account_repository.py` |
 | `Base` (SQLAlchemy declarative) | one shared base, not one per module | `shared/adapters/outbound/repositories/sql/base.py` |
 | `AccountResponseDto` / `OpenAccountRequestDto` | DTO naming, `from_result` colocated + unit-tested | `adapters/inbound/api/dtos.py` |
+| `TransferRequestDto` / `TransferResponseDto` / `EntryResponseDto` | DTO naming, mapping colocated + unit-tested (`from_transfer` maps from the domain `Transfer`, not an application result — see the gap noted below) | `adapters/inbound/api/dtos.py` |
 | `OpenAccountResult` | no `http_status`, no HTTP concept at all — the route decides | `application/use_cases/account_register.py` |
 | `AccountRegister` | no `UseCase` suffix | `application/use_cases/account_register.py` |
+| `TransferMoney` | no `UseCase` suffix | `application/use_cases/transfer_money.py` |
 
-**Known gap, not yet reconciled:** `application/use_cases/transfer_money.py` and `revert_transfer.py`
-(the `transfer` and `revert` slices, later PRs in this repo's history) each define their own
-`AccountNotFoundError` — a plain `Exception` with a message-string constructor — predating this
-convention. Reconcile with the one described here (an `ApplicationError`, criteria-based) the next
-time either of those modules is touched; don't let two names for the same fact drift further apart in
-the meantime.
+**Known gap, not yet reconciled:** `revert_transfer.py` (the `revert` slice, a separate branch not yet
+merged into this one) defines its own `AccountNotFoundError` — a plain `Exception` with a
+message-string constructor — predating this convention. Reconcile with the one described here (an
+`ApplicationError`, criteria-based) once that branch merges here; don't let two names for the same
+fact drift further apart in the meantime.
+
+Also: `TransferResponseDto.from_transfer` maps from the domain `Transfer` directly, unlike
+`AccountResponseDto.from_result`, which maps from an application-layer result. Close this gap if
+`TransferMoney.execute` ever gains a dedicated result type — not something to fix now.
 
 ## When you touch a file and see a violation of a rule added later
 

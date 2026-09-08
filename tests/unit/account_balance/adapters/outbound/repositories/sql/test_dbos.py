@@ -5,12 +5,13 @@ coverage through an integration test hitting a real database).
 
 from uuid import uuid4
 
-from modules.account_balance.adapters.outbound.repositories.sql.dbos.models import AccountDbo
+from modules.account_balance.adapters.outbound.repositories.sql.dbos.account_dbo import AccountDbo
 from modules.account_balance.domain.account import (
-    Account,
     AccountPurpose,
     AccountStatus,
     AccountType,
+    SystemAccount,
+    UserAccount,
 )
 from modules.account_balance.domain.identifiers import AccountId, OwnerId
 from modules.shared.domain.money import Currency, Money
@@ -19,10 +20,9 @@ USD = Currency("USD")
 
 
 def test_from_domain_then_as_domain_round_trips_a_freshly_opened_account() -> None:
-    account = Account.open(
+    account = UserAccount.open(
         account_id=AccountId(uuid4()),
         owner_id=OwnerId(uuid4()),
-        account_type=AccountType.USER,
         purpose=AccountPurpose.CHECKING,
         currency=USD,
     )
@@ -40,9 +40,10 @@ def test_from_domain_then_as_domain_round_trips_a_freshly_opened_account() -> No
 
     reconstituted = dbo.as_domain()
 
-    # Not `reconstituted == account`: Account.__eq__ is identity-based
+    # Not `reconstituted == account`: UserAccount.__eq__ is identity-based
     # (compares account_id only, by domain design) and would pass even if
     # as_domain() mismapped purpose, currency, balance or status.
+    assert isinstance(reconstituted, UserAccount)
     assert reconstituted.account_id == account.account_id
     assert reconstituted.owner_id == account.owner_id
     assert reconstituted.account_type == account.account_type
@@ -73,7 +74,38 @@ def test_as_domain_reconstitutes_a_non_zero_balance_without_re_asserting_it() ->
 
     account = dbo.as_domain()
 
+    assert isinstance(account, UserAccount)
     assert account.account_id == account_id
     assert account.owner_id == owner_id
     assert account.balance == Money(-8000, USD)
     assert account.version == 3
+
+
+def test_as_domain_builds_a_system_account_that_carries_no_balance() -> None:
+    """T7: a `SYSTEM` row's `balance_amount`/`status`/`version` columns are read by nothing --
+    `SystemAccount` has none of the three. The columns stay populated (seeded, forever-zero)
+    rather than nullable, so this asserts they are *ignored*, not that they are absent."""
+    account_id = AccountId(uuid4())
+    owner_id = OwnerId(uuid4())
+    dbo = AccountDbo(
+        account_id=account_id.value,
+        owner_id=owner_id.value,
+        account_type=AccountType.SYSTEM.value,
+        purpose=AccountPurpose.FUNDING.value,
+        currency="USD",
+        # Deliberately non-zero: if `as_domain()` ever grew a balance back,
+        # this value is what would leak through, so the assertion below is a
+        # real regression guard rather than a tautology against zero.
+        balance_amount=-300,
+        status=AccountStatus.ACTIVE.value,
+        version=0,
+    )
+
+    account = dbo.as_domain()
+
+    assert isinstance(account, SystemAccount)
+    assert account.account_id == account_id
+    assert account.owner_id == owner_id
+    assert account.purpose is AccountPurpose.FUNDING
+    assert account.currency == USD
+    assert not hasattr(account, "balance")

@@ -4,7 +4,7 @@ from modules.account_balance.application.gateways.account_repository import Acco
 from modules.account_balance.application.gateways.models.find_accounts_criteria import (
     FindAccountByOwnerAndPurposeAndCurrency,
 )
-from modules.account_balance.domain.account import Account, AccountPurpose, AccountType
+from modules.account_balance.domain.account import Account, AccountPurpose, UserAccount
 from modules.account_balance.domain.identifiers import AccountId, OwnerId
 from modules.shared.application.services.id_generator import IdGenerator
 from modules.shared.domain.money import Currency
@@ -44,13 +44,12 @@ class AccountRegister:
         if existing is not None:
             return OpenAccountResult(account=existing, created=False)
 
-        # Account.open() validates the (account_type, purpose) pair and
-        # raises InvalidAccountPurposeError before any persistence is
-        # attempted — no account is ever half-opened.
-        account = Account.open(
+        # UserAccount.open() validates the purpose and raises
+        # InvalidAccountPurposeError before any persistence is attempted —
+        # no account is ever half-opened.
+        account = UserAccount.open(
             account_id=AccountId(self._id_generator.next_id()),
             owner_id=owner_id,
-            account_type=AccountType.USER,
             purpose=purpose,
             currency=currency,
         )

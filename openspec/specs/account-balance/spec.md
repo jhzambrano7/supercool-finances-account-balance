@@ -15,17 +15,25 @@ revision that this spec already reflects as current truth).
 **Implemented today:** `Money`, `Currency` (`src/modules/shared/domain/money.py`) and the base
 domain errors `DomainError`, `InvalidCurrencyError`, `InvalidAmountError`, `CurrencyMismatchError`
 (`src/modules/shared/domain/errors.py`). Everything else in this document — `Account`, `Transfer`,
-`Entry`, and every error and requirement below that is not one of those four names — is **specified,
-not built**.
+`Entry`, and every error and requirement below that is not one of those four names — was **specified,
+not built** when this line was written; the `account-opening` and `transfer` slices have since built
+most of it (see their own specs).
+
+**Specified, not yet built:** the closed `Currency` enum below. `Currency` ships today as a
+shape-only ISO 4217 validator; narrowing it to `USD`/`MXN`/`COP` — and seeding the matching
+`FUNDING`/`SETTLEMENT` accounts each supported currency needs — is decided and pending, not done.
 
 ## Domain Types
 
 | Type | Kind | Responsibility |
 | --- | --- | --- |
-| `Account` | Aggregate root, mutable | identity, owner, type, purpose, currency, balance, status, version |
+| `Account` | `UserAccount \| SystemAccount` — a closed union, not one class | the two kinds do not share a shape: only a `UserAccount` has `balance`, `status` and `version`. See below |
+| `UserAccount` | Aggregate root, immutable (every change returns a new instance) | identity, owner, purpose, currency, balance, status, version |
+| `SystemAccount` | Aggregate root, immutable | identity, owner, purpose, currency — **no balance**, no status (always operable), no version (never persisted). See `openspec/specs/transfer/spec.md`, "A `SYSTEM` Account Has No Balance At All" |
 | `Transfer` | Aggregate root, frozen | source, destination, amount, idempotency key, requester, owns its `Entry` legs |
 | `Entry` | Entity inside `Transfer` | one leg: account, direction, positive amount, timestamp |
 | `AccountId`, `TransferId`, `EntryId`, `OwnerId` | Value objects over `UUID` | typed identity; not interchangeable |
+| `Currency` | Enum: `USD`, `MXN`, `COP` | the closed set of currencies the platform supports — see its requirement below; widening it also requires seeding `FUNDING`/`SETTLEMENT` accounts in the new currency |
 | `AccountType` | Enum: `USER`, `SYSTEM` | drives the overdraft policy |
 | `AccountPurpose` | Enum: `CHECKING`, `SAVINGS`, `FUNDING`, `SETTLEMENT` | what the account is *for*; paired with `AccountType` |
 | `AccountStatus` | Enum: `ACTIVE`, `CLOSED` | operability gate |
@@ -91,6 +99,66 @@ ordering, locking itself is out of scope.)*
 - GIVEN two distinct `AccountId` values
 - WHEN they are compared
 - THEN exactly one of `<` or `>` holds, consistently on repeated comparison
+
+---
+
+### Currency
+
+#### Requirement: The Supported Currencies Are a Closed Set, Enumerated in the Domain
+
+`Currency` MUST be an enum over exactly `USD`, `MXN`, `COP`. It MUST NOT accept an arbitrary
+three-letter code that merely satisfies the ISO 4217 *shape*: a code outside the enum MUST be
+rejected with `InvalidCurrencyError`, wherever it enters (an account being opened, an amount being
+posted), not deferred to a later failure.
+
+*(Supersedes the original shape-only validation. That rule accepted `EUR`, `GBP` — and `ZZZ` — as
+equally valid, which let `POST /accounts` mint an account in a currency the platform holds no
+`FUNDING`/`SETTLEMENT` account for: opening it returned `201`, and every deposit into it afterwards
+returned `422 CurrencyMismatchError`, permanently. Reproduced against the running service before this
+decision was taken. The PRD carries the same gap in prose — §4.4 offers "checking in EUR" as an
+example while stating the platform "holds exactly one USD funding account".)*
+
+**Adding a currency is deliberately two coordinated steps, never one.** A new member in this enum is
+necessary but not sufficient: the platform MUST also hold a `FUNDING` and a `SETTLEMENT` account
+denominated in that currency before any account can be opened in it, because a deposit is
+`FUNDING → USER` and a withdrawal is `USER → SETTLEMENT`, and I4 requires both legs to agree on
+currency. Coupling the two is the point — it makes "supported currency" an operational fact (the
+platform can actually fund and settle it) rather than a validation string, and makes the omission
+that caused this decision impossible to repeat: you cannot widen the enum without being confronted
+with the accounts the new member requires.
+
+**This is not the multi-currency deferral of PRD §3.** That defers *cross-currency* movement (FX,
+conversion, a rate gateway) and remains deferred; I4 still rejects a transfer whose legs disagree.
+This requirement is about *coexistence without conversion* — a `COP` account funded from a `COP`
+funding account, never crossing into another currency — which the model already committed to on the
+customer side, since `(owner, purpose, currency)` is the natural key and currency is therefore part
+of an account's identity (§4.4). Only the platform side had not followed.
+
+**Considered and deferred: keep `Currency` open, and register `SYSTEM` accounts through an admin
+API.** The enum's whole job is to force a deliberate act before a currency becomes usable. An admin
+endpoint that registers a currency's `FUNDING`/`SETTLEMENT` accounts would enforce the same thing
+more directly — and better: the *existence of those accounts* becomes the single source of truth for
+"supported", collapsing today's two coordinated steps into one and removing the enum as a second
+place the same fact is written. Adding a currency would become an operation, not a deploy. It is
+deferred, not rejected, for one reason that has nothing to do with currency: this service has no
+administrative surface at all. PRD §9.1's entire authentication mechanism is a simulated
+`X-Caller-Id` header for customers; an endpoint that mints platform-owned `SYSTEM` accounts needs a
+real privilege boundary, which is a larger and separate piece of work than the gap this requirement
+closes. Until that surface exists, the enum is the cheap version of the same invariant. When it does,
+the enum should dissolve into the query it was standing in for — "the currencies the platform holds
+`FUNDING` and `SETTLEMENT` accounts in" — rather than being maintained alongside it.
+
+##### Scenario: A code outside the enum is rejected
+
+- GIVEN the code `EUR`, a well-formed ISO 4217 alphabetic code outside the supported set
+- WHEN a `Currency` is constructed from it
+- THEN `InvalidCurrencyError` is raised
+
+##### Scenario: Each supported currency is independently usable end to end
+
+- GIVEN the platform holds `FUNDING` and `SETTLEMENT` accounts in `MXN`
+- WHEN an account is opened in `MXN` and a deposit is made into it
+- THEN both succeed, and no leg of the resulting `Transfer` is denominated in any other currency
 
 ---
 

@@ -5,6 +5,7 @@ from modules.shared.adapters.outbound.repositories.sql.engine import (
     create_engine,
     create_session_factory,
 )
+from modules.shared.application.services.clock import Clock
 from modules.shared.application.services.id_generator import IdGenerator
 
 
@@ -16,6 +17,7 @@ class SharedDependencies(containers.DeclarativeContainer):
     """
 
     id_generator = providers.Singleton(IdGenerator)
+    clock = providers.Singleton(Clock)
     settings = providers.Singleton(Settings)
     engine = providers.Singleton(create_engine, settings=settings)
     session_factory = providers.Singleton(create_session_factory, engine=engine)

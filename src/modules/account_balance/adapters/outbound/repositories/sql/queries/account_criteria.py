@@ -1,6 +1,6 @@
 from sqlalchemy import Select, select
 
-from modules.account_balance.adapters.outbound.repositories.sql.dbos.models import AccountDbo
+from modules.account_balance.adapters.outbound.repositories.sql.dbos.account_dbo import AccountDbo
 from modules.account_balance.application.gateways.models.find_accounts_criteria import (
     FindAccountByAccountId,
     FindAccountByOwnerAndPurposeAndCurrency,

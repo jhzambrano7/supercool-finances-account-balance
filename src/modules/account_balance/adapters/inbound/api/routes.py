@@ -12,6 +12,7 @@ from modules.account_balance.application.gateways.account_repository import (
 from modules.account_balance.application.use_cases.account_register import AccountRegister
 from modules.account_balance.domain.errors import InvalidAccountPurposeError
 from modules.account_balance.domain.identifiers import OwnerId
+from modules.shared.application.errors import ApplicationError
 from modules.shared.domain.errors import DomainError, InvalidCurrencyError
 from modules.shared.domain.money import Currency
 
@@ -50,6 +51,8 @@ async def open_account(
         # already tries first, so this is reported, not recovered here.
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except DomainError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ApplicationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     # AO3: 201 on first open, 200 when the natural key already existed. This

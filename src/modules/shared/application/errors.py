@@ -8,7 +8,9 @@ class ApplicationError(Exception, ABC):
     Application errors are not validation errors. A validation error says the
     caller sent something malformed; an application error says the operation
     would have violated an invariant of the business, and would have been wrong
-    even if every field parsed perfectly.
+    even if every field parsed perfectly. `ABC` here signals intent -- this is
+    always subclassed for a concrete rule -- it is not runtime-enforced, since
+    no method is declared `@abstractmethod`.
     """
 
 

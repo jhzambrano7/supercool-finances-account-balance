@@ -1,36 +1,12 @@
 """Integration test for `POST /accounts` against a real PostgreSQL."""
 
 import asyncio
-from collections.abc import AsyncIterator, Iterator
 from uuid import uuid4
 
 import pytest
-from dependency_injector import providers
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient, Response
+from httpx import AsyncClient, Response
 
-from modules.shared.adapters.config.dependencies import SharedDependencies
-from modules.shared.adapters.config.settings import Settings
-from modules.shared.adapters.inbound.api.app import create_app
-
-pytestmark = pytest.mark.integration
-
-
-@pytest.fixture
-def app(postgres_url: str) -> Iterator[FastAPI]:
-    application = create_app()
-    # Settings/engine/session_factory are process-wide (SharedDependencies),
-    # not owned by AccountBalanceContainer — overridden at their real source.
-    SharedDependencies.settings.override(providers.Object(Settings(database_url=postgres_url)))
-    yield application
-    SharedDependencies.settings.reset_override()
-
-
-@pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
 
 async def test_first_open_returns_201_created(client: AsyncClient) -> None:

@@ -14,6 +14,9 @@ import pytest
 import pytest_asyncio
 from alembic import command
 from alembic.config import Config
+from dependency_injector import providers
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -22,6 +25,10 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from testcontainers.community.postgres import PostgresContainer
+
+from modules.shared.adapters.config.dependencies import SharedDependencies
+from modules.shared.adapters.config.settings import Settings
+from modules.shared.adapters.inbound.api.app import create_app
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -55,8 +62,39 @@ async def session_factory(engine: AsyncEngine) -> Callable[[], AsyncSession]:
     return async_sessionmaker(bind=engine, expire_on_commit=False)
 
 
+@pytest.fixture(scope="session")
+def app(postgres_url: str) -> Iterator[FastAPI]:
+    """One `FastAPI` app, one wired `AccountBalanceContainer`, for the whole session -- not one per
+    test. `create_app()`/`.wire()` mutate process-global state
+    (`dependency_injector.wiring`); building a second app per test would silently repoint every
+    previously-built app's routes at the newest container (see decision-log.md, the `wire()`
+    finding). `postgres_url` is itself session-scoped already, so overriding `settings` once here
+    loses nothing a per-test override was actually giving us."""
+    application = create_app()
+    # Settings/engine/session_factory are process-wide (SharedDependencies),
+    # not owned by AccountBalanceContainer — overridden at their real source.
+    SharedDependencies.settings.override(providers.Object(Settings(database_url=postgres_url)))
+    yield application
+    SharedDependencies.settings.reset_override()
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+
 @pytest_asyncio.fixture(autouse=True)
-async def _clean_accounts_table(engine: AsyncEngine) -> AsyncIterator[None]:
+async def _clean_tables(engine: AsyncEngine) -> AsyncIterator[None]:
+    """Isolates every test from the next -- but not from the migration's own seed data (T8's two
+    SYSTEM accounts, transfer/spec.md): those are seeded once, at container startup, not per
+    test, so a blind `TRUNCATE ... accounts` would delete them after the first test that runs and
+    leave every later test unable to deposit or withdraw. `entries`/`transfers`/
+    `idempotency_records` are truncated first (nothing but a SYSTEM account's own zero-forever
+    `balance_amount` depends on them), then every `USER` account is removed -- by that point
+    nothing still references it."""
     yield
     async with engine.begin() as connection:
-        await connection.execute(text("TRUNCATE TABLE accounts"))
+        await connection.execute(text("TRUNCATE TABLE entries, idempotency_records, transfers"))
+        await connection.execute(text("DELETE FROM accounts WHERE account_type <> 'SYSTEM'"))

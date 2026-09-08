@@ -1,0 +1,85 @@
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
+
+from modules.account_balance.domain.identifiers import IdempotencyKey, OwnerId, TransferId
+from modules.shared.application.errors import IntegrationError, ResourceAlreadyExistsError
+
+
+class IdempotencyRecordConflictError(ResourceAlreadyExistsError):
+    """Raised by an adapter when `add()` loses the idempotency race (T5).
+
+    Mirrors `AccountAlreadyExistsError` (AO4): whether `(caller_id,
+    idempotency_key)` is already taken is a fact about *other rows*, the
+    same kind of question the account-balance domain spec says no single
+    aggregate can answer. This is a persistence-adapter concern, raised by
+    whichever `IdempotencyRepository` implementation backs a real database.
+    """
+
+    def __init__(self, *, caller_id: OwnerId, idempotency_key: IdempotencyKey) -> None:
+        self.caller_id = caller_id
+        self.idempotency_key = idempotency_key
+        super().__init__(
+            resource_type="idempotency_record",
+            resource_identifier=f"(caller={caller_id}, key={idempotency_key})",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class IdempotencyRecord:
+    """The durable row PRD §6.1 describes -- a persistence row, not a domain
+    type (it carries no invariant of its own; `TransferMoney` is what
+    gives its fields meaning).
+
+    Deliberately does not carry a response body (PRD §6.1): a replay
+    reconstructs its result from `TransferRepository.get(transfer_id)`
+    instead, the same read path any other query would use.
+
+    It carries no `status` either. A failed attempt never leaves a row
+    behind: the insert happens inside the same transaction as the transfer,
+    so a rollback releases the key. Every record that exists to be read is
+    therefore a completed one, and a column saying so could only ever hold
+    one value.
+    """
+
+    caller_id: OwnerId
+    idempotency_key: IdempotencyKey
+    request_hash: str
+    transfer_id: TransferId
+    created_at: datetime
+
+
+class IdempotencyRepositoryError(IntegrationError):
+    """An unrecognized failure crossed this port's boundary (point 4 of the
+    adapter conventions: no third-party exception leaks past a repository).
+
+    The sibling of `AccountRepositoryError`, same shape and same reason.
+    """
+
+    def __init__(self, operation: str, cause: Exception, metadata: dict[str, Any]) -> None:
+        super().__init__(
+            code=f"IDEMPOTENCY_REPOSITORY_ERROR.{operation}",
+            cause=cause,
+            message=f"An error occurred while performing the {operation} operation",
+            metadata=metadata,
+        )
+
+
+class IdempotencyRepository(ABC):
+    """Port for the durable idempotency row (T3, T9's second sibling port)."""
+
+    @abstractmethod
+    async def find_by_key(
+        self, *, caller_id: OwnerId, idempotency_key: IdempotencyKey
+    ) -> IdempotencyRecord | None:
+        """Returns the record for this caller and key, or `None` if none exists yet."""
+
+    @abstractmethod
+    async def add(self, record: IdempotencyRecord) -> None:
+        """Persists a new idempotency record.
+
+        Raises `IdempotencyRecordConflictError` if `(caller_id,
+        idempotency_key)` already exists -- the losing side of the T5 race.
+        Does not commit -- see `TransferRepository.add`.
+        """

@@ -7,11 +7,15 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-# Imported for its side effect: importing a module registers its DBO
-# classes on `Base.metadata` (SQLAlchemy declarative registration happens at
-# class-definition time). Every module's DBOs must be imported somewhere
-# reachable from here, or autogenerate silently won't see their tables.
-import modules.account_balance.adapters.outbound.repositories.sql.dbos.models  # noqa: F401
+# Imported for their side effect: importing a module registers its DBO class
+# on `Base.metadata` (SQLAlchemy declarative registration happens at
+# class-definition time). Every DBO module must be listed here -- one per
+# DBO, so a new one is a new line -- or autogenerate silently won't see its
+# table.
+import modules.account_balance.adapters.outbound.repositories.sql.dbos.account_dbo
+import modules.account_balance.adapters.outbound.repositories.sql.dbos.entry_dbo
+import modules.account_balance.adapters.outbound.repositories.sql.dbos.idempotency_record_dbo
+import modules.account_balance.adapters.outbound.repositories.sql.dbos.transfer_dbo  # noqa: F401
 from modules.shared.adapters.outbound.repositories.sql.base import Base
 
 # this is the Alembic Config object, which provides

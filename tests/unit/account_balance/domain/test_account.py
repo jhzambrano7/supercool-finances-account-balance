@@ -4,14 +4,14 @@ from uuid import uuid4
 import pytest
 
 from modules.account_balance.domain.account import (
-    Account,
     AccountPurpose,
     AccountStatus,
     AccountType,
+    SystemAccount,
+    UserAccount,
 )
 from modules.account_balance.domain.entry import Entry, EntryDirection
 from modules.account_balance.domain.errors import (
-    AccountNotClosableError,
     AccountNotEmptyError,
     AccountNotOperableError,
     AccountOwnershipError,
@@ -35,22 +35,11 @@ def _owner_id() -> OwnerId:
     return OwnerId(uuid4())
 
 
-def _open_user_account(*, account_id: AccountId | None = None) -> Account:
-    return Account.open(
+def _open_user_account(*, account_id: AccountId | None = None) -> UserAccount:
+    return UserAccount.open(
         account_id=account_id or _account_id(),
         owner_id=_owner_id(),
-        account_type=AccountType.USER,
         purpose=AccountPurpose.CHECKING,
-        currency=USD,
-    )
-
-
-def _open_system_account(*, account_id: AccountId | None = None) -> Account:
-    return Account.open(
-        account_id=account_id or _account_id(),
-        owner_id=_owner_id(),
-        account_type=AccountType.SYSTEM,
-        purpose=AccountPurpose.FUNDING,
         currency=USD,
     )
 
@@ -73,10 +62,9 @@ def _entry(
 
 class TestOpen:
     def test_valid_pair_opens_at_zero_balance_and_active(self) -> None:
-        account = Account.open(
+        account = UserAccount.open(
             account_id=_account_id(),
             owner_id=_owner_id(),
-            account_type=AccountType.USER,
             purpose=AccountPurpose.CHECKING,
             currency=USD,
         )
@@ -85,31 +73,20 @@ class TestOpen:
         assert account.status is AccountStatus.ACTIVE
 
     def test_invalid_pair_is_rejected(self) -> None:
-        """USER cannot pair with FUNDING — FUNDING belongs to SYSTEM (PRD §4.4)."""
+        """FUNDING cannot pair with a USER account — FUNDING belongs to SYSTEM (PRD §4.4)."""
         with pytest.raises(InvalidAccountPurposeError):
-            Account.open(
+            UserAccount.open(
                 account_id=_account_id(),
                 owner_id=_owner_id(),
-                account_type=AccountType.USER,
                 purpose=AccountPurpose.FUNDING,
                 currency=USD,
             )
 
-    @pytest.mark.parametrize(
-        ("account_type", "purpose"),
-        [
-            (AccountType.USER, AccountPurpose.CHECKING),
-            (AccountType.SYSTEM, AccountPurpose.FUNDING),
-        ],
-    )
-    def test_opening_never_accepts_a_starting_balance(
-        self, account_type: AccountType, purpose: AccountPurpose
-    ) -> None:
-        account = Account.open(
+    def test_opening_never_accepts_a_starting_balance(self) -> None:
+        account = UserAccount.open(
             account_id=_account_id(),
             owner_id=_owner_id(),
-            account_type=account_type,
-            purpose=purpose,
+            purpose=AccountPurpose.CHECKING,
             currency=USD,
         )
 
@@ -119,10 +96,9 @@ class TestOpen:
 
 class TestReconstitute:
     def test_restores_a_non_zero_account_without_going_through_open(self) -> None:
-        account = Account.reconstitute(
+        account = UserAccount.reconstitute(
             account_id=_account_id(),
             owner_id=_owner_id(),
-            account_type=AccountType.USER,
             purpose=AccountPurpose.CHECKING,
             currency=USD,
             balance=Money(500, USD),
@@ -134,15 +110,12 @@ class TestReconstitute:
         assert account.version == 7
 
     def test_accepts_a_negative_user_balance_and_closed_status(self) -> None:
-        """design §4.1: a reversal legitimately leaves a USER balance negative
-
-        (PRD §7.3) — reconstitute must not re-assert non-negative, or the
-        debt would be unrecoverable from storage.
-        """
-        account = Account.reconstitute(
+        """design §4.1: a reversal legitimately leaves a USER balance negative (PRD §7.3) —
+        reconstitute must not re-assert non-negative, or the debt would be unrecoverable from
+        storage."""
+        account = UserAccount.reconstitute(
             account_id=_account_id(),
             owner_id=_owner_id(),
-            account_type=AccountType.USER,
             purpose=AccountPurpose.CHECKING,
             currency=USD,
             balance=Money(-80, USD),
@@ -193,19 +166,6 @@ class TestDebit:
 
         assert debited.balance == Money.zero(USD)
 
-    def test_system_debit_has_no_floor(self) -> None:
-        account = _open_system_account()
-
-        debited = account.debit(
-            _entry(
-                account_id=account.account_id,
-                direction=EntryDirection.DEBIT,
-                amount=Money(1_000, USD),
-            )
-        )
-
-        assert debited.balance == Money(-1_000, USD)
-
     def test_entry_for_a_different_account_raises_entry_account_mismatch(self) -> None:
         account = _open_user_account()
         with pytest.raises(EntryAccountMismatchError):
@@ -250,9 +210,8 @@ class TestDebit:
 
 
 class TestCredit:
-    @pytest.mark.parametrize("open_account", [_open_user_account, _open_system_account])
-    def test_credit_increases_any_accounts_balance(self, open_account: object) -> None:
-        account = open_account()  # type: ignore[operator]
+    def test_credit_increases_the_balance(self) -> None:
+        account = _open_user_account()
 
         credited = account.credit(
             _entry(
@@ -366,14 +325,11 @@ class TestDebitForReversal:
 
 
 class TestCurrencyAgreement:
-    """design §4.2: "there is no second currency check" -- I4 at the
-
-    `Account` level falls out of `Money.__add__` itself, not a dedicated
-    guard. That was implemented but untested on the public API
-    (verify-report WARNING-1): nothing would have caught a regression that
-    reordered `_validated_balance` to check something else first and skip
-    past this. One test per public balance-moving method closes it.
-    """
+    """design §4.2: "there is no second currency check" -- I4 at the `Account` level falls out of
+    `Money.__add__` itself, not a dedicated guard. That was implemented but untested on the
+    public API (verify-report WARNING-1): nothing would have caught a regression that reordered
+    `_validated_balance` to check something else first and skip past this. One test per public
+    balance-moving method closes it."""
 
     def test_debit_with_a_mismatched_currency_entry_raises_currency_mismatch(self) -> None:
         account = _open_user_account()  # USD
@@ -414,10 +370,9 @@ class TestCurrencyAgreement:
 class TestOperability:
     def test_a_closed_account_refuses_a_debit(self) -> None:
         account = _open_user_account()
-        closed = Account.reconstitute(
+        closed = UserAccount.reconstitute(
             account_id=account.account_id,
             owner_id=account.owner_id,
-            account_type=account.account_type,
             purpose=account.purpose,
             currency=account.currency,
             balance=Money.zero(USD),
@@ -436,10 +391,9 @@ class TestOperability:
 
     def test_a_closed_account_refuses_a_credit(self) -> None:
         account = _open_user_account()
-        closed = Account.reconstitute(
+        closed = UserAccount.reconstitute(
             account_id=account.account_id,
             owner_id=account.owner_id,
-            account_type=account.account_type,
             purpose=account.purpose,
             currency=account.currency,
             balance=Money.zero(USD),
@@ -490,17 +444,26 @@ class TestClose:
             account.close()
         assert account.status is AccountStatus.ACTIVE
 
-    def test_system_accounts_cannot_be_closed(self) -> None:
-        """The spec states only "the closure is rejected"; design §4.5 and the
+    def test_system_accounts_have_no_balance_bearing_operations(self) -> None:
+        """The ADT split states as types what used to be runtime refusals or dead computation.
 
-        spec's own error table both name AccountNotClosableError for this
-        case, so asserting the concrete type confirms spec and design agree
-        rather than inventing a new rule.
+        `close()`/`is_closable()`: previously an `AccountNotClosableError` raised at runtime for a
+        `SYSTEM` account (design §4.5) -- now there is nothing to call. `balance`, `credit()`,
+        `debit()`, `debit_for_reversal()`, `status`, `version`: a `SYSTEM` account has no balance
+        anywhere (T7), so it has no state for any of them to advance. Both facts are checked here
+        rather than through a raise, because the point is that the calls no longer type-check.
         """
-        account = _open_system_account()
-
-        with pytest.raises(AccountNotClosableError):
-            account.close()
+        for absent in (
+            "close",
+            "is_closable",
+            "balance",
+            "credit",
+            "debit",
+            "debit_for_reversal",
+            "status",
+            "version",
+        ):
+            assert not hasattr(SystemAccount, absent), f"SystemAccount should not define {absent}"
 
     def test_returns_a_new_account_and_leaves_the_receiver_untouched(self) -> None:
         account = _open_user_account()
@@ -513,11 +476,8 @@ class TestClose:
 
 
 class TestTellDontAsk:
-    """The enums and Account answer questions about their own state (docs/
-
-    coding-conventions.md) instead of exposing raw values for callers to
-    branch on themselves.
-    """
+    """The enums and Account answer questions about their own state (docs/ coding-conventions.md)
+    instead of exposing raw values for callers to branch on themselves."""
 
     def test_account_status_knows_whether_it_is_active(self) -> None:
         assert AccountStatus.ACTIVE.is_active()
@@ -547,5 +507,4 @@ class TestTellDontAsk:
 
     def test_account_knows_whether_it_is_closable(self) -> None:
         assert _open_user_account().is_closable()
-        assert not _open_system_account().is_closable()
         assert not _open_user_account().close().is_closable()

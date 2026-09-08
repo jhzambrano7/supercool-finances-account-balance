@@ -29,8 +29,9 @@ The design is written down; the implementation is partial. This section says whe
 | Id generation (UUIDv7) | **Built** |
 | Toolchain: Python 3.14 + uv, ruff, mypy strict, pre-commit, commit-msg gate | **Built and enforcing** |
 | `Account`, `Transfer`, `Entry` aggregates | **Built** — see `openspec/specs/account-balance/spec.md` |
-| Account opening: `OpenAccountUseCase`, `POST /accounts`, `SqlAccountRepository`, the `accounts` migration | **Built** — see `openspec/specs/account-opening/spec.md`. Unit tests (fake repository) and integration tests (real PostgreSQL via `testcontainers`) both pass locally |
-| Transfers, deposits, withdrawals, reversal, close account | **Designed, not written** — future slices on top of the same domain |
+| Account opening: `AccountRegister`, `POST /accounts`, `SqlAccountRepository`, the `accounts` migration | **Built** — see `openspec/specs/account-opening/spec.md`. Unit tests (fake repository) and integration tests (real PostgreSQL via `testcontainers`) both pass locally |
+| Transfers, deposits, withdrawals: `TransferMoney`, `POST /transfers`, `SqlTransferRepository`/`SqlIdempotencyRepository`, the transfer migration | **Built** — see `openspec/specs/transfer/spec.md`. Unit tests and integration tests (real PostgreSQL, including concurrent-locking tests) both pass locally |
+| Reversal, close account | **Designed, not written** — a separate, not-yet-merged branch |
 | Containers for the service itself, IaC | **Planned** — approach described [below](#running-it-and-deploying-it), not yet committed. `docker-compose.yml` (PostgreSQL only) is built |
 
 ---
@@ -177,12 +178,13 @@ money is right, so the signals below are the ones specific to this service
 
 ## Running it, and deploying it
 
-> Not yet committed — the implementation has not reached the point where these are real. Described
-> here because the approach is a decision, and decisions belong in this document.
+> The cloud/IaC parts below are the decision, not yet committed as actual infrastructure — described
+> here because decisions belong in this document. Locally, PostgreSQL and the migrations are real.
 
-**Locally.** `docker compose up` for PostgreSQL plus the service, so a reviewer needs Docker and
-nothing else. Migrations run with Alembic on startup. Integration tests use `testcontainers`, so they
-provision their own PostgreSQL and no developer has to remember to start one.
+**Locally.** `docker compose up` for PostgreSQL (the service itself has no container yet — see the
+status table above). Migrations run with Alembic (`alembic upgrade head`, or automatically at the
+start of the integration test suite). Integration tests use `testcontainers`, so they provision their
+own PostgreSQL and no developer has to remember to start one.
 
 **In the cloud.** The service is stateless; all state is in PostgreSQL. That makes it a container on
 ECS Fargate (or EKS) behind an ALB, with RDS PostgreSQL Multi-AZ, secrets in Secrets Manager, and
@@ -205,10 +207,11 @@ deployment model is understood, not to ship a platform.
 | --- | --- |
 | Python 3.14 | Latest stable; dependency resolution verified against it before committing |
 | uv | One tool for interpreter, virtualenv and dependencies, and it pins Python *in the project*, so the version is reproducible across laptop, container and CI |
-| PostgreSQL (planned) | `SELECT ... FOR UPDATE` is the concurrency mechanism the design rests on |
-| SQLAlchemy + Alembic (planned) | Declared as dependencies; no models or migrations written yet |
+| PostgreSQL | `SELECT ... FOR UPDATE` is the concurrency mechanism the design rests on |
+| SQLAlchemy + Alembic | Async ORM plus migrations; two revisions built (`accounts`, then the transfer tables) |
+| dependency-injector | One process-wide `SharedDependencies` container (settings/engine/session factory/clock/id generator) composed into each module's own container, rather than one connection pool per module |
 | ruff + mypy strict | Enforced in pre-commit, not suggested |
-| pytest | Domain tested with no infrastructure. `testcontainers` is a declared dependency for the persistence and locking tests, which are not written yet |
+| pytest | Domain tested with no infrastructure; `testcontainers` provisions a real PostgreSQL for the persistence and locking tests |
 
 ### Getting started
 
@@ -248,8 +251,8 @@ the proposed fix was not.
 
 ## What is not done, stated plainly
 
-- `Account`, `Transfer` and `Entry` are specified but not implemented.
-- No HTTP API, no persistence, no migrations, no containers, no IaC yet.
+- Reversal and closing an account are specified but not merged into this branch yet.
+- No container for the service itself, no IaC yet.
 - The concurrency design is argued but not yet demonstrated under parallel load — and until it is, it
   is a claim. The success criteria in `docs/prd.md` §10 require that demonstration, not an assertion
   in a unit test.
