@@ -83,7 +83,7 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
     )
 
     # Stateless (a fixed-constant comparison, R1) -- a Singleton, same reasoning as `logger`.
-    authorization_gateway = providers.Singleton(FixedAdminAuthorizationGateway)
+    authorization_gateway = providers.Singleton(FixedAdminAuthorizationGateway, logger=logger)
 
     # Shares `transfer_unit_of_work`'s provider (R3: same unit of work, same
     # three repositories, same idempotency mechanism as `transfer` -- no
