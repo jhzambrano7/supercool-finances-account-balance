@@ -1239,3 +1239,10 @@ Formato de cada entrada:
 - **Prompt:** "Procede con el cierre de cuentas, desde la web flujo completo con sus respectivas pruebas"
 - **Respuesta:** Antes de delegar, resolví la decisión de arquitectura real: cerrar una cuenta necesita lock (evitar carrera con un depósito concurrente que viole el balance-cero), pero `SqlAccountRepository.get_for_update()`+`.update()` sueltos abrirían dos transacciones independientes y soltarían el lock antes de tiempo -- no se puede reusar `TransferUnitOfWork` (arrastra transfers/idempotency que no corresponden). Diseñé un `AccountUnitOfWork` nuevo y chico, extrayendo `_KeptOpenSession` a un módulo compartido en vez de duplicarlo. Creé rama `feat/close-account` y lancé el fork del backend con ese diseño explícito (no a redescubrir), incluyendo un test de concurrencia real (asyncio.gather cerrando vs depositando) y el chequeo de ownership fusionado en una condición (mismo bug que ya se corrigió dos veces en GetAccount/ListMovements). La web se integra después en la misma rama, un solo PR para el feature completo. Sin pruebas automatizadas en la web, per convención establecida.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 15:59 — Verificar backend de cerrar cuenta y lanzar la integración web
+<!-- id: 20260908-155934-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente el backend de cerrar cuenta antes de seguir con la web.
+- **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
+- **Respuesta:** Corrí ruff/mypy strict/pytest yo mismo (153 archivos, todo verde) y confirmé con lectura directa: `update()` ahora sí persiste `status` (bug real que el fork encontró y arregló, antes se perdía silenciosamente), el chequeo de ownership fusionado en una condición (isinstance + owner_id), `KeptOpenSession` extraído a módulo compartido y usado por ambas unidades de trabajo, y el test de concurrencia rama según quién gana el lock en vez de asumir un orden fijo. Lancé el fork de integración web en la misma rama `feat/close-account` -- un solo PR para el feature completo.
+- **Veredicto:** ⏳ pendiente
