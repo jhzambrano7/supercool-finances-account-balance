@@ -1260,3 +1260,4 @@ Formato de cada entrada:
 - **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
 - **Respuesta:** Confirmé build limpio, sin test deps, y el orden correcto de los matches de error en `errors.ts` (verificado contra el mensaje real de `AccountNotEmptyError`, que es superstring del de `AccountNotClosableError`). Confirmé el filtro de cuentas CLOSED en `MoveMoneyScreen` y que `MovementHistoryScreen` queda sin filtrar a propósito. Abrí el PR #8 cubriendo backend + web como un solo feature completo.
 - **Veredicto:** ⏳ pendiente
+<!-- skip: 20260908-162044-a1fe3a40 -->
