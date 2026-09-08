@@ -15,6 +15,7 @@ rejection is written down, because the reasoning is the deliverable, not the cod
 | [`openspec/changes/account-balance-domain/proposal.md`](openspec/changes/account-balance-domain/proposal.md) | The domain model design: aggregates, invariants, twelve decisions |
 | [`docs/decision-log.md`](docs/decision-log.md) | Chronological record of what was decided and why |
 | [`docs/ai-transcript.md`](docs/ai-transcript.md) | Every prompt and every response, verbatim (see [AI usage](#ai-usage)) |
+| [`web/README.md`](web/README.md) | A React ops console for exercising the API in a browser — a demo aid, not a production deliverable |
 
 ---
 
@@ -30,8 +31,14 @@ The design is written down; the implementation is partial. This section says whe
 | Toolchain: Python 3.14 + uv, ruff, mypy strict, pre-commit, commit-msg gate | **Built and enforcing** |
 | `Account`, `Transfer`, `Entry` aggregates | **Built** — see `openspec/specs/account-balance/spec.md` |
 | Account opening: `AccountRegister`, `POST /accounts`, `SqlAccountRepository`, the `accounts` migration | **Built** — see `openspec/specs/account-opening/spec.md`. Unit tests (fake repository) and integration tests (real PostgreSQL via `testcontainers`) both pass locally |
-| Transfers, deposits, withdrawals: `TransferMoney`, `POST /transfers`, `SqlTransferRepository`/`SqlIdempotencyRepository`, the transfer migration | **Built** — see `openspec/specs/transfer/spec.md`. Unit tests and integration tests (real PostgreSQL, including concurrent-locking tests) both pass locally |
-| Reversal, close account | **Designed, not written** — a separate, not-yet-merged branch |
+| Transfers: `TransferMoney`, `POST /transfers`, `SqlTransferRepository`/`SqlIdempotencyRepository`, the transfer migration | **Built** — see `openspec/specs/transfer/spec.md`. Concurrent-locking tests run real parallel requests (`asyncio.gather`) against real PostgreSQL, not a mocked assertion |
+| Deposits and withdrawals: `Deposit`/`Withdraw`, `POST /deposits`/`POST /withdrawals` | **Built** — thin wrappers over `TransferMoney` that resolve the platform's `FUNDING`/`SETTLEMENT` account server-side; the caller never supplies or hard-codes a `SYSTEM` account id |
+| Reversal: `RevertTransfer`, `POST /transfers/{transfer_id}/reversals` | **Built** — see [below](#reversal-is-operator-only-simulated-by-one-fixed-admin-principal) |
+| Reading accounts and movement history: `GET /accounts`, `GET /accounts/{id}`, `GET /accounts/{id}/movements` | **Built** — ownership-scoped, cursor-paginated |
+| Closing an account | **Not built.** `Account.close()` exists in the domain; nothing calls it — no use case, no route |
+| Demo web console (`web/`) | **Built** — a React ops UI exercising every capability above except closing an account; see `web/README.md` |
+| Observability | **Not instrumented** — see [below](#observability) |
+| Reconciliation check (`account.balance == SUM(entries)`) | **Not built.** `docs/prd.md` §5.1 names this explicitly, as a test and as an operational job; neither exists |
 | Containers for the service itself, IaC | **Planned** — approach described [below](#running-it-and-deploying-it), not yet committed. `docker-compose.yml` (PostgreSQL only) is built |
 
 ---
@@ -166,6 +173,9 @@ The full reasoning is in [`docs/prd.md`](docs/prd.md); this is the index.
 | Account type and purpose are separate axes | One enum | Collapsing them puts `SAVINGS` and `SYSTEM` in the same enum, and nothing says which governs overdraft |
 | UUIDv7 for every id | UUIDv4 | Random ids scatter B-tree inserts; the ledger is append-only and write-heavy |
 | Ordering on `Money` written by hand | `dataclass(order=True)` | The generated comparison answers "100 JPY < 5 USD" instead of refusing the question |
+| Deposit/withdraw resolve the `SYSTEM` account server-side | Client supplies the `FUNDING`/`SETTLEMENT` account id | Hard-coding a platform id in every client duplicates knowledge the server already has, and turns a future re-seed into a client-side deploy |
+| Movement history is cursor-paginated | Offset pagination | The ledger is append-only and read newest-first; an offset shifts under the reader every time anything posts |
+| Reversal's operator check is a real `AuthorizationGateway`, not an override | Send the admin id automatically regardless of the caller | A caller that never has to prove it is the admin can never be shown a real `403` — the demo would fake the boundary it exists to demonstrate |
 
 ### Decisions that are not technical
 
@@ -271,9 +281,14 @@ the proposed fix was not.
 
 ## What is not done, stated plainly
 
-- Reversal and closing an account are specified but not merged into this branch yet.
+- Closing an account is specified, and the domain method exists, but nothing calls it — no use case,
+  no route.
+- Observability is designed (`docs/prd.md` §11, [above](#observability)) but not instrumented: no
+  metrics, no `/health`/`/ready`. `docs/prd.md` §10's success criteria name the correctness signals
+  as a completion condition, not a nice-to-have.
+- The reconciliation check `docs/prd.md` §5.1 asks for — a test, and an operational job, both
+  asserting `account.balance == SUM(entries)` — does not exist. The invariant is protected by
+  construction (T7 removed the read-time computation once no use case consumed it), but the check
+  the PRD names explicitly has not been written.
 - No container for the service itself, no IaC yet.
-- The concurrency design is argued but not yet demonstrated under parallel load — and until it is, it
-  is a claim. The success criteria in `docs/prd.md` §10 require that demonstration, not an assertion
-  in a unit test.
 - Open questions are listed in `docs/prd.md` §12 rather than quietly resolved.
