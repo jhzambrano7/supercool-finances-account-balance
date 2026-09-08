@@ -1203,3 +1203,10 @@ Formato de cada entrada:
 - **Prompt:** "Sobre ese punto del diseño que mencionas, prefiero que optemos por requerir el switch de cuentas, que el botón muestre la cuenta admin, el suuario se mueve, hace la reversión por id de transferencia"
 - **Respuesta:** Implementé directamente (sin delegar, ya tenía el diseño exacto claro): `ReversalScreen.tsx` nueva, muestra el UUID admin, reversión por transfer id usando la identidad realmente activa (sin override); `MovementHistoryScreen.tsx` vuelve a ser sólo lectura (agregó columna transfer id para copiar); `errors.ts` cambia el 403 de admin a recovery `switch-identity`. Verifiqué con Playwright contra un backend real: 403 real como no-admin, reversión exitosa tras pegar el UUID admin y cambiar identidad, 409 en doble reversión, balance vuelto a cero. Actualicé el cuerpo del PR #7 documentando el cambio de diseño.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 15:02 — Mergear PR #7 (reversión en la web) a main
+<!-- id: 20260908-150200-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "mergealo a main" para PR #7.
+- **Prompt:** "mergealo a main"
+- **Respuesta:** `gh pr merge` falló por el mismo conflicto recurrente en `docs/decision-log.md` (entradas independientes en cada rama desde el punto de divergencia) -- sin conflictos de código. Resuelto en orden cronológico, verificado ruff/mypy strict/build de la web en el árbol mergeado antes de completar el commit y pushear. PR #7 quedó `MERGED`, main sincronizado y verificado de nuevo tras el merge de GitHub.
+- **Veredicto:** ⏳ pendiente
