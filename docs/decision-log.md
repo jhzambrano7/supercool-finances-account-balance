@@ -1050,3 +1050,10 @@ Formato de cada entrada:
 - **Prompt:** "va siendo tiempo de retomar la reversión actualiza el PR con los cambios de main y aplica las convenciones que hemos definido, déjalo listo para hacer la revisión"
 - **Respuesta:** Investigué antes de delegar: `feat/revert` está 44 commits detrás de `main` (se armó antes del split `Account`→`UserAccount|SystemAccount`, la reorganización de DBOs/adapters, y toda la ronda de convenciones del PR review). Confirmé colisiones concretas: `transfer_repository.py` ya no existe con ese nombre (ahora `sql_transfer_repository.py`, forma distinta), `IdempotencyRecord` perdió `status` (revert_transfer.py aún referencia `"COMPLETED"`), y hay un `__all__` barrel que la convención actual prohíbe. Lancé un fork en worktree aislado para hacer un merge real (no rebase, no force-push a una rama con PR abierto) + retrofit completo, mismo rigor (ruff/mypy strict/pytest). No mergea a main ni abre PR nuevo -- el usuario revisa él mismo cuando esté listo.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:15 — Verificar y cerrar el fork de la web UI (deposit/withdraw reales)
+<!-- id: 20260907-231549-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente el resultado del fork que wireó la web a /deposits y /withdrawals antes de darlo por bueno.
+- **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
+- **Respuesta:** Confirmé en el worktree: `seededAccounts.ts` borrado sin referencias, proxy de Vite en `localhost:8000` (sin el override de dev), build (`tsc -b && vite build`) limpio, sin dependencias de testing agregadas. Commit `446f9da` ya en origin. Limpié los worktrees ya superados (el de este fork y el original de la web, ambos redundantes tras el merge).
+- **Veredicto:** ⏳ pendiente
