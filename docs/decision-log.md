@@ -985,3 +985,10 @@ Formato de cada entrada:
 - **Prompt:** "crea los PRs"
 - **Respuesta:** Abrí PR #4 (`feat/deposit-withdraw` → `main`) y PR #5 (`feat/web-ui` → `main`), cada uno con su test plan verificado. Detecté de paso que existe PR #3 (`feat/revert`, trabajo concurrente ajeno) -- no lo toqué.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 22:43 — Lanzar revisión adversarial fresca del PR #4
+<!-- id: 20260907-224333-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "Revisa el PR de depósito y retiro" con una revisión independiente, no con mi propia lectura sesgada por haber orquestado la implementación.
+- **Prompt:** "Revisa el PR de deposito y retiro"
+- **Respuesta:** Lancé un agente fresco (sin memoria de la implementación) con foco adversarial: validar SQL de la nueva criteria (no sólo el chequeo Python en construcción), confirmar que Deposit/Withdraw de verdad delegan en TransferMoney.execute() sin duplicar locking/idempotencia, mapeo a 503, orden de locks (T6), respeto a "SYSTEM sin balance" (T7), y calidad real de los tests (paths de falla, no sólo happy path).
+- **Veredicto:** ⏳ pendiente
