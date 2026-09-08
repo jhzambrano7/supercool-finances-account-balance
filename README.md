@@ -127,6 +127,26 @@ for one case. **An authorization rule with a silent exception is how vaults get 
 
 Four movements, no exceptions. Receiving money is not a privilege the recipient grants.
 
+### Reversal is operator-only, simulated by one fixed admin principal
+
+Reversing a transfer (`POST /transfers/{transfer_id}/reversals`) is not a customer operation — the
+above authorization rule does not apply to it at all, deliberately: the use case never checks
+whether the caller owns either leg (`openspec/specs/revert/spec.md`'s R1).
+
+Instead, exactly one caller is authorized to reverse anything, checked by a real gateway/adapter
+pair (`AuthorizationGateway` / `FixedAdminAuthorizationGateway`), not a role flag bolted onto the
+existing caller-resolution mechanism. The one admin principal is:
+
+```
+00000000-0000-0000-0000-000000000003
+```
+
+Send it as `X-Caller-Id` to call the reversal endpoint. Any other caller gets `403`.
+
+**This is a real, stated limitation, not a hidden one**: v1 has exactly one admin, hardcoded — not
+a multi-operator system, not a real identity provider integration. Widening it to more than one
+operator is a real design question this exercise does not ask for an answer to.
+
 ---
 
 ## Decisions, and what was rejected
