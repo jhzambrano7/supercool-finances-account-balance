@@ -1246,3 +1246,10 @@ Formato de cada entrada:
 - **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
 - **Respuesta:** Corrí ruff/mypy strict/pytest yo mismo (153 archivos, todo verde) y confirmé con lectura directa: `update()` ahora sí persiste `status` (bug real que el fork encontró y arregló, antes se perdía silenciosamente), el chequeo de ownership fusionado en una condición (isinstance + owner_id), `KeptOpenSession` extraído a módulo compartido y usado por ambas unidades de trabajo, y el test de concurrencia rama según quién gana el lock en vez de asumir un orden fijo. Lancé el fork de integración web en la misma rama `feat/close-account` -- un solo PR para el feature completo.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 16:01 — Relanzar el fork de integración web tras un lanzamiento fallido
+<!-- id: 20260908-160147-a1fe3a40 -->
+- **Qué intentaba:** El primer fork de integración web devolvió "completed" con 0 tool calls y un mensaje que sonaba a eco de mis propias instrucciones -- ningún cambio real (ni siquiera se creó el worktree).
+- **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
+- **Respuesta:** Diagnostiqué el lanzamiento fallido (0 tool_uses, sin worktree, mensaje sospechoso) y lo relancé con el mismo brief completo. Sigue corriendo.
+- **Veredicto:** ⏳ pendiente
