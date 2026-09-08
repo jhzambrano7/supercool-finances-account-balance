@@ -111,6 +111,10 @@ class _FakeAccountRepository(AccountRepository):
                     ),
                     None,
                 )
+            case _:
+                # TransferMoney only ever looks accounts up by id (T9) --
+                # this fake has no need to support any other criteria.
+                raise NotImplementedError
 
     async def add(self, account: Account) -> None:
         raise NotImplementedError

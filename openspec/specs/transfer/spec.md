@@ -8,33 +8,58 @@ concept for them). It covers the use case, the simulated authentication this sli
 the persistence it requires. `transfer()` itself — the domain service, I1–I7 — is already specified
 in `openspec/specs/account-balance/spec.md` and is not repeated here.
 
-**Known gap, planned but not yet designed: explicit `deposit`/`withdraw` operations.** "No separate
-domain concept" (above) is true of the domain service, but today it is also true of the *inbound*
-surface — `POST /transfers`'s body (`TransferRequestDto`) takes only raw `source_account_id`/
+**Known gap, decided, not yet built: explicit `deposit`/`withdraw` operations.** "No separate domain
+concept" (above) is true of the domain service, but today it is also true of the *inbound* surface —
+`POST /transfers`'s body (`TransferRequestDto`) takes only raw `source_account_id`/
 `destination_account_id` UUIDs, with no `type` field distinguishing a deposit from an ordinary
 transfer. A deposit is `source_account_id = FUNDING_ACCOUNT_ID`, a withdrawal is
 `destination_account_id = SETTLEMENT_ACCOUNT_ID` — fixed, platform-seeded UUIDs
 (`adapters/config/seeded_accounts.py`) with no discovery endpoint exposing them. A caller performing
 either operation must already know these ids out of band (today, only this codebase's own tests do).
-The plan is explicit `deposit`/`withdraw` operations — their own endpoints and their own use cases,
-stating intent ("deposit into account Y") rather than requiring the caller to know a platform-internal
-account id — sitting in front of the same underlying `transfer()`/persistence this document specifies,
-not replacing it. Not designed yet; this note exists so the gap is recorded before it is closed, not
-discovered again from scratch.
 
 **One `SYSTEM` account per supported currency, resolved by the operation, not by the caller.** The
 same gap has a second half: `FUNDING_ACCOUNT_ID`/`SETTLEMENT_ACCOUNT_ID` are not merely fixed ids,
 they are fixed *`USD`* ids (migration `5bf582a92358` seeds both with `"currency": "USD"`), so an
 account opened in any other currency can be created but never funded — I4 refuses the deposit, and
-the failure is permanent rather than transient. The currency side of this is now decided: `Currency`
-becomes a closed enum over `USD`/`MXN`/`COP`, and each supported currency requires its own `FUNDING`
-and `SETTLEMENT` accounts (see `openspec/specs/account-balance/spec.md`, "The Supported Currencies
-Are a Closed Set"). That decision is what makes the explicit operations resolvable: a `deposit` use
-case looks up the `FUNDING` account *for the target account's currency* — a new
-`FindAccountByPurposeAndCurrency` criteria, additive to the existing Criteria pattern — instead of
-reading one global constant. The natural key `(owner_id, purpose, currency)` already permits exactly
-one `FUNDING` row per currency under `PLATFORM_OWNER_ID` and already forbids duplicates, so no
-constraint change is needed: the schema was right, only the seed was narrow.
+the failure is permanent rather than transient. The currency side of this is decided: `Currency`
+becomes a closed enum, `USD` only for now (see `openspec/specs/account-balance/spec.md`, "The
+Supported Currencies Are a Closed Set"). That decision is what makes the explicit operations
+resolvable: a `deposit` looks up the `FUNDING` account *for the target account's currency* instead of
+reading one global constant.
+
+**The design, settled:**
+
+- `POST /deposits` (`{destination_account_id, amount, currency}`) and `POST /withdrawals`
+  (`{source_account_id, amount, currency}`) — flat resources alongside `/transfers`, same headers
+  (`X-Caller-Id`, `Idempotency-Key`), response reuses `TransferResponseDto` unchanged: a deposit or
+  withdrawal *is* a `Transfer`, it does not need its own response shape.
+- `Deposit`/`Withdraw` (no suffix, matching `AccountRegister`/`TransferMoney`) are thin wrappers, not
+  parallel use cases: each resolves the relevant `SYSTEM` account, builds a `TransferMoneyRequest`,
+  and delegates to the existing `TransferMoney.execute()` unchanged. Locking (T6), idempotency
+  (T3/T5) and authorization (T1) already live there and already distinguish `USER`/`SYSTEM` correctly
+  — duplicating that in two new use cases would duplicate exactly the concurrency-sensitive code this
+  slice took the most rounds to get right.
+- **`FindSystemAccountByPurposeAndCurrency(purpose, currency)`**, not the more generic
+  `FindAccountByPurposeAndCurrency` an earlier draft of this note used — deliberately narrower.
+  Without an `owner_id`, this criteria's uniqueness depends entirely on there being exactly one row
+  for a given `(purpose, currency)`, which is only true for `SYSTEM` purposes (`FUNDING`/
+  `SETTLEMENT` — one row each, owned by `PLATFORM_OWNER_ID`). A `USER` purpose (`CHECKING`/
+  `SAVINGS`) has no such guarantee — many owners hold one each — so a same-shaped criteria open to
+  either kind would silently return an arbitrary match, or more than one, the moment it was reused for
+  a `USER` lookup by mistake. The type only accepting `FUNDING`/`SETTLEMENT` (validated at
+  construction, the same way `AccountPurpose.matches_type()` already validates elsewhere) makes that
+  misuse a construction-time error instead of a latent query bug. The natural key
+  `(owner_id, purpose, currency)` already permits exactly one `FUNDING` row per currency under
+  `PLATFORM_OWNER_ID` and already forbids duplicates, so no constraint change is needed: the schema
+  was right, only the seed was narrow.
+- A `Currency` that passes the enum but has no `FUNDING`/`SETTLEMENT` account yet (not reachable
+  while the enum has one member, but a real risk the moment it has more) is a platform-configuration
+  gap, not a client mistake — distinct from `AccountNotFoundError`. `CurrencyNotOperationalError`
+  (`ApplicationError`) maps to `503`, not the `400`/`422` this document's other errors use: it says
+  "we cannot serve this currency right now", not "your request is wrong".
+
+Not built yet; this note exists so the design is recorded before it is built, not re-derived from
+scratch.
 
 Source of truth: `docs/prd.md` §5 (the critical path), §6 (idempotency), §9.1 (authorization).
 Carries forward the constraints `openspec/changes/archive/2026-09-07-account-balance-domain/design.md`

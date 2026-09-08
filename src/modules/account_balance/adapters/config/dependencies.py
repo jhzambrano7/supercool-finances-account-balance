@@ -8,8 +8,13 @@ from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repo
 from modules.account_balance.adapters.outbound.repositories.sql.sql_unit_of_work import (
     SqlTransferUnitOfWork,
 )
+from modules.account_balance.application.services.system_account_resolver import (
+    SystemAccountResolver,
+)
 from modules.account_balance.application.use_cases.account_register import AccountRegister
+from modules.account_balance.application.use_cases.deposit import Deposit
 from modules.account_balance.application.use_cases.transfer_money import TransferMoney
+from modules.account_balance.application.use_cases.withdraw import Withdraw
 from modules.shared.adapters.config.dependencies import SharedDependencies
 
 
@@ -47,6 +52,30 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
         unit_of_work_factory=transfer_unit_of_work.provider,
         id_generator=shared.id_generator,
         clock=shared.clock,
+    )
+
+    # Reads through account_repository (unlocked, matching how transfer_money
+    # itself reads a SYSTEM leg, T7) rather than through transfer_unit_of_work's
+    # own accounts repository, since resolving the platform's FUNDING/SETTLEMENT
+    # account is not part of the transfer's own transaction.
+    system_account_resolver = providers.Factory(
+        provides=SystemAccountResolver,
+        repository=account_repository,
+        logger=logger,
+    )
+
+    # Deposit/Withdraw are thin wrappers over transfer_money (openspec/specs/
+    # transfer/spec.md, "The design, settled").
+    deposit = providers.Factory(
+        provides=Deposit,
+        system_account_resolver=system_account_resolver,
+        transfer_money=transfer_money,
+    )
+
+    withdraw = providers.Factory(
+        provides=Withdraw,
+        system_account_resolver=system_account_resolver,
+        transfer_money=transfer_money,
     )
 
 

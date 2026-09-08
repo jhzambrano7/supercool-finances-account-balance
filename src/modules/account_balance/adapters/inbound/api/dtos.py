@@ -64,6 +64,27 @@ class TransferRequestDto(BaseModel):
     currency: str = Field(min_length=3, max_length=3)
 
 
+class DepositRequestDto(BaseModel):
+    """`POST /deposits`'s body -- states intent ("deposit into Y") instead of a raw
+    `source_account_id`/`destination_account_id` pair; the platform's `FUNDING` account for
+    `currency` is resolved by the use case, not supplied by the caller.
+    """
+
+    destination_account_id: UUID
+    amount: int
+    currency: str = Field(min_length=3, max_length=3)
+
+
+class WithdrawalRequestDto(BaseModel):
+    """`POST /withdrawals`'s body -- the deposit DTO's mirror image: the platform's `SETTLEMENT`
+    account for `currency` is resolved by the use case, not supplied by the caller.
+    """
+
+    source_account_id: UUID
+    amount: int
+    currency: str = Field(min_length=3, max_length=3)
+
+
 class EntryResponseDto(BaseModel):
     entry_id: UUID
     account_id: UUID

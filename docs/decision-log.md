@@ -965,6 +965,22 @@ Formato de cada entrada:
 - **Respuesta:** Dos commits separados por concern: (1) la respuesta completa a la revisión del PR (los 5 batches + mis dos hallazgos propios: el fix de `OverdraftPolicy` colgante en las convenciones y la nota de docstring sobre `get_for_update`), (2) el plan del sitio web (`docs/web-ui-plan.md`), sin relación con el otro cambio. Gates corridos antes de cada uno.
 - **Veredicto:** ⏳ pendiente
 
+## 2026-09-07 21:31 — Incidente: `git checkout main -- .` erróneo, corregido antes de commitear nada
+
+<!-- id: 20260907-213113-a1fe3a40 -->
+- **Qué intentaba:** Investigar el código actual para responder la pregunta de propuesta de API de depósito/retiro; ejecuté por error `git checkout main -- .` en medio de esa investigación.
+- **Prompt:** "Cuál es tu propuesta para el/las APIs de depósito y retiro?"
+- **Respuesta:** Error mío: `git checkout main -- .` pisó el working tree de `feat/transfer` con archivos del `main` **local**, que nunca se había actualizado tras el merge de PR#2 (sólo `origin/main` se actualizó vía `fetch`, no el branch local). Eso trajo versiones viejas de ~72 archivos al working tree. Detectado inmediatamente comparando `git diff main feat/transfer` (9004 líneas de diferencia, evidentemente mal) antes de tocar nada más. Verificado que lo único no comiteado antes del error eran 2 archivos de transcript auto-generados (inofensivo, se regeneran solos) -- así que `git reset --hard HEAD` fue seguro y no perdió nada real. Restaurado el working tree al HEAD real de `feat/transfer`, sincronizado `main` local con `origin/main` (para que esto no se repita), y confirmado mypy strict + 188 tests verdes tras la corrección. Nada llegó a commitearse en el estado roto.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 21:41 — Acotar el alcance de monedas a solo USD y renombrar la criteria a FindSystemAccountByPurposeAndCurrency
+
+<!-- id: 20260907-214117-a1fe3a40 -->
+- **Qué intentaba:** Incorporar dos decisiones del usuario sobre la propuesta de depósito/retiro que presenté: acotar el enum de `Currency` a sólo USD por ahora, y corregir el nombre de la criteria nueva para que no pueda usarse por error contra cuentas USER.
+- **Prompt:** "Respecto de la moneda, tendremos que acotar a solo USD, por facilidad... El error 503 parece apropiado. FindSystemAccountByPurposeAndCurrency y no FindAccountByPurposeAndCurrency, de forma que no vayas por una cuenta usuario, tendrás más de un resultado."
+- **Respuesta:** Verificado el razonamiento del segundo punto antes de aplicarlo: `FindAccountByPurposeAndCurrency` sin `owner_id` sólo es unívoca para purposes SYSTEM (una fila por moneda, dueño fijo `PLATFORM_OWNER_ID`) -- para un purpose USER (CHECKING/SAVINGS) la misma forma matchearía múltiples cuentas de distintos owners. El fix no es sólo el nombre: el tipo debe validar en construcción que sólo acepta FUNDING/SETTLEMENT, igual que `AccountPurpose.matches_type()` ya valida en otro lado -- convierte el mal uso en error de construcción en vez de bug de query latente. Actualizado `openspec/specs/account-balance/spec.md`: el requirement de `Currency` ahora dice "enum sobre exactamente USD", con nota explícita de que MXN/COP quedan como los ejemplos de referencia para la extensión futura, no como miembros actuales; corregido el escenario que probaba MXN a USD. Actualizado `openspec/specs/transfer/spec.md`: la nota de known gap ahora tiene el diseño completo asentado (endpoints, `Deposit`/`Withdraw` como wrappers finos sobre `TransferMoney`, el rename de la criteria con su razón, `CurrencyNotOperationalError`→503) en vez de sólo la mitad. Sólo Markdown, 184 tests sin tocar código.
+- **Veredicto:** ⏳ pendiente
+
 ## 2026-09-07 22:15 — Arrancar depósito/retiro y web UI en paralelo, cada uno en worktree aislado
 <!-- id: 20260907-221532-a1fe3a40 -->
 - **Qué intentaba:** Cumplir la instrucción de iniciar dos tareas en paralelo sin que se pisen en el mismo working tree.

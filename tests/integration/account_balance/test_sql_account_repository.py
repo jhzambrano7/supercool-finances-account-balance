@@ -17,8 +17,9 @@ from modules.account_balance.application.gateways.account_repository import (
 from modules.account_balance.application.gateways.models.find_accounts_criteria import (
     FindAccountByAccountId,
     FindAccountByOwnerAndPurposeAndCurrency,
+    FindSystemAccountByPurposeAndCurrency,
 )
-from modules.account_balance.domain.account import AccountPurpose, UserAccount
+from modules.account_balance.domain.account import AccountPurpose, SystemAccount, UserAccount
 from modules.account_balance.domain.identifiers import AccountId, OwnerId
 from modules.shared.domain.money import Currency
 
@@ -146,3 +147,35 @@ async def test_get_raises_not_found_when_absent(
 
     assert exc_info.value.criteria == criteria
     assert exc_info.value.resource_type == "account"
+
+
+async def test_find_system_account_by_purpose_and_currency_finds_the_seeded_funding_account(
+    session_factory: Callable[[], AsyncSession],
+) -> None:
+    """T8: migration `5bf582a92358` seeds exactly one `FUNDING` and one `SETTLEMENT` account in
+    USD -- this is the query `Deposit`/`Withdraw` run against a real database."""
+    repository = _repository(session_factory)
+
+    found = await repository.find(
+        criteria=FindSystemAccountByPurposeAndCurrency(purpose=AccountPurpose.FUNDING, currency=USD)
+    )
+
+    assert isinstance(found, SystemAccount)
+    assert found.purpose is AccountPurpose.FUNDING
+    assert found.currency == USD
+
+
+async def test_find_system_account_by_purpose_and_currency_returns_none_for_an_unseeded_currency(
+    session_factory: Callable[[], AsyncSession],
+) -> None:
+    """No `EUR` `FUNDING`/`SETTLEMENT` account is seeded -- exactly the gap
+    `CurrencyNotOperationalError` exists to report, one layer up."""
+    repository = _repository(session_factory)
+
+    found = await repository.find(
+        criteria=FindSystemAccountByPurposeAndCurrency(
+            purpose=AccountPurpose.FUNDING, currency=Currency("EUR")
+        )
+    )
+
+    assert found is None
