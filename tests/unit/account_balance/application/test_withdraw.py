@@ -104,6 +104,9 @@ class _FakeAccountRepository(AccountRepository):
             if isinstance(account := self._database.accounts.get(account_id), UserAccount)
         )
 
+    async def find_by_owner(self, owner_id: OwnerId) -> tuple[UserAccount, ...]:
+        raise NotImplementedError("Withdraw never lists accounts by owner")
+
     async def update(self, account: UserAccount) -> None:
         self._database.accounts[account.account_id] = account
 

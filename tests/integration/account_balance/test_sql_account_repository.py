@@ -20,7 +20,7 @@ from modules.account_balance.application.gateways.models.find_accounts_criteria 
     FindSystemAccountByPurposeAndCurrency,
 )
 from modules.account_balance.domain.account import AccountPurpose, SystemAccount, UserAccount
-from modules.account_balance.domain.identifiers import AccountId, OwnerId
+from modules.account_balance.domain.identifiers import PLATFORM_OWNER_ID, AccountId, OwnerId
 from modules.shared.domain.money import Currency
 
 pytestmark = pytest.mark.integration
@@ -179,3 +179,44 @@ async def test_find_system_account_by_purpose_and_currency_returns_none_for_an_u
     )
 
     assert found is None
+
+
+async def test_find_by_owner_returns_every_account_that_owner_holds(
+    session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = _repository(session_factory)
+    owner_id = OwnerId(uuid4())
+    checking = _open_user_account(owner_id=owner_id, purpose=AccountPurpose.CHECKING)
+    savings = _open_user_account(owner_id=owner_id, purpose=AccountPurpose.SAVINGS)
+    someone_else = _open_user_account(owner_id=OwnerId(uuid4()))
+    await repository.add(checking)
+    await repository.add(savings)
+    await repository.add(someone_else)
+
+    found = await repository.find_by_owner(owner_id)
+
+    assert {account.account_id for account in found} == {checking.account_id, savings.account_id}
+    assert all(isinstance(account, UserAccount) for account in found)
+
+
+async def test_find_by_owner_never_returns_a_system_account(
+    session_factory: Callable[[], AsyncSession],
+) -> None:
+    """T6/T7: `PLATFORM_OWNER_ID` is never a real caller's `owner_id`, but the query excludes
+    `SYSTEM` rows itself regardless -- this asserts that exclusion directly, against the
+    migration's own seeded `FUNDING`/`SETTLEMENT` accounts (T8)."""
+    repository = _repository(session_factory)
+
+    found = await repository.find_by_owner(PLATFORM_OWNER_ID)
+
+    assert found == ()
+
+
+async def test_find_by_owner_returns_empty_for_an_owner_with_no_accounts(
+    session_factory: Callable[[], AsyncSession],
+) -> None:
+    repository = _repository(session_factory)
+
+    found = await repository.find_by_owner(OwnerId(uuid4()))
+
+    assert found == ()

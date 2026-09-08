@@ -138,6 +138,9 @@ class _FakeAccountRepository(AccountRepository):
         ]
         return tuple(locked)
 
+    async def find_by_owner(self, owner_id: OwnerId) -> tuple[UserAccount, ...]:
+        raise NotImplementedError("TransferMoney never lists accounts by owner")
+
     async def update(self, account: UserAccount) -> None:
         self._staged[account.account_id] = account
 
