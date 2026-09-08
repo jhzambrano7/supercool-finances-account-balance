@@ -1189,3 +1189,10 @@ Formato de cada entrada:
 - **Prompt:** "ya está integrada la reversión a la web? si no, procede"
 - **Respuesta:** Confirmado: la pestaña "Reversal" sigue siendo un placeholder. El diseño ya estaba resuelto (docs/web-ui-plan.md §5.7/§6.3/Phase 4): POST /transfers/{id}/reversals devuelve un TransferResponseDto que el componente Receipt ya renderiza sin cambios, y no hace falta un mecanismo de identidad nuevo -- el UUID admin ya está documentado en el README del backend y la app ya soporta agregar cualquier UUID como identidad vía "paste identity". Creé rama nueva `feat/web-reversal` desde main y lancé un fork para: agregar el cliente de la llamada, disparar la reversión desde una fila de movimiento (y/o el recibo), reusar Receipt para el resultado, manejar los 5 códigos de error (403/404/409/422/400) vía el mecanismo de errors.ts existente, y decidir el destino de la pestaña placeholder. Verificación manual de golden-path incluyendo el caso 403 (no-admin) y 409 (doble reversión).
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 12:50 — Verificar la integración de reversión y abrir PR #7 con el trade-off explícito
+<!-- id: 20260908-125053-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente el fork que integró la reversión en la web antes de abrir el PR.
+- **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
+- **Respuesta:** Confirmé build limpio, sin test deps, placeholder y su componente borrados sin referencias sueltas, README actualizado. Revisé con cuidado la desviación de diseño que el fork marcó como la más importante: el botón "Reverse" manda siempre el UUID admin como X-Caller-Id, sin importar la identidad activa, en vez de requerir un switch a identidad "Admin" -- justificado técnicamente (Movement History está scoped por dueño real, Admin no posee cuentas), pero tiene un costo real: se pierde la posibilidad de ver un 403 interactivamente en la UI. No lo decidí solo -- lo documenté en el cuerpo del PR #7 con el trade-off explícito y alternativas, dejándoselo al usuario antes de mergear.
+- **Veredicto:** ⏳ pendiente
