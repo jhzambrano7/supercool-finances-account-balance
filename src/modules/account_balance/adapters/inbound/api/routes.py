@@ -19,10 +19,19 @@ from modules.account_balance.application.gateways.movement_repository import (
     InvalidMovementCursorError,
 )
 from modules.account_balance.application.use_cases.account_register import AccountRegister
+from modules.account_balance.application.use_cases.close_account import (
+    CloseAccount,
+    CloseAccountRequest,
+)
 from modules.account_balance.application.use_cases.get_account import GetAccount
 from modules.account_balance.application.use_cases.list_accounts import ListAccounts
 from modules.account_balance.application.use_cases.list_movements import ListMovements
-from modules.account_balance.domain.errors import AccountOwnershipError, InvalidAccountPurposeError
+from modules.account_balance.domain.errors import (
+    AccountNotClosableError,
+    AccountNotEmptyError,
+    AccountOwnershipError,
+    InvalidAccountPurposeError,
+)
 from modules.account_balance.domain.identifiers import AccountId, OwnerId
 from modules.shared.application.errors import ApplicationError
 from modules.shared.domain.errors import DomainError, InvalidCurrencyError
@@ -37,6 +46,13 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
 # system fault, so it is reported back to the caller rather than treated as
 # an internal error.
 _UNPROCESSABLE_ERRORS = (InvalidAccountPurposeError, InvalidCurrencyError)
+
+# `AccountNotClosableError`/`AccountNotEmptyError` map the same way
+# `AccountNotOperableError` already does in `transfer_routes.py`: both name a
+# state the account is currently in that this request cannot act on, not a
+# malformed request -- the same reasoning, applied to closing instead of a
+# debit/credit.
+_UNPROCESSABLE_CLOSE_ERRORS = (AccountNotClosableError, AccountNotEmptyError)
 
 
 @router.post("", response_model=AccountResponseDto, status_code=status.HTTP_201_CREATED)
@@ -146,3 +162,31 @@ async def list_movements(
     except ApplicationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return MovementsResponseDto.from_page(page)
+
+
+@router.post("/{account_id}/close", response_model=AccountResponseDto)
+@inject
+async def close_account(
+    account_id: UUID,
+    caller_id: OwnerId = Depends(resolve_caller_id),
+    use_case: CloseAccount = Depends(Provide[AccountBalanceContainer.close_account]),
+) -> AccountResponseDto:
+    """`POST /accounts/{account_id}/close` (docs/prd.md §7.2) -- `200`, not `201`: a state
+    transition on an existing resource, not a creation."""
+    try:
+        account = await use_case.execute(
+            CloseAccountRequest(account_id=AccountId(account_id), caller_id=caller_id)
+        )
+    except AccountOwnershipError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except AccountNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except _UNPROCESSABLE_CLOSE_ERRORS as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    except DomainError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ApplicationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return AccountResponseDto.from_account(account)

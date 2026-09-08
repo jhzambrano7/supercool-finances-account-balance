@@ -8,6 +8,9 @@ from modules.account_balance.adapters.config.fixed_admin_authorization_gateway i
 from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repository import (
     SqlAccountRepository,
 )
+from modules.account_balance.adapters.outbound.repositories.sql.sql_account_unit_of_work import (
+    SqlAccountUnitOfWork,
+)
 from modules.account_balance.adapters.outbound.repositories.sql.sql_movement_repository import (
     SqlMovementRepository,
 )
@@ -18,6 +21,7 @@ from modules.account_balance.application.services.system_account_resolver import
     SystemAccountResolver,
 )
 from modules.account_balance.application.use_cases.account_register import AccountRegister
+from modules.account_balance.application.use_cases.close_account import CloseAccount
 from modules.account_balance.application.use_cases.deposit import Deposit
 from modules.account_balance.application.use_cases.get_account import GetAccount
 from modules.account_balance.application.use_cases.list_accounts import ListAccounts
@@ -54,6 +58,21 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
     list_accounts = providers.Factory(
         provides=ListAccounts,
         repository=account_repository,
+    )
+
+    account_unit_of_work = providers.Factory(
+        provides=SqlAccountUnitOfWork,
+        logger=logger,
+        session_factory=shared.session_factory,
+    )
+
+    # `.provider` delegation, same reasoning as `transfer_money` below:
+    # `CloseAccount` calls the factory fresh, it does not hold one resolved
+    # unit of work across calls.
+    close_account = providers.Factory(
+        provides=CloseAccount,
+        logger=logger,
+        unit_of_work_factory=account_unit_of_work.provider,
     )
 
     # A fresh, independently-committed session per call (like account_repository above), not the

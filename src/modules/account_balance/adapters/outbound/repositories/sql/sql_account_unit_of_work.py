@@ -11,22 +11,16 @@ from modules.account_balance.adapters.outbound.repositories.sql.kept_open_sessio
 from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repository import (
     SqlAccountRepository,
 )
-from modules.account_balance.adapters.outbound.repositories.sql.sql_idempotency_repository import (
-    SqlIdempotencyRepository,
-)
-from modules.account_balance.adapters.outbound.repositories.sql.sql_transfer_repository import (
-    SqlTransferRepository,
-)
-from modules.account_balance.application.gateways.unit_of_work import TransferUnitOfWork
+from modules.account_balance.application.gateways.account_unit_of_work import AccountUnitOfWork
 
 
-class SqlTransferUnitOfWork(TransferUnitOfWork):
-    """SQLAlchemy async adapter for `TransferUnitOfWork` (T3, T9).
+class SqlAccountUnitOfWork(AccountUnitOfWork):
+    """SQLAlchemy async adapter for `AccountUnitOfWork` (§7.2).
 
-    Opens one session per `async with` block, binds `accounts`, `transfers`
-    and `idempotency` to it via `KeptOpenSession`, and commits once on a
-    clean exit or rolls back once if an exception propagated out -- the use
-    case, not any individual repository call, decides which (design §5.3).
+    Opens one session per `async with` block, binds `accounts` to it via `KeptOpenSession`, and
+    commits once on a clean exit or rolls back once if an exception propagated out -- mirrors
+    `SqlTransferUnitOfWork` exactly, minus the two repositories a lifecycle operation has no use
+    for.
     """
 
     def __init__(self, logger: Logger, session_factory: async_sessionmaker[AsyncSession]) -> None:
@@ -39,8 +33,6 @@ class SqlTransferUnitOfWork(TransferUnitOfWork):
         self._session = session
         bound = cast(Callable[[], AsyncSession], lambda: KeptOpenSession(session))
         self.accounts = SqlAccountRepository(self._logger, bound)
-        self.transfers = SqlTransferRepository(self._logger, bound)
-        self.idempotency = SqlIdempotencyRepository(self._logger, bound)
         return self
 
     async def __aexit__(
