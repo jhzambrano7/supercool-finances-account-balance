@@ -1078,3 +1078,10 @@ Formato de cada entrada:
 - **Prompt:** "Revisa el PR de reversión, córrelo en un subagente"
 - **Respuesta:** Lancé un agente fresco (general-purpose, sin memoria de la implementación) con foco en: R3 (reserva de idempotencia antes de tocar cuentas -- ya causó un bug real en transfer, verificar orden real del código, no el comentario), R2 (dirección origen/destino derivada del transfer original, nunca del cliente), R4 (catch de IntegrityError acotado por nombre de constraint), y sobre todo si el retrofit del merge de hoy quedó completo (narrowing a UserAccount, get_many_for_update, logger, sin residuos del modelo Account viejo o del `__all__` barrel).
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:47 — Verificar backend de listado/histórico y cerrar la revisión del PR #3
+<!-- id: 20260907-234756-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente el fork de listado/histórico de cuentas y el resultado de la revisión adversarial del PR #3, en el mismo turno.
+- **Prompt:** (notificaciones de finalización de ambos: el fork de account-reads y el reviewer de PR #3, sin mensaje nuevo del usuario)
+- **Respuesta:** Backend de cuentas: 238 tests, ruff, mypy strict verdes; encontré por mi cuenta un `assert isinstance` repetido (mismo anti-patrón que un reviewer humano ya marcó en PR #4) en `get_account.py`/`list_movements.py` y lo corregí (commit `99d2c86`) -- tuve que resolver además un desajuste de nombre de rama local vs remota en el worktree del fork antes de poder pushear. Validé la decisión de arquitectura (MovementRepository como puerto separado de TransferRepository). PR #3: verifiqué yo mismo, leyendo el código real, las tres afirmaciones más críticas del reviewer (R3 orden de idempotencia, R2 dirección, R4 catch acotado por constraint) antes de publicar el resumen como comentario en el PR. Sin hallazgos bloqueantes en ninguno de los dos.
+- **Veredicto:** ⏳ pendiente
