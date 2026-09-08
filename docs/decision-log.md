@@ -444,6 +444,54 @@ Formato de cada entrada:
 - **Qué intentaba:** Cerrar el segundo eslabón de la cadena.
 - **Prompt:** (continuación directa del pedido de este turno)
 - **Respuesta:** Pusheado `feat/transfer` y abierto el PR #2 apuntando a `feat/account-opening` (no a main, per feature-branch-chain), con el bug de concurrencia real y su fix documentados en el cuerpo del PR. `revert` (PR #3) arranca sobre `feat/transfer` a continuación.
+
+## 2026-09-07 02:50 — Especificar revert y lanzar su implementación
+
+- **Qué intentaba:** Cerrar el tercer eslabón de la cadena: documentar y lanzar la implementación de la reversión (PR #3).
+- **Prompt:** (continuación directa del pedido de este turno)
+- **Respuesta:** `openspec/specs/revert/spec.md`: decisiones R1–R8. La más importante: R1 declara explícitamente que "operador-autorizado" en v1 es sólo "un endpoint separado sin chequeo de dueño" — una limitación real y declarada, no un mecanismo de verificación de operador inventado (el PRD mismo delega esa pregunta al adaptador de autenticación real, fuera de alcance). R2 deriva origen/destino de la transferencia original en vez de aceptarlos del cliente, eliminando una clase entera de error posible. R3 aplica por adelantado la lección que costó un bug real en transfer: la reserva de idempotencia debe ser la primera escritura, antes de tocar cualquier cuenta — documentado explícitamente citando el commit del fix (`0c4ea93`) en el brief de implementación. R4 es el índice único parcial sobre `transfers.reverses` que design.md ya había especificado pero nunca se había construido. Lanzada la implementación en background sobre `feat/revert`, con instrucción explícita de reusar toda la maquinaria de `transfer` (unit of work, repositorios, mecanismo de idempotencia) sin duplicarla.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 02:55 — Verificar revert y lanzar su revisión fresca
+
+<!-- id: 20260907-025510-a1fe3a40 -->
+- **Qué intentaba:** (Turno disparado por la finalización del sub-agente de implementación.) Verificar la entrega antes de pasarla a revisión fresca.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** 196 tests confirmados. Leí `RevertTransferUseCase` completo antes de aceptar el reporte: la reserva de idempotencia efectivamente ocurre primero, antes de cargar el original o tocar cuentas — no sólo lo dice el comentario, lo hace el código. Verificado también R2 (origen=destino del original, destino=origen del original, coincide con el contrato real de `revert()` en posting.py) y R4 (el catch en `SqlTransferRepository.add()` está acotado por nombre al índice parcial, mismo patrón que AO4/T5; la migración crea el índice único parcial correctamente sobre `reverses IS NOT NULL`). Gates verdes. Lanzada revisión fresca con foco explícito en re-verificar la afirmación de "reserva primero" línea por línea en vez de confiar en el comentario, y en la dirección origen/destino de la reversa.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 03:02 — Cerrar la revisión fresca de revert y abrir el PR #3
+
+<!-- id: 20260907-030200-a1fe3a40 -->
+- **Qué intentaba:** Cerrar los dos hallazgos de la revisión fresca (nada bloqueante) y abrir el PR #3.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** La revisión confirmó, línea por línea y corriendo los tests ella misma, todo lo verificado en el turno anterior: reserva de idempotencia primero, índice único parcial correcto, catch acotado por nombre de constraint, dirección origen/destino correcta contra el contrato real de `revert()`, ejemplo PRD §7.3 reproducido, ausencia real de chequeo de dueño (R1). Dos hallazgos menores, ninguno bloqueante: (1) el mapeo de `InvalidIdempotencyKeyError` a 422 ya era correcto pero no tenía test — agregado, siguiendo el mismo patrón que `transfer`; (2) `AccountNotFoundError` no se atrapaba explícitamente en el endpoint de reversión (código muerto hoy, pero inconsistente con el endpoint hermano) — corregido por paridad.
+- **197 tests, gates verdes.** Abierto el PR #3 (`feat/revert` → `feat/transfer`), tercer y último eslabón de la cadena, con la limitación de R1 explícita en el cuerpo del PR.
+- **Veredicto:** ✅ aprobado
+
+## 2026-09-07 03:08 — Pushear feat/revert y abrir el PR #3, cadena completa
+
+- **Qué intentaba:** Cerrar el tercer y último eslabón de la cadena pedida este turno.
+- **Prompt:** (continuación directa del pedido original de este turno)
+- **Respuesta:** Pusheado `feat/revert` y abierto el PR #3 apuntando a `feat/transfer`. Cadena completa: PR #1 (account-opening, main), PR #2 (transfer, sobre #1), PR #3 (revert, sobre #2) — los tres abiertos, cada uno con su propio bug real encontrado y cerrado por una revisión fresca en contexto independiente antes de abrirse. La limitación de R1 (revert sin verificación real de operador) quedó explícita en el cuerpo del PR, no sólo en el spec.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 09:49 — Iniciar segunda revisión del PR #1 (account-opening)
+
+<!-- id: 20260907-094946-a1fe3a40 -->
+- **Qué intentaba:** El usuario pidió arrancar una revisión del PR #1 antes de decidir mergearlo.
+- **Prompt:** "movámonos al PR 1, quiero que inicies una revisión"
+- **Respuesta:** Lanzada una segunda revisión adversarial en contexto fresco (independiente de la que ya corrió antes de abrir el PR), aclarando explícitamente al sub-agente que no hay un bug conocido pendiente en este PR (a diferencia de transfer y revert, que sí tuvieron uno cada uno en su primera pasada) para que no fabrique hallazgos. Foco: manejo de la carrera de clave natural (AO4), semántica 201/200 (AO3), que `account_type` no sea aceptable desde el request (AO1), y completitud del mapeo de errores HTTP — las tres clases de bug que sí aparecieron en las dos PRs posteriores de esta cadena.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 09:54 — Cerrar la segunda revisión del PR #1: sin hallazgos bloqueantes
+
+<!-- id: 20260907-095404-a1fe3a40 -->
+- **Qué intentaba:** (Turno disparado por la finalización de la revisión.) Verificar el veredicto antes de reportarlo.
+- **Prompt:** — (notificación de tarea en background)
+- **Respuesta:** Reporte limpio: sin hallazgos bloqueantes. Verificado por mí de forma independiente antes de aceptarlo (sin checkout, vía `git show`/`git diff` sobre la rama): diff de dominio genuinamente vacío, el catch de `IntegrityError` en `add()` está acotado por nombre real de constraint (`uq_accounts_owner_purpose_currency`), `account_type` está ausente del schema del request y hardcodeado a `USER` en el caso de uso (AO1). La revisión corrió los tests desde un `git worktree` separado (no tocó el árbol de trabajo actual) y confirmó 75 tests + gates verdes. Dos nitpicks no bloqueantes: warning de deprecación de `testcontainers.postgres`, y el test de integración de la carrera es secuencial (no concurrencia real de dos threads), cubierto en cambio por el test unitario — split razonable, no un hueco real.
+- **Veredicto:** ✅ aprobado — PR #1 queda con luz verde para mergear a criterio del usuario
+
 ## 2026-09-07 10:06 — Cambiar al branch del PR #1
 
 <!-- id: 20260907-100645-a1fe3a40 -->
@@ -963,4 +1011,153 @@ Formato de cada entrada:
 - **Qué intentaba:** Subir todo el trabajo pendiente: los 15 comentarios de revisión implementados y verificados, más el plan del sitio web.
 - **Prompt:** "commitea y sube los cambios"
 - **Respuesta:** Dos commits separados por concern: (1) la respuesta completa a la revisión del PR (los 5 batches + mis dos hallazgos propios: el fix de `OverdraftPolicy` colgante en las convenciones y la nota de docstring sobre `get_for_update`), (2) el plan del sitio web (`docs/web-ui-plan.md`), sin relación con el otro cambio. Gates corridos antes de cada uno.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 21:31 — Incidente: `git checkout main -- .` erróneo, corregido antes de commitear nada
+
+<!-- id: 20260907-213113-a1fe3a40 -->
+- **Qué intentaba:** Investigar el código actual para responder la pregunta de propuesta de API de depósito/retiro; ejecuté por error `git checkout main -- .` en medio de esa investigación.
+- **Prompt:** "Cuál es tu propuesta para el/las APIs de depósito y retiro?"
+- **Respuesta:** Error mío: `git checkout main -- .` pisó el working tree de `feat/transfer` con archivos del `main` **local**, que nunca se había actualizado tras el merge de PR#2 (sólo `origin/main` se actualizó vía `fetch`, no el branch local). Eso trajo versiones viejas de ~72 archivos al working tree. Detectado inmediatamente comparando `git diff main feat/transfer` (9004 líneas de diferencia, evidentemente mal) antes de tocar nada más. Verificado que lo único no comiteado antes del error eran 2 archivos de transcript auto-generados (inofensivo, se regeneran solos) -- así que `git reset --hard HEAD` fue seguro y no perdió nada real. Restaurado el working tree al HEAD real de `feat/transfer`, sincronizado `main` local con `origin/main` (para que esto no se repita), y confirmado mypy strict + 188 tests verdes tras la corrección. Nada llegó a commitearse en el estado roto.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 21:41 — Acotar el alcance de monedas a solo USD y renombrar la criteria a FindSystemAccountByPurposeAndCurrency
+
+<!-- id: 20260907-214117-a1fe3a40 -->
+- **Qué intentaba:** Incorporar dos decisiones del usuario sobre la propuesta de depósito/retiro que presenté: acotar el enum de `Currency` a sólo USD por ahora, y corregir el nombre de la criteria nueva para que no pueda usarse por error contra cuentas USER.
+- **Prompt:** "Respecto de la moneda, tendremos que acotar a solo USD, por facilidad... El error 503 parece apropiado. FindSystemAccountByPurposeAndCurrency y no FindAccountByPurposeAndCurrency, de forma que no vayas por una cuenta usuario, tendrás más de un resultado."
+- **Respuesta:** Verificado el razonamiento del segundo punto antes de aplicarlo: `FindAccountByPurposeAndCurrency` sin `owner_id` sólo es unívoca para purposes SYSTEM (una fila por moneda, dueño fijo `PLATFORM_OWNER_ID`) -- para un purpose USER (CHECKING/SAVINGS) la misma forma matchearía múltiples cuentas de distintos owners. El fix no es sólo el nombre: el tipo debe validar en construcción que sólo acepta FUNDING/SETTLEMENT, igual que `AccountPurpose.matches_type()` ya valida en otro lado -- convierte el mal uso en error de construcción en vez de bug de query latente. Actualizado `openspec/specs/account-balance/spec.md`: el requirement de `Currency` ahora dice "enum sobre exactamente USD", con nota explícita de que MXN/COP quedan como los ejemplos de referencia para la extensión futura, no como miembros actuales; corregido el escenario que probaba MXN a USD. Actualizado `openspec/specs/transfer/spec.md`: la nota de known gap ahora tiene el diseño completo asentado (endpoints, `Deposit`/`Withdraw` como wrappers finos sobre `TransferMoney`, el rename de la criteria con su razón, `CurrencyNotOperationalError`→503) en vez de sólo la mitad. Sólo Markdown, 184 tests sin tocar código.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 22:15 — Arrancar depósito/retiro y web UI en paralelo, cada uno en worktree aislado
+<!-- id: 20260907-221532-a1fe3a40 -->
+- **Qué intentaba:** Cumplir la instrucción de iniciar dos tareas en paralelo sin que se pisen en el mismo working tree.
+- **Prompt:** "Quiero que inicies dos tareas en paralelo: 1. depósitos y retiros [...] 2. Construye la web [...] usa react [...] No debe llevar pruebas automatizadas"
+- **Respuesta:** Comité los dos edits de spec pendientes (currency USD-only + diseño depósito/retiro) en una rama nueva `feat/deposit-withdraw` (off `main`), creé otra rama limpia `feat/web-ui` (off `main`), y lancé dos agentes fork con `isolation: "worktree"` — uno implementa el backend con el rigor de siempre (ruff/mypy strict/pytest, GitNexus impact-analysis), el otro construye React en `web/` sin pruebas automatizadas por instrucción explícita. Ninguno mergea ni abre PR por su cuenta.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 22:30 — Verificar independientemente ambos agentes en paralelo antes de reportar
+<!-- id: 20260907-223039-a1fe3a40 -->
+- **Qué intentaba:** No confiar en el self-report de los dos forks (backend depósito/retiro, web UI) y confirmar sus resultados con mis propias manos.
+- **Prompt:** (notificaciones de finalización de ambos agentes, sin mensaje nuevo del usuario)
+- **Respuesta:** Entré a los worktrees dejados por cada fork y corrí las verificaciones yo mismo: `feat/deposit-withdraw` → ruff + mypy strict + pytest completo (206 tests, todo verde); `feat/web-ui` → confirmé ausencia de dependencias de testing, build real (`tsc -b && vite build`) limpio, proxy de Vite a `localhost:8000`, y el scope `web` agregado en `scripts/check_commit_msg.py`. Ambas ramas quedaron pusheadas a origin sin PR ni merge.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 22:31 — Abrir los PRs de depósito/retiro y web UI contra main
+<!-- id: 20260907-223155-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "crea los PRs" para las dos ramas ya verificadas.
+- **Prompt:** "crea los PRs"
+- **Respuesta:** Abrí PR #4 (`feat/deposit-withdraw` → `main`) y PR #5 (`feat/web-ui` → `main`), cada uno con su test plan verificado. Detecté de paso que existe PR #3 (`feat/revert`, trabajo concurrente ajeno) -- no lo toqué.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 22:43 — Lanzar revisión adversarial fresca del PR #4
+<!-- id: 20260907-224333-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "Revisa el PR de depósito y retiro" con una revisión independiente, no con mi propia lectura sesgada por haber orquestado la implementación.
+- **Prompt:** "Revisa el PR de deposito y retiro"
+- **Respuesta:** Lancé un agente fresco (sin memoria de la implementación) con foco adversarial: validar SQL de la nueva criteria (no sólo el chequeo Python en construcción), confirmar que Deposit/Withdraw de verdad delegan en TransferMoney.execute() sin duplicar locking/idempotencia, mapeo a 503, orden de locks (T6), respeto a "SYSTEM sin balance" (T7), y calidad real de los tests (paths de falla, no sólo happy path).
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 22:47 — Corregir el gap de logging encontrado en la revisión del PR #4
+<!-- id: 20260907-224713-a1fe3a40 -->
+- **Qué intentaba:** Actuar sobre el hallazgo real de la revisión adversarial: `resolve_system_account` no logueaba antes de lanzar `CurrencyNotOperationalError`, rompiendo la convención de log-before-raise que el resto de la capa de aplicación sí sigue.
+- **Prompt:** (resultado de la revisión adversarial de PR #4, sin mensaje nuevo del usuario)
+- **Respuesta:** Corregí directamente en el worktree del PR: agregué `logger` a `resolve_system_account`/`Deposit`/`Withdraw` y su wiring, logueo antes de lanzar, y cambié el `assert` defensivo por un `raise`+log explícito (mismo patrón que `transfer_money.py`). 206 tests, ruff y mypy strict siguen verdes. Commit `6c0b3b1` pusheado a `feat/deposit-withdraw`. Dejé como nit opcional la duplicación de la tabla de mapeo de errores entre `transfer_routes.py` y `deposit_withdraw_routes.py`, sin tocarla (scope creep no pedido). Publiqué el resumen de la revisión como comentario en el PR #4.
+- **Veredicto:** ✅ aprobado
+
+## 2026-09-07 22:51 — Confirmar que los cambios quedaron subidos
+<!-- id: 20260907-225116-a1fe3a40 -->
+- **Qué intentaba:** Responder "subiste los cambios?" con verificación real contra origin, no con memoria de lo hecho.
+- **Prompt:** "subiste los cambios?"
+- **Respuesta:** `git fetch` + `gh pr view` confirmaron que `origin/feat/deposit-withdraw` tiene `6c0b3b1` como HEAD y el PR #4 ya lo refleja; `origin/main` tiene el log de la decisión. Nada pendiente de push.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 22:51 — Resolver los 3 comentarios de revisión pendientes en PR #4
+<!-- id: 20260907-225147-a1fe3a40 -->
+- **Qué intentaba:** Responder "No estoy viendo solución a algunos comments que dejé" -- ubicar y resolver los comentarios de revisión humanos pendientes en PR #4.
+- **Prompt:** "No estoy viendo solución a algunos comments que dejé"
+- **Respuesta:** Encontré 3 comentarios vía `gh api`. (1) `assert`→raise explícito: ya resuelto, coincidió con mi propio hallazgo de la revisión adversarial. (2) Mover `system_account_resolver.py` a `application/services/` como clase `SystemAccountResolver` con dependencias inyectadas: implementado (commit `0cb36bb`), matching el patrón ya usado por `IdGenerator`/`Clock`; 206 tests, ruff y mypy strict verdes. (3) `Literal` en vez de `__post_init__` para restringir `purpose`: NO lo apliqué -- devolví la pregunta con evidencia (mismo patrón de validación en runtime ya usado por `SystemAccount.__post_init__`/`UserAccount.open()` en el mismo módulo; achicar el tipo rompería la prueba que hoy prueba el rechazo, forzando `# type: ignore`). Respondí los 3 hilos directamente en el PR.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:00 — Mergear PR #4 a main resolviendo un conflicto real en el decision-log
+<!-- id: 20260907-230004-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "mergealo a main" para PR #4.
+- **Prompt:** "mergealo a main"
+- **Respuesta:** `gh pr merge --merge` falló por un conflicto real (no espurio) en `docs/decision-log.md`: dos entradas de la sesión pre-compactación (incidente `git checkout main --.`, decisión de acotar Currency a USD) habían quedado sólo en `feat/deposit-withdraw` y nunca llegaron a `main`. Las incorporé en orden cronológico correcto vía merge local, sin tocar código (0 conflictos ahí). Corrí ruff/mypy strict/pytest sobre el árbol ya mergeado (206 tests verdes) antes de completar el commit y pushear. PR #4 quedó `MERGED`. Limpié el worktree del fork ya mergeado.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:05 — Actualizar la web UI para usar /deposits y /withdrawals reales
+<!-- id: 20260907-230512-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "vamos con el PR de la web, ya con los EPs de depósito y retiro podemos incrementar la implementación" -- reemplazar el hack de IDs de cuentas SYSTEM hardcodeadas en el frontend por los endpoints reales, ahora que PR #4 está en main.
+- **Prompt:** "vamos con el PR de la web, ya con los EPs de depósito y retiro podemos incrementar la implementación"
+- **Respuesta:** Lancé un fork en worktree aislado sobre `feat/web-ui`: agrega `createDeposit`/`createWithdrawal` al cliente, generaliza `PendingTransfer` (acoplado hoy a la forma de `TransferRequest`) para soportar las tres formas de body, actualiza `MoveMoneyScreen.tsx` para que Deposit/Withdraw ya no inyecten IDs de cuentas SYSTEM a mano, y borra `seededAccounts.ts` (su propio docstring pedía borrarlo el día que estos endpoints existieran). Sigue sin pruebas automatizadas, con verificación manual de golden-path contra un backend real.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:08 — Retomar PR #3 (reversión): merge de main + retrofit de convenciones
+<!-- id: 20260907-230834-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "va siendo tiempo de retomar la reversión actualiza el PR con los cambios de main y aplica las convenciones que hemos definido, déjalo listo para hacer la revisión".
+- **Prompt:** "va siendo tiempo de retomar la reversión actualiza el PR con los cambios de main y aplica las convenciones que hemos definido, déjalo listo para hacer la revisión"
+- **Respuesta:** Investigué antes de delegar: `feat/revert` está 44 commits detrás de `main` (se armó antes del split `Account`→`UserAccount|SystemAccount`, la reorganización de DBOs/adapters, y toda la ronda de convenciones del PR review). Confirmé colisiones concretas: `transfer_repository.py` ya no existe con ese nombre (ahora `sql_transfer_repository.py`, forma distinta), `IdempotencyRecord` perdió `status` (revert_transfer.py aún referencia `"COMPLETED"`), y hay un `__all__` barrel que la convención actual prohíbe. Lancé un fork en worktree aislado para hacer un merge real (no rebase, no force-push a una rama con PR abierto) + retrofit completo, mismo rigor (ruff/mypy strict/pytest). No mergea a main ni abre PR nuevo -- el usuario revisa él mismo cuando esté listo.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:15 — Verificar y cerrar el fork de la web UI (deposit/withdraw reales)
+<!-- id: 20260907-231549-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente el resultado del fork que wireó la web a /deposits y /withdrawals antes de darlo por bueno.
+- **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
+- **Respuesta:** Confirmé en el worktree: `seededAccounts.ts` borrado sin referencias, proxy de Vite en `localhost:8000` (sin el override de dev), build (`tsc -b && vite build`) limpio, sin dependencias de testing agregadas. Commit `446f9da` ya en origin. Limpié los worktrees ya superados (el de este fork y el original de la web, ambos redundantes tras el merge).
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:23 — Cerrar la reversión (merge sincronizado) e iniciar listado de cuentas + histórico
+<!-- id: 20260907-232353-a1fe3a40 -->
+- **Qué intentaba:** Verificar el fork del merge de `feat/revert` antes de darlo por bueno, y arrancar la nueva solicitud del usuario: vista de listado de cuentas + histórico de movimientos, ambos acotados al dueño de la sesión.
+- **Prompt:** "La consola tiene vista de listado de cuentas de un usuario además de histórico de movimientos, podemos ir resolviendo estos temas. En ambos casos por su puesto pertenecientes al usuario de la sesión"
+- **Respuesta:** Verifiqué el merge de reversión yo mismo (225 tests, ruff, mypy strict verdes; spot-check de las afirmaciones clave: sin `__all__`, `RevertTransferUseCase` renombrado, `get_many_for_update` usado, catch de `IntegrityError` acotado por constraint). Encontré y corregí un segundo conflicto real en `docs/decision-log.md` al traer el último commit de main: 6 entradas históricas de la propia rama (creación original del PR #3, segunda revisión del PR #1) que nunca habían llegado a main -- las reordené a su posición cronológica correcta (entre 02:40 y 10:06) en vez de dejarlas fuera de orden al final. Pusheado. Para la nueva tarea: el diseño ya existía documentado (`docs/web-ui-plan.md` §6.1/6.1b/6.2) -- creé rama `feat/account-reads` limpia desde `main` y lancé un fork para implementar GET /accounts/{id}, GET /accounts y GET /accounts/{id}/movements (paginado por cursor), con chequeo de dueño real, mismo rigor de siempre.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:25 — Verificar el merge de feat/revert y resolver su segundo conflicto de decision-log
+<!-- id: 20260907-232510-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente el fork que sincronizó `feat/revert` con `main` antes de darlo por listo, en el turno disparado por su notificación de finalización.
+- **Prompt:** (notificación de finalización del fork del merge de reversión, sin mensaje nuevo del usuario)
+- **Respuesta:** Corrí ruff/mypy strict/pytest yo mismo sobre el worktree (225 tests verdes) y confirmé con grep las afirmaciones clave del reporte (sin `__all__`, `RevertTransferUseCase`→`RevertTransfer`, `get_many_for_update` en uso, catch de `IntegrityError` acotado por constraint). Al traer el commit más nuevo de `main`, apareció un segundo conflicto real en `docs/decision-log.md`: 6 entradas de la creación original de la rama (Sept-7 madrugada) que nunca habían llegado a `main`. Las reordené a su posición cronológica correcta en vez de dejarlas fuera de orden, y pusheé.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:44 — Lanzar revisión adversarial fresca del PR #3 (reversión)
+<!-- id: 20260907-234421-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "Revisa el PR de reversión, córrelo en un subagente".
+- **Prompt:** "Revisa el PR de reversión, córrelo en un subagente"
+- **Respuesta:** Lancé un agente fresco (general-purpose, sin memoria de la implementación) con foco en: R3 (reserva de idempotencia antes de tocar cuentas -- ya causó un bug real en transfer, verificar orden real del código, no el comentario), R2 (dirección origen/destino derivada del transfer original, nunca del cliente), R4 (catch de IntegrityError acotado por nombre de constraint), y sobre todo si el retrofit del merge de hoy quedó completo (narrowing a UserAccount, get_many_for_update, logger, sin residuos del modelo Account viejo o del `__all__` barrel).
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:47 — Verificar backend de listado/histórico y cerrar la revisión del PR #3
+<!-- id: 20260907-234756-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente el fork de listado/histórico de cuentas y el resultado de la revisión adversarial del PR #3, en el mismo turno.
+- **Prompt:** (notificaciones de finalización de ambos: el fork de account-reads y el reviewer de PR #3, sin mensaje nuevo del usuario)
+- **Respuesta:** Backend de cuentas: 238 tests, ruff, mypy strict verdes; encontré por mi cuenta un `assert isinstance` repetido (mismo anti-patrón que un reviewer humano ya marcó en PR #4) en `get_account.py`/`list_movements.py` y lo corregí (commit `99d2c86`) -- tuve que resolver además un desajuste de nombre de rama local vs remota en el worktree del fork antes de poder pushear. Validé la decisión de arquitectura (MovementRepository como puerto separado de TransferRepository). PR #3: verifiqué yo mismo, leyendo el código real, las tres afirmaciones más críticas del reviewer (R3 orden de idempotencia, R2 dirección, R4 catch acotado por constraint) antes de publicar el resumen como comentario en el PR. Sin hallazgos bloqueantes en ninguno de los dos.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-07 23:52 — Resolver los 4 comentarios de revisión pendientes en PR #3
+<!-- id: 20260907-235239-a1fe3a40 -->
+- **Qué intentaba:** Responder "sobre la revisión del PR, no veo mis observaciones resueltas" -- ubicar y resolver los comentarios humanos pendientes en PR #3.
+- **Prompt:** "sobre la revisión del PR, no veo mis observaciones resueltas"
+- **Respuesta:** Encontré 4 comentarios vía `gh api`, ninguno resuelto: (1) nombre `RevertTransferUseCase` stale en el spec, (2) mover el hash de idempotencia a un método de `RevertTransferRequest` (ver transfer use case), (3-4) cambio real de diseño: `requested_by`→`executed_by` con un principal admin fijo documentado en README y autorización simulada real vía gateway/adapter propio, más el objeto siendo un `PrincipalId` en vez de `OwnerId`. Delegué a un fork en worktree aislado sobre `feat/revert`, dejando explícita la tensión de tipos con `IdempotencyRecord.caller_id: OwnerId` (infraestructura compartida por las 4 use cases) como decisión de arquitectura a justificar, no a adivinar. No responde los hilos del PR ni mergea -- eso lo hago yo tras verificar.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 00:12 — Verificar y responder los 4 comentarios resueltos en PR #3
+<!-- id: 20260908-001203-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente el fork que resolvió los 4 comentarios de revisión de PR #3 antes de responder los hilos.
+- **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
+- **Respuesta:** Corrí ruff/mypy strict/pytest yo mismo (229 tests verdes) y confirmé cada cambio leyendo el código real: nombre del spec corregido, hash movido a `RevertTransferRequest.hash()`, `AuthorizationGateway`+`FixedAdminAuthorizationGateway` contra `ADMIN_PRINCIPAL_ID` fijo documentado en README (403 mapeado), y `PrincipalId(OwnerId)` -- subclase deliberada de `OwnerId`, no de `EntityId`, para satisfacer `IdempotencyRecord.caller_id: OwnerId` por Liskov sin ensanchar esa infraestructura compartida. Publiqué las 4 respuestas en los hilos del PR. Limpié los dos worktrees ya verificados (account-reads y este).
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 00:18 — Resolver el nuevo comentario de revisión en PR #3 (log-before-raise)
+<!-- id: 20260908-001848-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "comentarios nuevos al PR, resuélvelos" -- revisé los 3 PRs abiertos (#3, #4, #5) y encontré 1 comentario nuevo sin resolver.
+- **Prompt:** "comentarios nuevos al PR, resuélvelos"
+- **Respuesta:** El único comentario nuevo estaba en PR #3: `FixedAdminAuthorizationGateway` lanzaba `UnauthorizedPrincipalError` sin loguear antes, rompiendo la misma convención que ya se había corregido dos veces antes en la sesión (PR #4, y el gap original de este mismo PR). Corregido en un worktree temporal: logger inyectado, `warning` antes de lanzar (un rechazo de reversión es security-relevant). 229 tests, ruff, mypy strict verdes. Commit `9b8f7b2` pusheado a `feat/revert`, respondido en el hilo del PR.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 00:24 — Sincronizar feat/account-reads (PR #6) con main y pasar a esa rama
+<!-- id: 20260908-002437-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "sincroniza el PR 6 con main y pasa a ese branch" -- traer el merge de PR #3 (reversión) a `feat/account-reads`.
+- **Prompt:** "sincroniza el PR 6 con main y pasa a ese branch"
+- **Respuesta:** Mergeé `main` en `feat/account-reads`. Dos conflictos reales: `dependencies.py` (imports en la misma posición alfabética, combinados) y `docs/decision-log.md` (mismo patrón recurrente, sin reordenar esta vez). Encontré además un gap que el merge no marcó como conflicto: el fake de `AccountRepository` en `test_revert_transfer_use_case.py` no implementaba el nuevo `find_by_owner` abstracto -- lo agregué siguiendo el patrón ya usado en otros fakes. 246 tests, ruff, mypy strict verdes. Pusheado. Quedé parado en `feat/account-reads` según lo pedido.
 - **Veredicto:** ⏳ pendiente

@@ -111,6 +111,10 @@ class _FakeAccountRepository(AccountRepository):
                     ),
                     None,
                 )
+            case _:
+                # TransferMoney only ever looks accounts up by id (T9) --
+                # this fake has no need to support any other criteria.
+                raise NotImplementedError
 
     async def add(self, account: Account) -> None:
         raise NotImplementedError
@@ -133,6 +137,9 @@ class _FakeAccountRepository(AccountRepository):
             if isinstance(account := self._database.accounts.get(account_id), UserAccount)
         ]
         return tuple(locked)
+
+    async def find_by_owner(self, owner_id: OwnerId) -> tuple[UserAccount, ...]:
+        raise NotImplementedError("TransferMoney never lists accounts by owner")
 
     async def update(self, account: UserAccount) -> None:
         self._staged[account.account_id] = account

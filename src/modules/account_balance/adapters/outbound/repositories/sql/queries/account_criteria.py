@@ -5,7 +5,9 @@ from modules.account_balance.application.gateways.models.find_accounts_criteria 
     FindAccountByAccountId,
     FindAccountByOwnerAndPurposeAndCurrency,
     FindAccountCriteria,
+    FindSystemAccountByPurposeAndCurrency,
 )
+from modules.account_balance.domain.account import AccountType
 
 
 def find_account_criteria_to_sql_query(criteria: FindAccountCriteria) -> Select[tuple[AccountDbo]]:
@@ -21,5 +23,16 @@ def find_account_criteria_to_sql_query(criteria: FindAccountCriteria) -> Select[
             )
         case FindAccountByAccountId(account_id):
             return select(AccountDbo).where(AccountDbo.account_id == account_id.value)
+        case FindSystemAccountByPurposeAndCurrency(purpose, currency):
+            # account_type == SYSTEM is redundant with the criteria's own
+            # construction-time validation (purpose already implies SYSTEM),
+            # but stated here too: this WHERE clause is what actually keeps
+            # a USER row unreachable through this query, not just the type
+            # that built it.
+            return select(AccountDbo).where(
+                AccountDbo.account_type == AccountType.SYSTEM.value,
+                AccountDbo.purpose == purpose.value,
+                AccountDbo.currency == str(currency),
+            )
 
     raise ValueError(f"Invalid criteria: {criteria}")

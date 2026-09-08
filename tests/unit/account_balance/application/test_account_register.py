@@ -58,6 +58,10 @@ class _FakeAccountRepository(AccountRepository):
                 return next(
                     (a for a in self.by_natural_key.values() if a.account_id == account_id), None
                 )
+            case _:
+                # AccountRegister never looks up a SYSTEM account (AO1) --
+                # this fake has no need to support it.
+                raise NotImplementedError
 
     async def add(self, account: Account) -> None:
         key = (account.owner_id, account.purpose, account.currency)
@@ -80,6 +84,9 @@ class _FakeAccountRepository(AccountRepository):
         self, account_ids: tuple[AccountId, ...]
     ) -> tuple[UserAccount, ...]:
         raise NotImplementedError("AccountRegister never locks accounts")
+
+    async def find_by_owner(self, owner_id: OwnerId) -> tuple[UserAccount, ...]:
+        raise NotImplementedError("AccountRegister never lists accounts by owner")
 
     async def update(self, account: UserAccount) -> None:
         raise NotImplementedError("AccountRegister never updates an existing account")

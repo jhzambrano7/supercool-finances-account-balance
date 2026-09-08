@@ -3,7 +3,7 @@ from typing import Any
 
 from modules.account_balance.domain.identifiers import TransferId
 from modules.account_balance.domain.transfer import Transfer
-from modules.shared.application.errors import IntegrationError
+from modules.shared.application.errors import IntegrationError, ResourceAlreadyExistsError
 
 
 class TransferRepositoryError(IntegrationError):
@@ -19,6 +19,27 @@ class TransferRepositoryError(IntegrationError):
             cause=cause,
             message=f"An error occurred while performing the {operation} operation",
             metadata=metadata,
+        )
+
+
+class TransferAlreadyReversedConflictError(ResourceAlreadyExistsError):
+    """Raised by an adapter when `add()` loses the R4 race.
+
+    Mirrors `AccountAlreadyExistsError` (AO4) and `IdempotencyRecordConflictError`
+    (T5): whether some *other* transfer already reverses the same original is a
+    fact about other rows, which no single `Transfer` can answer for itself --
+    a persistence-adapter concern, raised by whichever `TransferRepository`
+    implementation backs a real database when the partial unique index on
+    `transfers.reverses` (design §8, R4) is violated. Never raised for an
+    ordinary (non-reversal) transfer, since that index only ever applies to
+    rows with `reverses IS NOT NULL`.
+    """
+
+    def __init__(self, *, original_transfer_id: TransferId) -> None:
+        self.original_transfer_id = original_transfer_id
+        super().__init__(
+            resource_type="transfer_reversal",
+            resource_identifier=str(original_transfer_id),
         )
 
 
@@ -41,6 +62,11 @@ class TransferRepository(ABC):
         Does not commit -- the enclosing `TransferUnitOfWork` commits once,
         atomically, alongside the account balance updates and the
         idempotency record (T3, PRD §6.1).
+
+        Raises `TransferAlreadyReversedConflictError` if `transfer` is a
+        reversal (`reverses` is not `None`) and some other transfer already
+        reverses the same original -- the losing side of the R4 race
+        (design §8).
         """
 
     @abstractmethod

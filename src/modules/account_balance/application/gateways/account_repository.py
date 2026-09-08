@@ -87,11 +87,9 @@ class AccountRepository(ABC):
     async def find(self, *, criteria: FindAccountCriteria) -> Account | None:
         """Returns the account for this criteria, or `None` if none exists.
 
-        For a `SYSTEM` account, the balance returned is computed as
-        `SUM(signed entries)` at read time, never the stored
-        `balance_amount` column (T7, PRD §5.3) -- that column goes unused
-        for `SYSTEM` rows from this slice on. For a `USER` account, the
-        stored column is the answer, unlocked.
+        A `SYSTEM` account has no balance at all (T7) -- not a field, not a maintained column, not
+        a value computed on read; the stored `balance_amount` column is seeded at zero and never
+        read for a `SYSTEM` row. For a `USER` account, the stored column is the answer, unlocked.
         """
 
     @abstractmethod
@@ -143,6 +141,18 @@ class AccountRepository(ABC):
         Returns only the `USER` accounts that exist, so the result may be
         shorter than the input; it is never longer, and never contains a
         `SYSTEM` account (T6, T7).
+        """
+
+    @abstractmethod
+    async def find_by_owner(self, owner_id: OwnerId) -> tuple[UserAccount, ...]:
+        """Returns every `USER` account owned by `owner_id`, or an empty tuple.
+
+        No pagination (docs/web-ui-plan.md §6.1b): one owner's account count is bounded by
+        `(purpose x currency)` combinations, and the natural key already forbids duplicates, so
+        this cannot grow unboundedly the way a shared list (e.g. every account in the ledger)
+        could. Never contains a `SYSTEM` account: `PLATFORM_OWNER_ID` is never a real caller's
+        `owner_id` (T6/T7's established pattern of excluding `SYSTEM` in the query itself, not
+        leaving it to be excluded by chance).
         """
 
     @abstractmethod

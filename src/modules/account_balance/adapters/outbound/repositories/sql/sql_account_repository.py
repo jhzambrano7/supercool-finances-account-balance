@@ -20,7 +20,7 @@ from modules.account_balance.application.gateways.models.find_accounts_criteria 
     FindAccountCriteria,
 )
 from modules.account_balance.domain.account import Account, AccountType, UserAccount
-from modules.account_balance.domain.identifiers import AccountId
+from modules.account_balance.domain.identifiers import AccountId, OwnerId
 
 _NATURAL_KEY_CONSTRAINT = "uq_accounts_owner_purpose_currency"
 
@@ -145,6 +145,37 @@ class SqlAccountRepository(AccountRepository):
                 operation="get_many_for_update",
                 cause=exc,
                 metadata={"account_ids": [str(id_.value) for id_ in account_ids]},
+            ) from exc
+
+    @override
+    async def find_by_owner(self, owner_id: OwnerId) -> tuple[UserAccount, ...]:
+        try:
+            async with self._session_factory() as session:
+                dbos = (
+                    await session.scalars(
+                        select(AccountDbo)
+                        .where(
+                            AccountDbo.owner_id == owner_id.value,
+                            # PLATFORM_OWNER_ID is never a real caller's owner_id, so this
+                            # exclusion is defensive rather than load-bearing today -- excluded in
+                            # the query itself anyway, matching get_for_update/get_many_for_update's
+                            # own established pattern (T6, T7).
+                            AccountDbo.account_type == AccountType.USER.value,
+                        )
+                        .order_by(AccountDbo.purpose, AccountDbo.currency)
+                    )
+                ).all()
+                accounts = tuple(dbo.as_domain() for dbo in dbos)
+                assert all(isinstance(account, UserAccount) for account in accounts), (
+                    "excluded SYSTEM rows in the WHERE clause"
+                )
+                return cast(tuple[UserAccount, ...], accounts)
+        except Exception as exc:
+            self._logger.exception("unexpected error finding accounts for owner %s", owner_id)
+            raise AccountRepositoryError(
+                operation="find_by_owner",
+                cause=exc,
+                metadata={"owner_id": str(owner_id.value)},
             ) from exc
 
     @override

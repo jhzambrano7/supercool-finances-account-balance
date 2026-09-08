@@ -9,8 +9,10 @@ from uuid import uuid4
 
 from modules.account_balance.adapters.inbound.api.dtos import (
     AccountResponseDto,
+    MovementResponseDto,
     TransferResponseDto,
 )
+from modules.account_balance.application.gateways.models.movement import Movement
 from modules.account_balance.application.use_cases.account_register import OpenAccountResult
 from modules.account_balance.domain.account import AccountPurpose, UserAccount
 from modules.account_balance.domain.entry import Entry, EntryDirection
@@ -101,3 +103,44 @@ def test_from_transfer_maps_every_field() -> None:
     assert credit_dto.account_id == destination_account_id.value
     assert credit_dto.direction is EntryDirection.CREDIT
     assert credit_dto.amount == 1_000
+
+
+def test_from_account_maps_every_field() -> None:
+    account = UserAccount.open(
+        account_id=AccountId(uuid4()),
+        owner_id=OwnerId(uuid4()),
+        purpose=AccountPurpose.SAVINGS,
+        currency=USD,
+    )
+
+    dto = AccountResponseDto.from_account(account)
+
+    assert dto.account_id == account.account_id.value
+    assert dto.owner_id == account.owner_id.value
+    assert dto.purpose is AccountPurpose.SAVINGS
+    assert dto.currency == "USD"
+    assert dto.balance == 0
+    assert dto.status is account.status
+
+
+def test_from_movement_maps_every_field() -> None:
+    movement = Movement(
+        entry_id=EntryId(uuid4()),
+        transfer_id=TransferId(uuid4()),
+        direction=EntryDirection.DEBIT,
+        amount=Money(2_500, USD),
+        counterparty_account_id=AccountId(uuid4()),
+        requested_by=OwnerId(uuid4()),
+        occurred_at=datetime(2026, 9, 7, 12, 34, 56, tzinfo=UTC),
+    )
+
+    dto = MovementResponseDto.from_movement(movement)
+
+    assert dto.entry_id == movement.entry_id.value
+    assert dto.transfer_id == movement.transfer_id.value
+    assert dto.direction is EntryDirection.DEBIT
+    assert dto.amount == 2_500
+    assert dto.currency == "USD"
+    assert dto.counterparty_account_id == movement.counterparty_account_id.value
+    assert dto.requested_by == movement.requested_by.value
+    assert dto.occurred_at == movement.occurred_at

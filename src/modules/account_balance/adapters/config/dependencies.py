@@ -2,14 +2,29 @@ import logging
 
 from dependency_injector import containers, providers
 
+from modules.account_balance.adapters.config.fixed_admin_authorization_gateway import (
+    FixedAdminAuthorizationGateway,
+)
 from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repository import (
     SqlAccountRepository,
+)
+from modules.account_balance.adapters.outbound.repositories.sql.sql_movement_repository import (
+    SqlMovementRepository,
 )
 from modules.account_balance.adapters.outbound.repositories.sql.sql_unit_of_work import (
     SqlTransferUnitOfWork,
 )
+from modules.account_balance.application.services.system_account_resolver import (
+    SystemAccountResolver,
+)
 from modules.account_balance.application.use_cases.account_register import AccountRegister
+from modules.account_balance.application.use_cases.deposit import Deposit
+from modules.account_balance.application.use_cases.get_account import GetAccount
+from modules.account_balance.application.use_cases.list_accounts import ListAccounts
+from modules.account_balance.application.use_cases.list_movements import ListMovements
+from modules.account_balance.application.use_cases.revert_transfer import RevertTransfer
 from modules.account_balance.application.use_cases.transfer_money import TransferMoney
+from modules.account_balance.application.use_cases.withdraw import Withdraw
 from modules.shared.adapters.config.dependencies import SharedDependencies
 
 
@@ -30,6 +45,32 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
         id_generator=shared.id_generator,
     )
 
+    get_account = providers.Factory(
+        provides=GetAccount,
+        repository=account_repository,
+        logger=logger,
+    )
+
+    list_accounts = providers.Factory(
+        provides=ListAccounts,
+        repository=account_repository,
+    )
+
+    # A fresh, independently-committed session per call (like account_repository above), not the
+    # transactional unit-of-work session: reading movements is not part of any write transaction.
+    movement_repository = providers.Factory(
+        provides=SqlMovementRepository,
+        logger=logger,
+        session_factory=shared.session_factory,
+    )
+
+    list_movements = providers.Factory(
+        provides=ListMovements,
+        account_repository=account_repository,
+        movement_repository=movement_repository,
+        logger=logger,
+    )
+
     transfer_unit_of_work = providers.Factory(
         provides=SqlTransferUnitOfWork,
         logger=logger,
@@ -47,6 +88,45 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
         unit_of_work_factory=transfer_unit_of_work.provider,
         id_generator=shared.id_generator,
         clock=shared.clock,
+    )
+
+    # Reads through account_repository (unlocked, matching how transfer_money
+    # itself reads a SYSTEM leg, T7) rather than through transfer_unit_of_work's
+    # own accounts repository, since resolving the platform's FUNDING/SETTLEMENT
+    # account is not part of the transfer's own transaction.
+    system_account_resolver = providers.Factory(
+        provides=SystemAccountResolver,
+        repository=account_repository,
+        logger=logger,
+    )
+
+    # Deposit/Withdraw are thin wrappers over transfer_money (openspec/specs/
+    # transfer/spec.md, "The design, settled").
+    deposit = providers.Factory(
+        provides=Deposit,
+        system_account_resolver=system_account_resolver,
+        transfer_money=transfer_money,
+    )
+
+    withdraw = providers.Factory(
+        provides=Withdraw,
+        system_account_resolver=system_account_resolver,
+        transfer_money=transfer_money,
+    )
+
+    # Stateless (a fixed-constant comparison, R1) -- a Singleton, same reasoning as `logger`.
+    authorization_gateway = providers.Singleton(FixedAdminAuthorizationGateway, logger=logger)
+
+    # Shares `transfer_unit_of_work`'s provider (R3: same unit of work, same
+    # three repositories, same idempotency mechanism as `transfer` -- no
+    # parallel infrastructure for this slice).
+    revert_transfer = providers.Factory(
+        provides=RevertTransfer,
+        logger=logger,
+        unit_of_work_factory=transfer_unit_of_work.provider,
+        id_generator=shared.id_generator,
+        clock=shared.clock,
+        authorization_gateway=authorization_gateway,
     )
 
 
