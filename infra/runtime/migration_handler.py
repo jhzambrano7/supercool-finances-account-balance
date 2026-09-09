@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import UTC, datetime
 from typing import Any
 
 import boto3
@@ -37,6 +38,15 @@ TASK_DEFINITION = os.environ["TASK_DEFINITION_ARN"]
 SUBNET_IDS = os.environ["SUBNET_IDS"].split(",")
 SECURITY_GROUP_IDS = os.environ["SECURITY_GROUP_IDS"].split(",")
 CONTAINER_NAME = os.environ["CONTAINER_NAME"]
+
+#: How long a single migration task is allowed to run before this poller kills it.
+#:
+#: Deliberately shorter than the custom resource's own `total_timeout`. If the resource times out
+#: first, CloudFormation gives up while the task keeps running -- still holding the advisory lock
+#: `alembic/env.py` takes, still rewriting tables, against a schema CloudFormation has already
+#: decided to roll back. Stopping it from here means the deadline is enforced by something that
+#: can actually act on it.
+DEADLINE_SECONDS = int(os.environ.get("MIGRATION_DEADLINE_SECONDS", "2700"))
 
 
 def on_event(event: dict[str, Any], _context: object) -> dict[str, Any]:
@@ -91,7 +101,22 @@ def is_complete(event: dict[str, Any], _context: object) -> dict[str, Any]:
 
     task = tasks[0]
     if task["lastStatus"] != "STOPPED":
-        logger.info("migration task %s is %s", task_arn, task["lastStatus"])
+        started = task.get("startedAt") or task.get("createdAt")
+        running_for = (datetime.now(UTC) - started).total_seconds() if started else 0.0
+        if running_for > DEADLINE_SECONDS:
+            logger.error(
+                "migration task %s has run for %.0fs, past the %ss deadline; stopping it",
+                task_arn,
+                running_for,
+                DEADLINE_SECONDS,
+            )
+            ecs.stop_task(cluster=CLUSTER, task=task_arn, reason="migration exceeded its deadline")
+            raise RuntimeError(
+                f"migrations exceeded {DEADLINE_SECONDS}s and were stopped. Task {task_arn} -- "
+                "check its logs before retrying; a partially applied migration needs a human."
+            )
+
+        logger.info("migration task %s is %s (%.0fs)", task_arn, task["lastStatus"], running_for)
         return {"IsComplete": False}
 
     container = next(

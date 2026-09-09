@@ -1,5 +1,4 @@
 import asyncio
-import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -16,6 +15,7 @@ import modules.account_balance.adapters.outbound.repositories.sql.dbos.account_d
 import modules.account_balance.adapters.outbound.repositories.sql.dbos.entry_dbo
 import modules.account_balance.adapters.outbound.repositories.sql.dbos.idempotency_record_dbo
 import modules.account_balance.adapters.outbound.repositories.sql.dbos.transfer_dbo  # noqa: F401
+from modules.shared.adapters.config.settings import Settings
 from modules.shared.adapters.outbound.repositories.sql.base import Base
 
 # this is the Alembic Config object, which provides
@@ -32,18 +32,25 @@ if config.config_file_name is not None:
 # not just one module's.
 target_metadata = Base.metadata
 
-# `alembic.ini`'s `sqlalchemy.url` is the docker-compose default. A
-# programmatic caller (integration tests, pointing migrations at their own
+# Where migrations connect, in one place.
+#
+# A programmatic caller (integration tests, pointing migrations at their own
 # testcontainers-provisioned PostgreSQL) wins by passing the url through
 # `config.attributes` -- checked first, so it is never shadowed by whatever
-# `DATABASE_URL` happens to be set in the developer's own shell. Only when
-# no attribute override is given does an explicit `DATABASE_URL` env var
-# (the same variable `Settings` reads) override the ini default, for normal
-# non-test invocations of `alembic upgrade`.
+# happens to be set in the developer's own shell.
+#
+# Everything else defers to `Settings`, which is the same object the running
+# service uses. This is deliberate and it was a real bug before: reading
+# `DATABASE_URL` here directly meant AWS never matched, because ECS injects the
+# RDS secret as five discrete `DB_*` variables and cannot assemble a URL from
+# them (infra/stacks/service_stack.py). Alembic then fell through to
+# `alembic.ini`'s value and tried to migrate `localhost`. One source of truth
+# removes the possibility of the migration and the service disagreeing about
+# which database they are talking to.
 if "sqlalchemy.url" in config.attributes:
     config.set_main_option("sqlalchemy.url", config.attributes["sqlalchemy.url"])
-elif os.environ.get("DATABASE_URL"):
-    config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
+else:
+    config.set_main_option("sqlalchemy.url", Settings().database_url)
 
 
 def run_migrations_offline() -> None:
@@ -70,10 +77,29 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+# An arbitrary but fixed key: any two processes using this same number serialize
+# against each other, and nothing else in the database uses it.
+_MIGRATION_LOCK_KEY = 0x4C45444745524D47  # "LEDGERMG"
+
+
 def do_run_migrations(connection: Connection) -> None:
+    """Runs the pending migrations, holding an advisory lock for the duration.
+
+    Alembic itself takes no lock. Two concurrent `alembic upgrade head` runs -- two deploys, a
+    human and CI, or one deploy retried while the first is still going -- both read
+    `alembic_version`, both decide the same revision is pending, and the loser fails partway
+    through against a schema the winner is still rewriting. For a ledger, a half-applied migration
+    is the worst possible state to be left in.
+
+    `pg_advisory_xact_lock` blocks rather than failing, and is released when the transaction ends
+    however it ends -- including a crash, which a lock table of our own would not survive.
+    """
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():
+        # Inside the transaction, before any migration runs: `pg_advisory_xact_lock` is scoped to
+        # the transaction, so taking it earlier would release it immediately.
+        connection.exec_driver_sql(f"SELECT pg_advisory_xact_lock({_MIGRATION_LOCK_KEY})")
         context.run_migrations()
 
 

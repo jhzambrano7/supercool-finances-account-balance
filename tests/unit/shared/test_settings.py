@@ -79,10 +79,14 @@ def test_an_explicit_url_wins_over_the_parts() -> None:
     ["db_host", "db_user", "db_password"],
     ids=["without host", "without user", "without password"],
 )
-def test_a_partial_secret_falls_back_rather_than_composing_a_broken_url(missing: str) -> None:
-    """Half an injected secret must not become a URL with the word `None` in it: failing back to a
-    default that visibly does not reach the ledger is easier to diagnose than a plausible-looking
-    connection string that cannot possibly work."""
+def test_a_partial_secret_refuses_to_start(missing: str) -> None:
+    """The failure this prevents is the quietest one available.
+
+    Falling back to the development default here would start the service against `localhost` with
+    `postgres`/`postgres` -- it would boot, pass its own liveness probe, register healthy with the
+    load balancer, and only reveal the problem once someone moved money. A misconfigured secret is
+    not a preference for the default; refusing to start is by far the cheaper failure.
+    """
     parts = {
         "db_host": "ledger.rds.amazonaws.com",
         "db_user": "account_balance_app",
@@ -90,7 +94,20 @@ def test_a_partial_secret_falls_back_rather_than_composing_a_broken_url(missing:
     }
     del parts[missing]
 
-    assert Settings(**parts).database_url == _DEFAULT  # type: ignore[arg-type]
+    with pytest.raises(ValidationError, match="incomplete database configuration"):
+        Settings(**parts)  # type: ignore[arg-type]
+
+
+def test_a_database_name_needing_escaping_is_percent_encoded() -> None:
+    """Same reasoning as the credentials, applied to the last free-text field in the URL."""
+    settings = Settings(
+        db_host="ledger.rds.amazonaws.com",
+        db_user="app",
+        db_password="pw",
+        db_name="ledger db",
+    )
+
+    assert settings.database_url.endswith("/ledger+db")
 
 
 def test_a_non_numeric_port_is_rejected_rather_than_coerced() -> None:

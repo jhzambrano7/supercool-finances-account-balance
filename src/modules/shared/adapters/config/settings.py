@@ -44,17 +44,45 @@ class Settings(BaseSettings):
         containing `@`, `/` or `:` would otherwise terminate the URL's authority section early,
         and the failure surfaces as an unparseable host rather than as a credential problem.
         """
-        if self.db_host is None or self.db_user is None or self.db_password is None:
-            return self
         # `model_fields_set` holds the fields the environment actually supplied, which is a
         # different question from "does this differ from the default" -- an operator who sets
         # DATABASE_URL to exactly the default value still meant to set it.
         if "database_url" in self.model_fields_set:
             return self
 
+        # Bound to locals so the `None` checks below narrow the types -- an `assert` would too,
+        # and `python -O` would strip it, turning a configuration error into a `TypeError` deep
+        # inside string formatting.
+        host, user, password = self.db_host, self.db_user, self.db_password
+
+        if host is None and user is None and password is None:
+            # Nothing was injected: local development, or the test suite.
+            return self
+
+        if host is None or user is None or password is None:
+            # A partially injected secret is a misconfiguration, never a preference. Falling back
+            # to the development default here would start the service against `localhost` with
+            # `postgres`/`postgres` -- succeeding at boot, passing its own liveness probe, and
+            # failing only once real money moved. Refusing to start is the cheaper failure by a
+            # wide margin.
+            missing = [
+                name
+                for name, value in (
+                    ("DB_HOST", host),
+                    ("DB_USER", user),
+                    ("DB_PASSWORD", password),
+                )
+                if value is None
+            ]
+            raise ValueError(
+                f"incomplete database configuration: {', '.join(missing)} missing while the "
+                "others were supplied. Set all of DB_HOST/DB_USER/DB_PASSWORD, or set "
+                "DATABASE_URL instead."
+            )
+
         database = self.db_name or "account_balance"
-        credentials = f"{quote_plus(self.db_user)}:{quote_plus(self.db_password)}"
+        credentials = f"{quote_plus(user)}:{quote_plus(password)}"
         self.database_url = (
-            f"postgresql+psycopg://{credentials}@{self.db_host}:{self.db_port}/{database}"
+            f"postgresql+psycopg://{credentials}@{host}:{self.db_port}/{quote_plus(database)}"
         )
         return self

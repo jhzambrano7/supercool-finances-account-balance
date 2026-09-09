@@ -8,7 +8,17 @@ import aws_cdk as cdk
 
 from stacks.data_stack import DataStack
 from stacks.environment import is_placeholder_network, network_from_context
+from stacks.registry_stack import RegistryStack
 from stacks.service_stack import ServiceStack
+
+#: What `imageTag` becomes when nobody passes one. Deliberately not `latest`.
+#:
+#: `latest` was the previous default and it was wrong three ways at once: the registry is
+#: `IMMUTABLE`, so `:latest` can be pushed exactly once; a moving tag makes a rollback a guess; and
+#: — the quiet one — a constant tag means the migration custom resource's properties never change,
+#: so CloudFormation never sends it an Update and migrations silently stop running after the first
+#: deploy. A placeholder that cannot exist in the registry fails the deploy loudly instead.
+PLACEHOLDER_IMAGE_TAG = "PLACEHOLDER-pass-c-imageTag"
 
 app = cdk.App()
 
@@ -33,6 +43,22 @@ account = os.environ.get("CDK_DEFAULT_ACCOUNT")
 region = os.environ.get("CDK_DEFAULT_REGION")
 env = cdk.Environment(account=account, region=region) if account and region else None
 
+registry = RegistryStack(
+    app,
+    "AccountBalanceRegistry",
+    env=env,
+    description="account-balance: the ECR repository, deployed before anything that pulls from it",
+)
+
+image_tag = app.node.try_get_context("imageTag") or PLACEHOLDER_IMAGE_TAG
+if image_tag == PLACEHOLDER_IMAGE_TAG:
+    print(
+        "[account-balance] No -c imageTag=… given, using a placeholder that cannot exist in ECR.\n"
+        "  Synthesizing is fine; deploying will fail on the image pull. Pass a real, unique tag:\n"
+        "  cdk deploy -c imageTag=$(git rev-parse --short HEAD)",
+        file=sys.stderr,
+    )
+
 data = DataStack(
     app,
     "AccountBalanceData",
@@ -47,14 +73,15 @@ service = ServiceStack(
     network=network,
     database_secret=data.credentials,
     database_security_group_id=data.security_group.security_group_id,
-    # A deploy *is* this value changing, and it is also what re-triggers migrations. Never
-    # `latest`: a moving tag makes a rollback a guess, and makes the migration step a no-op.
-    image_tag=app.node.try_get_context("imageTag") or "latest",
+    repository=registry.repository,
+    # A deploy *is* this value changing, and it is also what re-triggers migrations.
+    image_tag=image_tag,
     env=env,
     description="account-balance: ECR, ECS/Fargate behind an ALB, autoscaling, migrations",
 )
 
 service.add_dependency(data)
+service.add_dependency(registry)
 
 cdk.Tags.of(app).add("service", "account-balance")
 cdk.Tags.of(app).add("managed-by", "cdk")

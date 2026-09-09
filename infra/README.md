@@ -28,14 +28,23 @@ dependency is the CDK CLI itself, which AWS does not publish to PyPI.
 
 | Stack | Contains |
 | --- | --- |
+| `AccountBalanceRegistry` | The ECR repository — deployed first, because an image has to exist before anything can pull it |
 | `AccountBalanceData` | RDS PostgreSQL 16, Multi-AZ, encrypted, in isolated subnets; its generated and rotated Secrets Manager credentials; the database security group |
 | `AccountBalanceService` | ECR repository; ECS cluster; the Fargate service behind an ALB; autoscaling; the migration runner that applies `alembic upgrade head` during deploy; log group; security groups |
 
-**Two stacks, not one**, because the two halves have different lifecycles and different blast
-radii. Compute rolls forward and back several times a day; the database holds the only copy of
-every balance in the system. In one stack, a failed service deploy rolls back a template that also
-owns the data, and `cdk destroy` on the thing you deploy daily reaches the thing you must never
-destroy.
+**Three stacks, not one**, because they have different lifecycles and different blast radii.
+Compute rolls forward and back several times a day; the database holds the only copy of every
+balance in the system; the registry holds every rollback target you own. In one stack, a failed
+service deploy rolls back a template that also owns the data, and `cdk destroy` on the thing you
+deploy daily reaches the thing you must never destroy.
+
+Splitting the **registry** out is what makes the first deploy possible at all. When the repository
+lived in the service stack, that stack created the registry *and* referenced an image inside it, so
+a first deploy into an empty account had nowhere to push to beforehand: the migration task stopped
+with `CannotPullContainerError` and the stack rolled back. The repository carried `RETAIN` with a
+fixed name, so deleting the `ROLLBACK_COMPLETE` stack orphaned it and every retry then failed with
+`RepositoryAlreadyExistsException` — one shot, and a manual `aws ecr delete-repository` to get
+another.
 
 ## The decisions worth reviewing
 
@@ -59,7 +68,18 @@ Two details make it behave under real conditions:
   worked.
 - **The wait is a poll, not a long invocation.** CDK's `Provider` async pattern (`on_event` starts,
   `is_complete` polls) means Lambda's 15-minute ceiling is not something a table rewrite has to
-  finish inside.
+  finish inside. The poller enforces its own deadline (45 minutes, under the resource's one hour)
+  and stops the task when it passes — otherwise CloudFormation gives up while the task keeps
+  rewriting tables against a schema it has already decided to roll back.
+- **A rollback does not wedge the stack.** CloudFormation rolls back by re-invoking this resource
+  with the *previous* image, whose `versions/` has never heard of the revision now in
+  `alembic_version`. Plain `alembic upgrade head` exits non-zero there, which fails the rollback
+  itself and leaves `UPDATE_ROLLBACK_FAILED` for a human to unstick. The task runs
+  `docker/migrate.py` instead: it recognizes that the database is ahead of the image, refuses to
+  downgrade, and exits clean. Every other failure still fails the deploy.
+- **Concurrent deploys serialize.** `alembic/env.py` takes a `pg_advisory_xact_lock` around the
+  migration. Alembic takes no lock of its own, so two deploys would otherwise both decide the same
+  revision is pending and one would fail partway through a schema the other is still rewriting.
 
 **Delete is a deliberate no-op.** There is no automated "down": rolling a schema back automatically
 is how a rollback becomes data loss, and `cdk destroy` must not be the thing that decides to run
@@ -95,8 +115,24 @@ fixed shape, the alternative is a second, hand-maintained URL secret that rotati
 desynchronizes. The application composes the URL instead
 (`Settings._compose_database_url_from_parts`), which is the version where rotation keeps working.
 
-**ECR tags are immutable.** A tag that can be moved means two deploys can claim to be the same
-version, and then a rollback is a guess rather than a return.
+`alembic/env.py` goes through the same `Settings` object rather than reading `DATABASE_URL`
+directly. That was a real bug: alembic never saw a `DATABASE_URL` in AWS, fell through to
+`alembic.ini`'s development value, and tried to migrate `localhost` — on every deploy. One source
+of truth removes the possibility of the migration and the service disagreeing about which database
+they are talking to, and `alembic.ini`'s url is now empty so there is nothing left to fall back to.
+
+A **partially** injected secret raises rather than falling back. Some `DB_*` set but not all is
+unambiguously a misconfiguration, and the default it used to fall back to was `localhost` with
+`postgres`/`postgres` — which boots, passes its liveness probe, registers healthy, and reveals
+itself only once someone moves money.
+
+**ECR tags are immutable, so `imageTag` has no usable default.** A tag that can be moved means two
+deploys can claim to be the same version, and then a rollback is a guess rather than a return.
+`latest` was briefly the default and was wrong three ways at once: it can be pushed exactly once
+against an immutable registry; it makes a rollback a guess; and — the quiet one — a constant tag
+means the migration custom resource's properties never change, so CloudFormation never sends it an
+Update and **migrations silently stop running after the first deploy**. Without `-c imageTag=…` the
+app now uses a placeholder that cannot exist in ECR, and says so on stderr.
 
 ## Reading it without an account
 
@@ -104,7 +140,7 @@ version, and then a rollback is a guess rather than a return.
 imported with `Vpc.fromVpcAttributes` (static) rather than `Vpc.fromLookup` (a live describe call),
 so anyone can synthesize the templates and read exactly what would be created.
 
-The placeholder ids in `lib/environment.ts` are obviously fake, and synth prints a warning naming
+The placeholder ids in `stacks/environment.py` are obviously fake, and synth prints a warning naming
 them. A real deployment substitutes them:
 
 ```
@@ -137,13 +173,20 @@ take the network with it.
 
 ## Deploy sequence
 
-1. `docker build --target runtime -t <ecr-uri>:<tag> .` and push. The `runtime` target: non-root,
-   no dev dependencies, no reloader, no migration step.
-2. `npx cdk deploy AccountBalanceData` — first time only, or when the database changes.
-3. `npx cdk deploy AccountBalanceService -c imageTag=<tag>`. Migrations run first, as part of the
-   deploy, and a non-zero exit fails the stack rather than shipping code against a schema that
-   never arrived. The circuit breaker then rolls back a bad image on its own rather than leaving it
-   half-deployed.
+```
+TAG=$(git rev-parse --short HEAD)
+
+npx cdk deploy AccountBalanceRegistry                  # 1. somewhere to push to
+docker build --target runtime -t <repo-uri>:$TAG .     # 2. non-root, no dev deps, no reloader
+docker push <repo-uri>:$TAG
+npx cdk deploy AccountBalanceData                      # 3. first time only, or on a DB change
+npx cdk deploy AccountBalanceService -c imageTag=$TAG  # 4. migrates, then shifts traffic
+```
+
+Step 1 has to come first: nothing can push to a repository that does not exist yet, and nothing can
+pull an image that was never pushed. Step 4 runs the migration before the service updates, and a
+non-zero exit fails the stack rather than shipping code against a schema that never arrived; the
+circuit breaker then rolls back a bad image on its own.
 
 The `MigrationTaskFamily` output names the task definition for the manual re-run an incident
 occasionally needs — it is not part of the normal path.

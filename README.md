@@ -51,7 +51,7 @@ The design is written down; the implementation is partial. This section says whe
 | Observability | **Descoped** — designed, deliberately not built; see [below](#observability-designed-and-descoped) |
 | Reconciliation check (`account.balance == SUM(entries)`) | **Built as a test** (`tests/integration/account_balance/test_reconciliation.py`), across deposit, withdrawal, transfer, reversal, replay and mixed sequences. The operational job is descoped with observability |
 | Containers, local stack | **Built** — `docker compose up` runs PostgreSQL, the API and the console, with migrations applied and hot reload on both halves. `Dockerfile` also ships a non-root `runtime` target |
-| IaC | **Built** — [`infra/`](infra/README.md), AWS CDK in Python: RDS, Secrets Manager, ECR, ECS/Fargate, ALB, autoscaling, and migrations applied during the deploy. `cdk synth` runs with no AWS account |
+| IaC | **Built** — [`infra/`](infra/README.md), AWS CDK in Python: three stacks covering ECR, RDS + Secrets Manager, and ECS/Fargate behind an ALB with autoscaling and migrations applied during the deploy. `cdk synth` runs with no AWS account |
 
 ---
 
@@ -274,10 +274,11 @@ the same base layers, so what runs locally is not a different lineage from what 
 all — `testcontainers` provisions their own PostgreSQL, so the suite is not coupled to a running
 compose project.
 
-**In the cloud: [`infra/`](infra/README.md), AWS CDK in Python.** `npx cdk synth` runs with no AWS account,
-so the templates can be read without deploying anything. Two stacks: RDS PostgreSQL Multi-AZ with
-its generated, rotated Secrets Manager credentials; and ECR, ECS/Fargate behind an ALB, autoscaling,
-and the migration task.
+**In the cloud: [`infra/`](infra/README.md), AWS CDK in Python.** `npx cdk synth` runs with no AWS
+account, so the templates can be read without deploying anything. Three stacks, split by lifecycle:
+the ECR registry (deployed first — nothing can pull an image that was never pushed); RDS PostgreSQL
+Multi-AZ with its generated, rotated Secrets Manager credentials; and ECS/Fargate behind an ALB,
+with autoscaling and the migration that gates it.
 
 The service is stateless — all state is in PostgreSQL — so scaling out is a number change, and the
 correctness of concurrent writes is guaranteed by the database's row locks rather than by anything
@@ -297,7 +298,9 @@ Four decisions there are worth the click; `infra/README.md` argues each in full:
 - **Migrations run inside `cdk deploy`, and gate the service.** That is what the `runtime` image
   target refusing to migrate on boot was for — but a declared migration task that nothing invokes
   is the same as no migration, so a custom resource starts it, polls it, and fails the deployment
-  if it exits non-zero.
+  if it exits non-zero. It survives the awkward cases: a rollback re-runs it with the *older*
+  image, which recognizes the database is ahead of it and declines to downgrade rather than
+  wedging the stack, and concurrent deploys serialize on a Postgres advisory lock.
 - **Networking is imported, never created.** A VPC outlives the services in it; `cdk destroy` on
   something deployed daily must not be able to take the network with it.
 

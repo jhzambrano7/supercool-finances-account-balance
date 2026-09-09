@@ -26,6 +26,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY alembic.ini ./
 COPY alembic ./alembic
+COPY docker/migrate.py ./docker/migrate.py
 COPY src ./src
 
 # Installs the project itself (editable): what puts `modules.*` on `sys.path`, as pyproject.toml

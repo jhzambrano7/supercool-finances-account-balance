@@ -47,43 +47,62 @@ class MigrationRunner(Construct):
             "CONTAINER_NAME": container_name,
         }
 
-        on_event = lambda_.Function(
-            self,
-            "OnEvent",
-            runtime=lambda_.Runtime.PYTHON_3_13,
-            handler="migration_handler.on_event",
-            code=lambda_.Code.from_asset(str(_RUNTIME_DIRECTORY)),
-            timeout=cdk.Duration.minutes(2),
-            environment=environment,
-            log_retention=logs.RetentionDays.ONE_MONTH,
-        )
+        def _function(construct_id: str, handler: str) -> lambda_.Function:
+            """Each function gets a log group this stack owns.
 
-        is_complete = lambda_.Function(
-            self,
-            "IsComplete",
-            runtime=lambda_.Runtime.PYTHON_3_13,
-            handler="migration_handler.is_complete",
-            code=lambda_.Code.from_asset(str(_RUNTIME_DIRECTORY)),
-            timeout=cdk.Duration.minutes(2),
-            environment=environment,
-            log_retention=logs.RetentionDays.ONE_MONTH,
-        )
-
-        for function in (on_event, is_complete):
-            # Neither function runs inside the VPC: they call the ECS control plane, which is a
-            # public API. Attaching them to the VPC would add ENIs, cold starts and a NAT
-            # dependency to buy nothing -- the *task* they start is the thing that must be inside.
-            function.add_to_role_policy(
-                iam.PolicyStatement(
-                    actions=["ecs:RunTask", "ecs:DescribeTasks", "ecs:StopTask"],
-                    resources=["*"],
-                    conditions={"ArnEquals": {"ecs:cluster": cluster.cluster_arn}},
-                )
+            Not `log_retention=`: that deprecated prop provisions a helper Lambda whose role holds
+            `logs:PutRetentionPolicy` and `logs:DeleteRetentionPolicy` on `Resource: "*"` -- a
+            function in this account able to shorten or drop the retention of *any* log group,
+            audit trails included, to configure four of its own. Declaring the group directly
+            grants nothing and removes five `Custom::LogRetention` resources from the template.
+            """
+            return lambda_.Function(
+                self,
+                construct_id,
+                runtime=lambda_.Runtime.PYTHON_3_13,
+                handler=f"migration_handler.{handler}",
+                code=lambda_.Code.from_asset(str(_RUNTIME_DIRECTORY)),
+                timeout=cdk.Duration.minutes(2),
+                environment=environment,
+                log_group=logs.LogGroup(
+                    self,
+                    f"{construct_id}Logs",
+                    retention=logs.RetentionDays.ONE_MONTH,
+                    removal_policy=cdk.RemovalPolicy.DESTROY,
+                ),
             )
 
-        # `PassRole` is scoped to exactly the two roles this task definition uses. Left unscoped it
-        # would let anyone who can invoke this function start a task as any role in the account,
-        # which is a privilege-escalation path, not a convenience.
+        # Neither function runs inside the VPC: they call the ECS control plane, which is a public
+        # API. Attaching them would add ENIs, cold starts and a NAT dependency to buy nothing --
+        # the *task* they start is the thing that must be inside.
+        on_event = _function("OnEvent", "on_event")
+        is_complete = _function("IsComplete", "is_complete")
+
+        # Split by what each one actually calls, rather than one shared statement. `is_complete`
+        # holding `ecs:RunTask` would let the poller start tasks, which is exactly the authority a
+        # poller should not have.
+        on_event.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["ecs:RunTask"],
+                resources=["*"],
+                conditions={"ArnEquals": {"ecs:cluster": cluster.cluster_arn}},
+            )
+        )
+        is_complete.add_to_role_policy(
+            iam.PolicyStatement(
+                # `StopTask` is used on the timeout path: when the custom resource gives up, the
+                # migration task is still running, and leaving it to finish against a schema
+                # CloudFormation has already decided to roll back is worse than killing it.
+                actions=["ecs:DescribeTasks", "ecs:StopTask"],
+                resources=["*"],
+                conditions={"ArnEquals": {"ecs:cluster": cluster.cluster_arn}},
+            )
+        )
+
+        # `PassRole` is scoped to exactly the two roles this task definition uses, and granted only
+        # to the function that starts tasks. Left unscoped it would let anyone who can invoke this
+        # function start a task as any role in the account -- a privilege-escalation path, not a
+        # convenience.
         passable_roles = [task_definition.task_role.role_arn]
         if task_definition.execution_role is not None:
             passable_roles.append(task_definition.execution_role.role_arn)
@@ -101,7 +120,6 @@ class MigrationRunner(Construct):
             # change against.
             query_interval=cdk.Duration.seconds(15),
             total_timeout=cdk.Duration.hours(1),
-            log_retention=logs.RetentionDays.ONE_MONTH,
         )
 
         self.resource = CustomResource(

@@ -50,6 +50,7 @@ class ServiceStack(cdk.Stack):
         # here re-homes the rule, which is also where it belongs: "the service may reach the
         # database" is a fact about the service.
         database_security_group_id: str,
+        repository: ecr.IRepository,
         image_tag: str,
         **kwargs: object,
     ) -> None:
@@ -63,37 +64,21 @@ class ServiceStack(cdk.Stack):
             self, "PublicSubnet", network.public_subnet_ids, network.availability_zones
         )
 
-        # ---------------------------------------------------------------- registry
-
-        self.repository = ecr.Repository(
-            self,
-            "Repository",
-            repository_name="account-balance",
-            # The base image is somebody else's code running next to a ledger.
-            image_scan_on_push=True,
-            # Immutable: a tag that can be moved means two deploys can claim to be the same
-            # version, and then a rollback is a guess rather than a return.
-            image_tag_mutability=ecr.TagMutability.IMMUTABLE,
-            encryption=ecr.RepositoryEncryption.AES_256,
-            lifecycle_rules=[
-                ecr.LifecycleRule(
-                    description="Keep the last 30 images; older ones are not rollback targets",
-                    max_image_count=30,
-                )
-            ],
-            removal_policy=cdk.RemovalPolicy.RETAIN,
-        )
-
-        image = ecs.ContainerImage.from_ecr_repository(self.repository, image_tag)
+        # The registry is `RegistryStack`'s, not this stack's: an image has to exist before
+        # anything can run it, and a stack cannot create a repository and pull from it in the same
+        # deployment.
+        image = ecs.ContainerImage.from_ecr_repository(repository, image_tag)
 
         # ---------------------------------------------------------------- security groups
 
         alb_security_group = ec2.SecurityGroup(
             self, "AlbSecurityGroup", vpc=vpc, description="account-balance ALB: public ingress"
         )
-        alb_security_group.add_ingress_rule(
-            ec2.Peer.any_ipv4(), ec2.Port.tcp(443), "HTTPS from the internet"
-        )
+        # No hand-written 443 rule. `add_listener` opens the listener's own port by default
+        # (`open=True`), so writing one here produced a group that advertised HTTPS while the only
+        # thing actually listening was plaintext 80 -- a stated invariant that the synthesized
+        # template contradicted. A real deployment adds an ACM certificate and a 443 listener, and
+        # that listener opens its own port the same way.
 
         service_security_group = ec2.SecurityGroup(
             self,
@@ -128,7 +113,12 @@ class ServiceStack(cdk.Stack):
             # §11.4: a movement that cannot be reconstructed from its trace cannot be explained to
             # a customer. Retention is that requirement expressed in days.
             retention=logs.RetentionDays.ONE_MONTH,
-            removal_policy=cdk.RemovalPolicy.RETAIN,
+            # DESTROY, unlike the database and the registry. A named log group that survives its
+            # stack blocks the stack from ever being recreated -- the retry after a failed first
+            # deploy fails again on `ResourceAlreadyExistsException`. The durable record of what
+            # the ledger did is the database and its backups; a month of application logs is not
+            # worth making the stack un-redeployable for.
+            removal_policy=cdk.RemovalPolicy.DESTROY,
         )
 
         cluster = ecs.Cluster(
@@ -194,7 +184,13 @@ class ServiceStack(cdk.Stack):
             "migrate",
             image=image,
             secrets=secrets,
-            command=["alembic", "upgrade", "head"],
+            # `docker/migrate.py`, not bare `alembic upgrade head`: during a CloudFormation
+            # rollback this same resource is re-invoked with the *previous* image, whose
+            # `versions/` does not contain the revision now in `alembic_version`. Plain alembic
+            # exits non-zero there, which fails the rollback itself and wedges the stack in
+            # UPDATE_ROLLBACK_FAILED. The wrapper recognizes "the database is ahead of me",
+            # refuses to downgrade, and exits clean.
+            command=["python", "docker/migrate.py"],
             logging=ecs.LogDrivers.aws_logs(stream_prefix="migrate", log_group=log_group),
         )
 
@@ -304,12 +300,6 @@ class ServiceStack(cdk.Stack):
             "ServiceUrl",
             value=f"http://{self.load_balancer.load_balancer_dns_name}",
             description="Public entry point (add ACM + HTTPS for a real deployment)",
-        )
-        cdk.CfnOutput(
-            self,
-            "RepositoryUri",
-            value=self.repository.repository_uri,
-            description="Push the image built from the Dockerfile `runtime` target here",
         )
         cdk.CfnOutput(
             self,
