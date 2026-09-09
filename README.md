@@ -26,6 +26,7 @@ together — see [Running it](#running-it-and-deploying-it) for what is going on
 | [`docs/decision-log.md`](docs/decision-log.md) | Chronological record of what was decided and why |
 | [`docs/ai-transcript.md`](docs/ai-transcript.md) | Every prompt and every response, verbatim (see [AI usage](#ai-usage)) |
 | [`web/README.md`](web/README.md) | A React ops console for exercising the API in a browser — a demo aid, not a production deliverable |
+| [`infra/README.md`](infra/README.md) | The AWS CDK stacks: what would be deployed, and the reasoning behind each choice |
 
 ---
 
@@ -50,7 +51,7 @@ The design is written down; the implementation is partial. This section says whe
 | Observability | **Descoped** — designed, deliberately not built; see [below](#observability-designed-and-descoped) |
 | Reconciliation check (`account.balance == SUM(entries)`) | **Built as a test** (`tests/integration/account_balance/test_reconciliation.py`), across deposit, withdrawal, transfer, reversal, replay and mixed sequences. The operational job is descoped with observability |
 | Containers, local stack | **Built** — `docker compose up` runs PostgreSQL, the API and the console, with migrations applied and hot reload on both halves. `Dockerfile` also ships a non-root `runtime` target |
-| IaC | **Not built** — the target architecture is described [below](#running-it-and-deploying-it); no Terraform committed |
+| IaC | **Built** — [`infra/`](infra/README.md), AWS CDK: RDS, Secrets Manager, ECR, ECS/Fargate, ALB, autoscaling, migration task. `cdk synth` runs with no AWS account |
 
 ---
 
@@ -236,9 +237,6 @@ one column away from being exactly that bug.
 
 ## Running it, and deploying it
 
-> The cloud/IaC parts below are the decision, not yet committed as actual infrastructure — described
-> here because decisions belong in this document. Locally, the whole stack is real and runs.
-
 **Locally: `docker compose up`, and that is the whole command.** It brings up PostgreSQL, applies
 the migrations, and starts both application services. Nothing else to install, no migration step to
 remember.
@@ -276,18 +274,35 @@ the same base layers, so what runs locally is not a different lineage from what 
 all — `testcontainers` provisions their own PostgreSQL, so the suite is not coupled to a running
 compose project.
 
-**In the cloud.** The service is stateless; all state is in PostgreSQL. That makes it a container on
-ECS Fargate (or EKS) behind an ALB, with RDS PostgreSQL Multi-AZ, secrets in Secrets Manager, and
-autoscaling on CPU plus request concurrency. Two properties earn their keep here:
+**In the cloud: [`infra/`](infra/README.md), AWS CDK.** `npx cdk synth` runs with no AWS account,
+so the templates can be read without deploying anything. Two stacks: RDS PostgreSQL Multi-AZ with
+its generated, rotated Secrets Manager credentials; and ECR, ECS/Fargate behind an ALB, autoscaling,
+and the migration task.
 
-- Because the service is stateless, scaling out is a number change. The correctness of concurrent
-  writes is guaranteed by the database's row locks, not by anything in the application's memory —
-  which is precisely why the locking design is not an implementation detail.
-- Because deposits do not contend, throughput on the most common operation scales with the database
-  rather than being pinned by a hot row.
+The service is stateless — all state is in PostgreSQL — so scaling out is a number change, and the
+correctness of concurrent writes is guaranteed by the database's row locks rather than by anything
+in the application's memory. That is precisely why the locking design is not an implementation
+detail. Because deposits do not contend (§5.3), throughput on the most common operation scales with
+the database rather than being pinned by a hot row.
 
-**IaC.** Terraform, kept to the resources the service actually needs. The intent is to show the
-deployment model is understood, not to ship a platform.
+Four decisions there are worth the click; `infra/README.md` argues each in full:
+
+- **The scaling ceiling is derived from the database, not chosen.** Scaling out ECS does not scale
+  RDS: past ~24 tasks the extra ones exhaust the connection pool, and the failure mode is refused
+  connections on perfectly valid money movements. `maxCapacity` is computed from `max_connections`
+  and the per-task pool size, so raising it forces the database sizing conversation it really is.
+- **Scaling is driven by requests per target, not CPU.** A transfer spends its time waiting on a row
+  lock, not burning CPU — under real contention the tasks look idle while latency climbs, so a
+  CPU-first policy scales exactly when it is least useful.
+- **Migrations are a deploy step, not a startup step**, which is what the `runtime` image target
+  refusing to migrate on boot was for.
+- **Networking is imported, never created.** A VPC outlives the services in it; `cdk destroy` on
+  something deployed daily must not be able to take the network with it.
+
+**Not in `infra/`:** the ops console (a presentation facility, not something to operate), an HTTPS
+listener (no certificate in a placeholder account), a pipeline, and metrics or alarms —
+observability stays descoped, and `/health`/`/ready` exist because a target group cannot be created
+without them.
 
 ---
 
@@ -348,5 +363,5 @@ the proposed fix was not.
 - **The reconciliation *job* is descoped; the reconciliation *test* is not.** The invariant
   `account.balance == SUM(entries)` is asserted in CI across every money-movement path; the periodic
   operational sweep `docs/prd.md` §5.1 also names is not built.
-- **No IaC.** The service and the console are containerised and the local stack runs from one command; the cloud topology below is a described decision, with no Terraform behind it.
+- **The CDK stacks have never been deployed.** They synthesize, and the templates say exactly what would be created, but no AWS account has run them — so this is reviewed infrastructure, not proven infrastructure. No pipeline, no HTTPS listener, no alarms; `infra/README.md` lists what is deliberately absent and why.
 - Open questions are listed in `docs/prd.md` §12 rather than quietly resolved.
