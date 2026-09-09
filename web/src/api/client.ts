@@ -218,6 +218,31 @@ export async function getAccount(accountId: string, callerId: string): Promise<A
 }
 
 /**
+ * `POST /accounts/{account_id}/close` (docs/prd.md §7.2) -- no body, no `Idempotency-Key`: closing
+ * needs no retry-safety mechanism of its own, its own state already provides one (closure requires
+ * `ACTIVE`, so a second attempt finds `CLOSED` and is rejected, not silently repeated). No
+ * retry-on-5xx policy either, for the same reason `createReversal` has none: a failed attempt just
+ * leaves the "Close" button clickable again.
+ */
+export async function closeAccount(accountId: string, callerId: string): Promise<AccountResponse> {
+  let response: Response
+  try {
+    response = await fetch(`/accounts/${accountId}/close`, {
+      method: 'POST',
+      headers: { 'X-Caller-Id': callerId },
+    })
+  } catch {
+    throw new ApiError(describeNetworkError())
+  }
+
+  const parsed = await parseJsonBody(response)
+  if (!response.ok) {
+    throw new ApiError(describeHttpError(response.status, (parsed as { detail?: unknown } | null)?.detail))
+  }
+  return parsed as AccountResponse
+}
+
+/**
  * `GET /accounts/{account_id}/movements` -- cursor pagination, newest first. `cursor` is opaque;
  * omit it for the first page. `limit` defaults to 25 server-side, caps at 100.
  */

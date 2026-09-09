@@ -157,13 +157,14 @@ class AccountRepository(ABC):
 
     @abstractmethod
     async def update(self, account: UserAccount) -> None:
-        """Persists a `USER` account's new balance and version under the
-        lock `get_for_update` already holds (T9).
+        """Persists a `USER` account's new balance, status and version under the lock
+        `get_for_update` already holds (T9, §7.2).
 
         Only ever callable with a `UserAccount` (T7) -- a `SYSTEM` account's
         `balance_amount` column is never written by this path, and passing
         one here is now a type error, not a documented rule a caller could
-        still violate at runtime. Does not commit: the enclosing
-        `TransferUnitOfWork` commits once, atomically, alongside the posted
-        entries and the idempotency record (T3).
+        still violate at runtime. Does not commit: the enclosing unit of
+        work commits once, atomically, alongside whatever else that
+        transaction touches (T3; `AccountUnitOfWork` for a lifecycle
+        operation with no transfer/idempotency row of its own).
         """

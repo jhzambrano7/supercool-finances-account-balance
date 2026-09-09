@@ -1232,3 +1232,39 @@ Formato de cada entrada:
 - **Prompt:** "procede con el readme, preciso y conciso sobre qué hacemos, y el porqué de las decisiones"
 - **Respuesta:** Reescribí la tabla de Status separando transfers/deposit-withdraw/reversión/lecturas/web console en filas propias, cada una con la decisión detrás de su forma. Corregí dos afirmaciones falsas: "reversal not merged yet" (se mergeó hace horas) y "concurrency not yet demonstrated under parallel load" (falso, los tests ya usan asyncio.gather real contra Postgres real). Agregué 3 filas a la tabla de decisiones (depósito/retiro server-side, paginación por cursor, AuthorizationGateway real). Reescribí "What is not done" con los 3 gaps reales verificados (cerrar cuenta, observabilidad, chequeo de reconciliación), cada uno con su referencia exacta al PRD. Commit `ef74201` pusheado a main.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 15:44 — Implementar cerrar cuenta: backend primero, diseño de locking resuelto
+<!-- id: 20260908-154401-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "Procede con el cierre de cuentas, desde la web flujo completo con sus respectivas pruebas".
+- **Prompt:** "Procede con el cierre de cuentas, desde la web flujo completo con sus respectivas pruebas"
+- **Respuesta:** Antes de delegar, resolví la decisión de arquitectura real: cerrar una cuenta necesita lock (evitar carrera con un depósito concurrente que viole el balance-cero), pero `SqlAccountRepository.get_for_update()`+`.update()` sueltos abrirían dos transacciones independientes y soltarían el lock antes de tiempo -- no se puede reusar `TransferUnitOfWork` (arrastra transfers/idempotency que no corresponden). Diseñé un `AccountUnitOfWork` nuevo y chico, extrayendo `_KeptOpenSession` a un módulo compartido en vez de duplicarlo. Creé rama `feat/close-account` y lancé el fork del backend con ese diseño explícito (no a redescubrir), incluyendo un test de concurrencia real (asyncio.gather cerrando vs depositando) y el chequeo de ownership fusionado en una condición (mismo bug que ya se corrigió dos veces en GetAccount/ListMovements). La web se integra después en la misma rama, un solo PR para el feature completo. Sin pruebas automatizadas en la web, per convención establecida.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 15:59 — Verificar backend de cerrar cuenta y lanzar la integración web
+<!-- id: 20260908-155934-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente el backend de cerrar cuenta antes de seguir con la web.
+- **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
+- **Respuesta:** Corrí ruff/mypy strict/pytest yo mismo (153 archivos, todo verde) y confirmé con lectura directa: `update()` ahora sí persiste `status` (bug real que el fork encontró y arregló, antes se perdía silenciosamente), el chequeo de ownership fusionado en una condición (isinstance + owner_id), `KeptOpenSession` extraído a módulo compartido y usado por ambas unidades de trabajo, y el test de concurrencia rama según quién gana el lock en vez de asumir un orden fijo. Lancé el fork de integración web en la misma rama `feat/close-account` -- un solo PR para el feature completo.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 16:01 — Relanzar el fork de integración web tras un lanzamiento fallido
+<!-- id: 20260908-160147-a1fe3a40 -->
+- **Qué intentaba:** El primer fork de integración web devolvió "completed" con 0 tool calls y un mensaje que sonaba a eco de mis propias instrucciones -- ningún cambio real (ni siquiera se creó el worktree).
+- **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
+- **Respuesta:** Diagnostiqué el lanzamiento fallido (0 tool_uses, sin worktree, mensaje sospechoso) y lo relancé con el mismo brief completo. Sigue corriendo.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 16:15 — Verificar la integración web de cerrar cuenta y abrir el PR #8
+<!-- id: 20260908-161505-a1fe3a40 -->
+- **Qué intentaba:** Verificar independientemente el segundo intento (exitoso) del fork de integración web antes de abrir el PR.
+- **Prompt:** (notificación de finalización del fork, sin mensaje nuevo del usuario)
+- **Respuesta:** Confirmé build limpio, sin test deps, y el orden correcto de los matches de error en `errors.ts` (verificado contra el mensaje real de `AccountNotEmptyError`, que es superstring del de `AccountNotClosableError`). Confirmé el filtro de cuentas CLOSED en `MoveMoneyScreen` y que `MovementHistoryScreen` queda sin filtrar a propósito. Abrí el PR #8 cubriendo backend + web como un solo feature completo.
+- **Veredicto:** ⏳ pendiente
+<!-- skip: 20260908-162044-a1fe3a40 -->
+
+## 2026-09-08 16:35 — Resolver los 3 comentarios de revisión en PR #8
+<!-- id: 20260908-163506-a1fe3a40 -->
+- **Qué intentaba:** Cumplir "resuelve los comentarios del PR" para PR #8 (cerrar cuenta).
+- **Prompt:** "resuelve los comentarios del PR"
+- **Respuesta:** Encontré 3 comentarios reales, ninguno stale esta vez: (1) `closeError` no se reseteaba al cambiar de identidad -- corregido en el mismo `useEffect`; (2) `close()` sólo refrescaba en éxito, dejando la fila stale tras un 422 por depósito concurrente -- movido a `finally`; (3) el test de concurrencia extraía `account_id` sin verificar que el open hubiera dado 201 -- agregado el assert. Verifiqué build limpio y gates verdes antes de commitear (commit `fd5e659`), respondí los 3 hilos.
+- **Veredicto:** ⏳ pendiente

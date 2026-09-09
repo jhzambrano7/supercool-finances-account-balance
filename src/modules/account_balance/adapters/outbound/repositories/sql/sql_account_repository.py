@@ -185,7 +185,11 @@ class SqlAccountRepository(AccountRepository):
                 await session.execute(
                     sa_update(AccountDbo)
                     .where(AccountDbo.account_id == account.account_id.value)
-                    .values(balance_amount=account.balance.amount, version=account.version)
+                    .values(
+                        balance_amount=account.balance.amount,
+                        status=account.status.value,
+                        version=account.version,
+                    )
                 )
                 await session.flush()
         except Exception as exc:
