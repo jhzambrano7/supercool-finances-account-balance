@@ -51,7 +51,7 @@ The design is written down; the implementation is partial. This section says whe
 | Observability | **Descoped** — designed, deliberately not built; see [below](#observability-designed-and-descoped) |
 | Reconciliation check (`account.balance == SUM(entries)`) | **Built as a test** (`tests/integration/account_balance/test_reconciliation.py`), across deposit, withdrawal, transfer, reversal, replay and mixed sequences. The operational job is descoped with observability |
 | Containers, local stack | **Built** — `docker compose up` runs PostgreSQL, the API and the console, with migrations applied and hot reload on both halves. `Dockerfile` also ships a non-root `runtime` target |
-| IaC | **Built** — [`infra/`](infra/README.md), AWS CDK: RDS, Secrets Manager, ECR, ECS/Fargate, ALB, autoscaling, migration task. `cdk synth` runs with no AWS account |
+| IaC | **Built** — [`infra/`](infra/README.md), AWS CDK in Python: RDS, Secrets Manager, ECR, ECS/Fargate, ALB, autoscaling, and migrations applied during the deploy. `cdk synth` runs with no AWS account |
 
 ---
 
@@ -274,7 +274,7 @@ the same base layers, so what runs locally is not a different lineage from what 
 all — `testcontainers` provisions their own PostgreSQL, so the suite is not coupled to a running
 compose project.
 
-**In the cloud: [`infra/`](infra/README.md), AWS CDK.** `npx cdk synth` runs with no AWS account,
+**In the cloud: [`infra/`](infra/README.md), AWS CDK in Python.** `npx cdk synth` runs with no AWS account,
 so the templates can be read without deploying anything. Two stacks: RDS PostgreSQL Multi-AZ with
 its generated, rotated Secrets Manager credentials; and ECR, ECS/Fargate behind an ALB, autoscaling,
 and the migration task.
@@ -294,8 +294,10 @@ Four decisions there are worth the click; `infra/README.md` argues each in full:
 - **Scaling is driven by requests per target, not CPU.** A transfer spends its time waiting on a row
   lock, not burning CPU — under real contention the tasks look idle while latency climbs, so a
   CPU-first policy scales exactly when it is least useful.
-- **Migrations are a deploy step, not a startup step**, which is what the `runtime` image target
-  refusing to migrate on boot was for.
+- **Migrations run inside `cdk deploy`, and gate the service.** That is what the `runtime` image
+  target refusing to migrate on boot was for — but a declared migration task that nothing invokes
+  is the same as no migration, so a custom resource starts it, polls it, and fails the deployment
+  if it exits non-zero.
 - **Networking is imported, never created.** A VPC outlives the services in it; `cdk destroy` on
   something deployed daily must not be able to take the network with it.
 

@@ -2,23 +2,8 @@
   "name": "account-balance-infra",
   "private": true,
   "version": "0.1.0",
-  "bin": {
-    "infra": "bin/app.js"
-  },
-  "scripts": {
-    "build": "tsc",
-    "synth": "cdk synth",
-    "diff": "cdk diff",
-    "deploy": "cdk deploy --all"
-  },
+  "description": "The CDK CLI only. The infrastructure itself is Python (see pyproject.toml's `infra` dependency group) — AWS publishes no CLI to PyPI, so this is the one npm dependency a Python CDK project cannot avoid.",
   "devDependencies": {
-    "@types/node": "^22.10.2",
-    "aws-cdk": "^2.174.0",
-    "ts-node": "^10.9.2",
-    "typescript": "~5.7.2"
-  },
-  "dependencies": {
-    "aws-cdk-lib": "^2.174.0",
-    "constructs": "^10.4.2"
+    "aws-cdk": "^2.174.0"
   }
 }

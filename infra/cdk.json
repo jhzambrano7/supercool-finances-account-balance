@@ -1,6 +1,6 @@
 {
-  "app": "npx ts-node --prefer-ts-exts bin/app.ts",
-  "watch": { "exclude": ["**/*.d.ts", "node_modules"] },
+  "app": "uv run --group infra python app.py",
+  "watch": { "exclude": ["**/*.d.ts", "node_modules", "cdk.out"] },
   "context": {
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
     "@aws-cdk/core:checkSecretUsage": true,

@@ -4,28 +4,32 @@ What it takes to run this service in AWS: the database, the registry, the comput
 deploy actually happens.
 
 ```
-npm install
+npm install            # the CDK CLI only — AWS publishes none to PyPI
 npx cdk synth          # works with no AWS account — see "Reading it without an account"
 npx cdk deploy --all   # needs credentials, and real network ids
 ```
 
-## Why CDK, and why TypeScript
+## Why CDK, in Python
 
 **CDK over Terraform** because it is the tool actually known here. Infrastructure you cannot debug
 under pressure is not infrastructure, it is a liability with nice syntax — and a take-home is a
 poor place to learn a new IaC language in public.
 
-**TypeScript over Python CDK**, even though the service is Python: `aws-cdk-lib` is a large
-dependency tree, and adding it to `pyproject.toml` would put it in the same environment as the
-service, inside every `mypy` run and every image build. `infra/` keeps its own `package.json` and
-touches nothing else.
+**Python over TypeScript**, so the infrastructure is in the same language as the service it
+deploys: the same `ruff`, the same strict `mypy`, one toolchain to learn instead of two, and a
+reviewer who reads the service can read this without switching languages.
+
+`aws-cdk-lib` lives in its own `infra` dependency group in the root `pyproject.toml`, deliberately
+not in `dev`. `uv sync` does not install it and the image build (`uv sync --no-dev`) never sees it,
+so putting the CDK app in this repository's toolchain costs the service nothing. The one npm
+dependency is the CDK CLI itself, which AWS does not publish to PyPI.
 
 ## What is here
 
 | Stack | Contains |
 | --- | --- |
 | `AccountBalanceData` | RDS PostgreSQL 16, Multi-AZ, encrypted, in isolated subnets; its generated and rotated Secrets Manager credentials; the database security group |
-| `AccountBalanceService` | ECR repository; ECS cluster; the Fargate service behind an ALB; autoscaling; the migration task; log group; security groups |
+| `AccountBalanceService` | ECR repository; ECS cluster; the Fargate service behind an ALB; autoscaling; the migration runner that applies `alembic upgrade head` during deploy; log group; security groups |
 
 **Two stacks, not one**, because the two halves have different lifecycles and different blast
 radii. Compute rolls forward and back several times a day; the database holds the only copy of
@@ -35,12 +39,36 @@ destroy.
 
 ## The decisions worth reviewing
 
-**Migrations are a task, not a startup step.** The `runtime` image target deliberately does not
-migrate on boot (see the repository's `Dockerfile`): a schema that changes because a process
-happened to start is a change nobody gated, applied at a moment nobody chose, concurrently by
-however many tasks scaled up at once. `MigrationTaskDefinition` makes it a step the pipeline runs
-once, before shifting traffic, and one that can fail a deploy instead of half-migrating it. The
-exact `aws ecs run-task` invocation is a stack output.
+**Migrations run during `cdk deploy`, and gate the service.** The `runtime` image target
+deliberately does not migrate on boot (see the repository's `Dockerfile`): a schema that changes
+because a process happened to start is a change nobody gated, applied at a moment nobody chose,
+concurrently by however many tasks scaled up at once.
+
+That decision leaves a gap, and declaring a migration task definition does not close it — a
+declared task that nothing invokes is the same as no migration at all, except that the template
+looks like it has one. `MigrationRunner` (`stacks/migration_runner.py`) is a custom resource that
+starts the task, polls it to completion, and **fails the deployment** if it exits non-zero. The ECS
+service declares a dependency on it, so new tasks cannot start against a schema that was never
+brought forward.
+
+Two details make it behave under real conditions:
+
+- **`imageTag` is a property of the custom resource.** CloudFormation only invokes a custom resource
+  whose properties changed; without it, the second deploy of a new image would silently skip
+  migrations — the same bug as never running them, and harder to notice because the first deploy
+  worked.
+- **The wait is a poll, not a long invocation.** CDK's `Provider` async pattern (`on_event` starts,
+  `is_complete` polls) means Lambda's 15-minute ceiling is not something a table rewrite has to
+  finish inside.
+
+**Delete is a deliberate no-op.** There is no automated "down": rolling a schema back automatically
+is how a rollback becomes data loss, and `cdk destroy` must not be the thing that decides to run
+one.
+
+In a repository with a CodePipeline this would usually be a pipeline stage instead. There is no
+pipeline here, so putting it anywhere but the deployment itself would mean a deploy that is not a
+deploy — a step a human has to remember, which is exactly the failure mode `docker-compose.yml`
+already refuses locally.
 
 **The scaling ceiling is derived from the database, not chosen.** `db.t4g.medium` gives roughly 450
 connections; reserving 90 for rotation, migrations and a human with `psql` during an incident
@@ -101,8 +129,8 @@ take the network with it.
 - **No HTTPS listener.** A placeholder account has no ACM certificate. The ALB security group
   already admits only 443; a real deployment adds the certificate and redirects 80, which is the
   one line that changes.
-- **No pipeline.** The deploy sequence — build, push, run migrations, deploy service — is described
-  here and emitted as stack outputs, but CodePipeline itself is not modelled.
+- **No pipeline.** CodePipeline is not modelled. Migrations do not depend on one — they run inside
+  `cdk deploy` — but image build and push are still manual steps.
 - **No metrics or alarms.** Observability is descoped (PRD §11, root `README.md`); `/health` and
   `/ready` exist because the load balancer cannot be created without them, not as a partial
   reversal of that decision.
@@ -112,6 +140,10 @@ take the network with it.
 1. `docker build --target runtime -t <ecr-uri>:<tag> .` and push. The `runtime` target: non-root,
    no dev dependencies, no reloader, no migration step.
 2. `npx cdk deploy AccountBalanceData` — first time only, or when the database changes.
-3. Run the migration task (`MigrationCommand` output), and let it fail the deploy if it fails.
-4. `npx cdk deploy AccountBalanceService -c imageTag=<tag>`. The circuit breaker rolls back a bad
-   image on its own rather than leaving it half-deployed.
+3. `npx cdk deploy AccountBalanceService -c imageTag=<tag>`. Migrations run first, as part of the
+   deploy, and a non-zero exit fails the stack rather than shipping code against a schema that
+   never arrived. The circuit breaker then rolls back a bad image on its own rather than leaving it
+   half-deployed.
+
+The `MigrationTaskFamily` output names the task definition for the manual re-run an incident
+occasionally needs — it is not part of the normal path.
