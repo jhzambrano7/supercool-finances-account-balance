@@ -333,7 +333,13 @@ uv run pre-commit install        # enable the gates
 code proves nothing.
 
 **In the cloud: [`infra/`](infra/README.md), AWS CDK in Python.** `npx cdk synth` runs with no AWS
-account, so the templates can be read without deploying anything. Three stacks, split by lifecycle:
+account, so the templates can be read without deploying anything.
+
+**The infrastructure is AWS-specific; the service is not.** That separation was deliberate. A
+Lambda-and-API-Gateway design would have been a reasonable answer to "cloud native" and would have
+tied the solution itself to one vendor. Instead the service is a container that runs anywhere a
+container runs — `docker compose up` locally, ECS Fargate here — and only the deployment knows about
+AWS. The brief asks for IaC, and this answers it without making AWS a dependency of the code. Three stacks, split by lifecycle:
 the ECR registry (deployed first — nothing can pull an image that was never pushed); RDS PostgreSQL
 Multi-AZ with its generated, rotated Secrets Manager credentials; and ECS/Fargate behind an ALB,
 with autoscaling and the migration that gates it.
@@ -377,15 +383,16 @@ without them.
 
 ## Tech choices
 
-| Choice | Why |
-| --- | --- |
-| Python 3.14 | Latest stable; dependency resolution verified against it before committing |
-| uv | One tool for interpreter, virtualenv and dependencies, and it pins Python *in the project*, so the version is reproducible across laptop, container and CI |
-| PostgreSQL | `SELECT ... FOR UPDATE` is the concurrency mechanism the design rests on |
-| SQLAlchemy + Alembic | Async ORM plus migrations; two revisions built (`accounts`, then the transfer tables) |
-| dependency-injector | One process-wide `SharedDependencies` container (settings/engine/session factory/clock/id generator) composed into each module's own container, rather than one connection pool per module |
-| ruff + mypy strict | Enforced in pre-commit, not suggested |
-| pytest | Domain tested with no infrastructure; `testcontainers` provisions a real PostgreSQL for the persistence and locking tests |
+| Choice | Why it won | What lost |
+| --- | --- | --- |
+| Python 3.14 | Gives a ledger what it needs without improvising: SQLAlchemy, Alembic, strict typing, pydantic, and frozen dataclasses for domain value objects. A year of daily use behind it | **TypeScript or Go**, both named in the brief. A technical exercise is not the place to learn a language in public — the same reasoning that chose CDK over Terraform |
+| FastAPI | Async-native, matching the async engine: a synchronous framework would put a thread pool in front of an async driver, adding a concurrency layer that buys nothing and clouds reasoning about locks. Pydantic DTOs and the OpenAPI page at `/docs` come with it | **Lambda + API Gateway.** It would tie the *solution* to AWS. The brief asks for IaC and CDK answers that — but the IaC is never executed, so the service stays vendor-free and runs anywhere a container runs |
+| PostgreSQL | `SELECT ... FOR UPDATE` is the concurrency mechanism the whole design rests on | **In-memory storage**, which the brief explicitly permits. Rejected because the invariant that matters is enforced by the database's row locks; in memory there is nothing to demonstrate |
+| SQLAlchemy + Alembic | Hybrid on purpose: the ORM persists and reloads aggregates, and explicit SQL appears where the query *is* the decision — collections' window function, the row locks | **Raw psycopg/asyncpg throughout.** A real argument in a ledger, where the queries are the design. It gives up versioned migrations and pushes connection-passing through every layer |
+| dependency-injector | One engine and one pool per process (AO5) — a number the deployment now divides to derive its task ceiling. Tests substitute providers without production code knowing tests exist | **FastAPI's `Depends` alone.** It lives in the route signature, so a use case would depend on the web framework; the design also anticipated jobs and queues, where not every inbound adapter is HTTP |
+| uv | One tool for interpreter, virtualenv and dependencies, pinning Python *in the project* so the version is reproducible across laptop, container and CI | **poetry or pip-tools**, neither of which manages the interpreter itself, leaving the one thing most likely to differ between a laptop and an image unpinned |
+| ruff + mypy strict | Enforced in pre-commit, not suggested. Strict typing caught real defects here, including a partially injected secret that would otherwise have started the service against the wrong database | **black + flake8 + isort**, three tools where one suffices, and a looser mypy that would have accepted the bugs above |
+| pytest | Domain tested with no infrastructure; `testcontainers` provisions a real PostgreSQL for persistence and locking, so concurrency claims are demonstrated rather than mocked | **Mocked database tests.** They cannot exercise a row lock, which is the only thing worth proving here |
 
 ## AI usage
 
