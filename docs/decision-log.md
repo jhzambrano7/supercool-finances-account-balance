@@ -1506,3 +1506,10 @@ Además, encontré y revertí una corrupción sin commitear en `main`: `AccountT
 - **Prompt:** "dale"
 - **Respuesta:** Abrí el **PR #15**. Ordené el cuerpo por lo que le importa a un revisor y no por orden de ejecución: primero los dos errores de hecho, porque quien verifica una afirmación y la encuentra falsa deja de confiar en las demás; después el cumplimiento del statement; después la defensa del stack, marcando explícitamente que las alternativas rechazadas salieron de **entrevistar al autor** y no de razonamiento verosímil, y separando cuáles escribí yo desde la evidencia del repo. Cerré con el link roto que apareció al validar anclas y links programáticamente — no estaba en mi lista de ocho, salió de verificar en lugar de confiar — y con el balance de tamaño, para que se vea que la concisión se cuidó quitando y no sólo agregando.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-09 18:05 — Mergear el PR #15 del README
+<!-- id: 20260909-180540-a1fe3a40 -->
+- **Qué intentaba:** Cerrar la última tarea pendiente del proyecto.
+- **Prompt:** "mergea"
+- **Respuesta:** Sin comentarios abiertos, mergeado con squash (`753dd98`). Revalidé sobre el `main` mergeado lo mismo que había validado en la rama — anclas y links del README, todos resuelven — porque un merge con squash reescribe el árbol y verificar sólo antes del merge deja el resultado sin comprobar. Gates verdes: ruff, mypy strict (166 fuentes), 44 tests de infra, suite completa con integración contra Postgres real. Sin PRs abiertos.
+- **Veredicto:** ⏳ pendiente
