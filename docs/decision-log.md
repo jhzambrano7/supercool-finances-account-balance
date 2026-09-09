@@ -1268,3 +1268,26 @@ Formato de cada entrada:
 - **Prompt:** "resuelve los comentarios del PR"
 - **Respuesta:** Encontré 3 comentarios reales, ninguno stale esta vez: (1) `closeError` no se reseteaba al cambiar de identidad -- corregido en el mismo `useEffect`; (2) `close()` sólo refrescaba en éxito, dejando la fila stale tras un 422 por depósito concurrente -- movido a `finally`; (3) el test de concurrencia extraía `account_id` sin verificar que el open hubiera dado 201 -- agregado el assert. Verifiqué build limpio y gates verdes antes de commitear (commit `fd5e659`), respondí los 3 hilos.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 21:38 — Descartar observabilidad y challenguear el descarte del check de reconciliación
+<!-- id: 20260908-213851-a1fe3a40 -->
+- **Qué intentaba:** El usuario descarta observabilidad como overkill (no está pedida explícitamente en el statement) y me pide challenge sobre por qué haría falta el check de reconciliación, argumentando que el journal de doble entrada nunca se desbalancea por construcción.
+- **Prompt:** "Respecto de la observabilidad... descartamos! actualiza PRD y documentos con esta decisión. Del lado del check de consistencia de balance, por qué lo necesitamos? por construcción, el journal de doble entrada no queda desbalanceado nunca. Dame tu challenge"
+- **Respuesta:** Observabilidad: acepto el descarte, es alcance no pedido. Reconciliación: la premisa es correcta pero aplica a I1 (débitos == créditos por transferencia), no al check. El check es `accounts.balance_amount == SUM(entries)` — la columna materializada contra su fuente, dos lugares de almacenamiento distintos, tradeoff que §5.1 acepta explícitamente y cuya mitigación *es* este check. El argumento del usuario sí vale para cuentas SYSTEM (§5.3: no materializan, el SUM es el balance). Evidencia dura en este repo: `SqlAccountRepository.update()` se comía silenciosamente `status` del `.values()`; el mismo bug sobre `balance_amount` dejaba el journal balanceado y el balance mintiendo, invisible para el dominio. Propuse partirlo: mantener el **test** (~20 líneas, cierra §10.2, barato) y descartar el **job operacional** (infra/alerting, va con observabilidad).
+- **Veredicto:** ✅ aprobado — el usuario compró el split y pidió extender la cobertura a depósitos y retiros.
+
+## 2026-09-08 21:43 — Implementar el test de reconciliación y descartar observabilidad en los docs
+<!-- id: 20260908-214349-a1fe3a40 -->
+- **Qué intentaba:** El usuario acepta el split y pide que el enforcement cubra también depósitos y retiros, no sólo transferencias.
+- **Prompt:** "Me gusta la idea de enforzar en test, definitivamente debemos y no solo en transferencias sino en depósitos y retiros (que al final también ejecutan una transferencia)"
+- **Respuesta:** Escribí `tests/integration/account_balance/test_reconciliation.py` con `_assert_reconciled()` global (no scopeado a una cuenta: un path que corrompe una cuenta distinta a la que toca es justo lo que una aserción por-cuenta deja pasar), cubriendo depósito, retiro, transferencia, reversión que cruza cero, replay idempotente y secuencia mixta. Chequea tres cosas: drift de la columna materializada en cuentas USER, I1 por transferencia, y que las cuentas SYSTEM nunca materialicen balance (§5.3). **Verifiqué que el test muerde**: rompí `SqlAccountRepository.update()` sacándole `balance_amount` del `.values()` y los 6 tests pasaron a rojo con el diagnóstico exacto; restauré. Actualicé PRD §5.1/§10.8/§11 y README con el descarte de observabilidad y la excepción del drift.
+- **Veredicto:** ⏳ pendiente
+
+Además, encontré y revertí una corrupción sin commitear en `main`: `AccountType.SYSTEMprd` en `domain/account.py` (tipeo colado, habría reventado en runtime).
+
+## 2026-09-08 21:47 — Abrir el PR #9 con el test de reconciliación y el descarte de observabilidad
+<!-- id: 20260908-214730-0ba873f5 -->
+- **Qué intentaba:** Cerrar el trabajo del turno anterior en un PR que explique por qué el check de reconciliación no es redundante con la doble entrada.
+- **Prompt:** (continuación del turno anterior, sin mensaje nuevo del usuario)
+- **Respuesta:** Abrí PR #9 con las dos decisiones juntas (test de reconciliación + descarte de observabilidad), documentando en el cuerpo el argumento de la proyección materializada, el caso SYSTEM donde el argumento del usuario sí aplica, y la verificación por mutación. Gates verdes.
+- **Veredicto:** ⏳ pendiente
