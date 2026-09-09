@@ -146,9 +146,15 @@ updated *inside the same transaction* that writes the entries. It is therefore n
 eventually-consistent, and always lockable. **This applies to `USER` accounts only** — see §5.3 for
 why `SYSTEM` balances are derived instead.
 
-**Cost:** the balance can, in principle, drift from the ledger due to a bug. **Mitigation:** a
-reconciliation check asserting `account.balance == SUM(entries)` — run in tests, and available as
-an operational job.
+**Cost:** the balance can, in principle, drift from the ledger due to a bug. Not a hypothetical
+one: `SqlAccountRepository.update()` shipped with `status` missing from its `.values(...)` — the
+same `UPDATE`, one column away from writing a stale balance while the ledger stayed perfectly
+balanced. No domain invariant can see that, because the domain never reads the column back.
+
+**Mitigation:** a reconciliation check asserting `account.balance == SUM(entries)`, implemented in
+`tests/integration/account_balance/test_reconciliation.py` and run in CI across every money-movement
+path — deposit, withdrawal, transfer, reversal, idempotent replay, and mixed sequences. §11 also
+names this as an operational job; **that half is descoped** (see §11).
 
 **Rejected alternative:** deriving the balance on read. Honest and simpler, but unlockable and
 unbounded in cost. Rejected on the strength of the locking requirement.
@@ -437,12 +443,23 @@ The service is done when:
 6. A transfer can be explained end-to-end from the entry trail.
 7. Domain invariants are covered by unit tests with no infrastructure; persistence and locking
    behaviour is covered by integration tests against a real PostgreSQL.
-8. The correctness signals of §11.1 are exported and are zero — a ledger that balances but cannot
-   prove it is not finished.
+8. ~~The correctness signals of §11.1 are exported and are zero.~~ **Descoped** with §11. The one
+   signal that could not be dropped — balance drift — is met by criterion 2's test instead of by an
+   exported metric: it is §5.1's mitigation, not an observability nicety.
 
 ---
 
-## 11. Observability
+## 11. Observability — specified, descoped
+
+**Status: designed, deliberately not built.** The statement asks for correctness under concurrency,
+not for instrumentation, and a shallow exporter would demonstrate less than an honest scope
+boundary. This section stays because *which* signals a ledger needs is the judgement worth
+recording, and that judgement does not depend on the exporter.
+
+**One exception.** §11.1's balance-drift signal is the mitigation §5.1 committed to when it chose to
+materialize the balance; descoping it would leave that tradeoff unpaid for. It is met as a test
+(`tests/integration/account_balance/test_reconciliation.py`), not as a metric — the periodic
+operational sweep and its alerting are descoped with the rest.
 
 Generic RED metrics — request rate, error rate, duration — say whether the service is up. They do not
 say whether the money is right. The signals below are the ones specific to *this* service, and each

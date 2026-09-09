@@ -35,10 +35,10 @@ The design is written down; the implementation is partial. This section says whe
 | Deposits and withdrawals: `Deposit`/`Withdraw`, `POST /deposits`/`POST /withdrawals` | **Built** — thin wrappers over `TransferMoney` that resolve the platform's `FUNDING`/`SETTLEMENT` account server-side; the caller never supplies or hard-codes a `SYSTEM` account id |
 | Reversal: `RevertTransfer`, `POST /transfers/{transfer_id}/reversals` | **Built** — see [below](#reversal-is-operator-only-simulated-by-one-fixed-admin-principal) |
 | Reading accounts and movement history: `GET /accounts`, `GET /accounts/{id}`, `GET /accounts/{id}/movements` | **Built** — ownership-scoped, cursor-paginated |
-| Closing an account | **Not built.** `Account.close()` exists in the domain; nothing calls it — no use case, no route |
-| Demo web console (`web/`) | **Built** — a React ops UI exercising every capability above except closing an account; see `web/README.md` |
-| Observability | **Not instrumented** — see [below](#observability) |
-| Reconciliation check (`account.balance == SUM(entries)`) | **Not built.** `docs/prd.md` §5.1 names this explicitly, as a test and as an operational job; neither exists |
+| Closing an account: `CloseAccount`, `POST /accounts/{id}/close` | **Built** — the zero-balance check and the write happen under one lock (`AccountUnitOfWork`), so a deposit racing a close cannot slip between them |
+| Demo web console (`web/`) | **Built** — a React ops UI exercising every capability above; see `web/README.md`. Deliberately untested: it is a presentation facility, not a deliverable |
+| Observability | **Descoped** — designed, deliberately not built; see [below](#observability-designed-and-descoped) |
+| Reconciliation check (`account.balance == SUM(entries)`) | **Built as a test** (`tests/integration/account_balance/test_reconciliation.py`), across deposit, withdrawal, transfer, reversal, replay and mixed sequences. The operational job is descoped with observability |
 | Containers for the service itself, IaC | **Planned** — approach described [below](#running-it-and-deploying-it), not yet committed. `docker-compose.yml` (PostgreSQL only) is built |
 
 ---
@@ -189,20 +189,37 @@ The full reasoning is in [`docs/prd.md`](docs/prd.md); this is the index.
 
 ---
 
-## Observability
+## Observability: designed, and descoped
 
-Specified, not yet instrumented. Generic RED metrics say whether the service is up, not whether the
-money is right, so the signals below are the ones specific to this service
-([`docs/prd.md` §11](docs/prd.md)):
+**Decision: not built, on purpose.** The statement asks for correctness under concurrency, and does
+not ask for instrumentation. Metrics, alert routing and health endpoints are a feature in their own
+right — one large enough that building a shallow version of it would say less about how this service
+was reasoned about than leaving the design visible and the scope honest.
+
+What survives the cut is the part that carries the reasoning: [`docs/prd.md` §11](docs/prd.md) still
+specifies the signals, because *which* signals a ledger needs is the interesting judgement, and it
+does not depend on the exporter.
 
 - **Correctness — should be flat; alert on the first occurrence, not a threshold.** Ledger imbalance,
-  and `balance ≠ SUM(entries)` drift. The drift check is what makes materializing the balance a safe
-  tradeoff rather than a hopeful one.
+  and `balance ≠ SUM(entries)` drift.
 - **Behaviour.** Insufficient-funds rate; idempotency *collisions* (same key, different payload — a
   client defect, never normal) kept distinct from *replays* (healthy retries); lock wait time, which
   is the early warning for both contention and a lock-ordering regression.
 - **Risk.** The total and the **age** of negative balances: this is credit exposure. One negative for
   a day is a collections case; one negative for a month is a write-off nobody decided on.
+
+**One signal was not descoped with the rest.** Balance drift is not an observability nicety — it is
+the mitigation §5.1 committed to when it chose to materialize the balance, and dropping it would
+leave the cost of that tradeoff with nothing paying for it. So it exists as a test
+(`tests/integration/account_balance/test_reconciliation.py`) rather than as a metric: the cheap half,
+which catches the bug class in CI, kept; the expensive half — the periodic operational sweep and its
+alerting — descoped with everything else here.
+
+That distinction is the whole reason drift is worth checking at all. Double-entry integrity (I1)
+cannot break by construction, and `SYSTEM` accounts cannot drift because they never materialize a
+balance (§5.3). Only the denormalized `USER` column can lie, and only a write-path bug can make it —
+`SqlAccountRepository.update()` shipped once with `status` silently missing from its `.values(...)`,
+one column away from being exactly that bug.
 
 ---
 
@@ -281,14 +298,12 @@ the proposed fix was not.
 
 ## What is not done, stated plainly
 
-- Closing an account is specified, and the domain method exists, but nothing calls it — no use case,
-  no route.
-- Observability is designed (`docs/prd.md` §11, [above](#observability)) but not instrumented: no
-  metrics, no `/health`/`/ready`. `docs/prd.md` §10's success criteria name the correctness signals
-  as a completion condition, not a nice-to-have.
-- The reconciliation check `docs/prd.md` §5.1 asks for — a test, and an operational job, both
-  asserting `account.balance == SUM(entries)` — does not exist. The invariant is protected by
-  construction (T7 removed the read-time computation once no use case consumed it), but the check
-  the PRD names explicitly has not been written.
+- **Observability is descoped, not forgotten** — the signals are specified (`docs/prd.md` §11,
+  [above](#observability-designed-and-descoped)); nothing exports them, and there is no
+  `/health`/`/ready`. This is a scope decision, taken because the statement asks for correctness
+  under concurrency and instrumentation is a feature of its own size.
+- **The reconciliation *job* is descoped; the reconciliation *test* is not.** The invariant
+  `account.balance == SUM(entries)` is asserted in CI across every money-movement path; the periodic
+  operational sweep `docs/prd.md` §5.1 also names is not built.
 - No container for the service itself, no IaC yet.
 - Open questions are listed in `docs/prd.md` §12 rather than quietly resolved.
