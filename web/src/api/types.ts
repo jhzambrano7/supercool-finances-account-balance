@@ -94,14 +94,17 @@ export interface MovementsResponse {
 }
 
 /** `GET /collections`'s per-account row (PRD §11.3) -- carries `owner_id`, unlike
- * `AccountResponse`: this endpoint is operator-only and exists precisely to say who owes what. */
+ * `AccountResponse`: this endpoint is operator-only and exists precisely to say who owes what.
+ *
+ * `negative_since`/`age_seconds` are `null` together exactly when the account is negative but no
+ * entry history explains it (PRD §11.1's balance drift) -- never a guessed timestamp or a `0`. */
 export interface NegativeAccountResponse {
   account_id: string
   owner_id: string
   balance: number
   currency: string
-  negative_since: string
-  age_seconds: number
+  negative_since: string | null
+  age_seconds: number | null
 }
 
 export interface CurrencyExposureResponse {
@@ -123,10 +126,13 @@ export interface AgeBucketResponse {
 
 /** `GET /collections`'s body -- the stats an operator needs at a glance, plus the rows that back
  * them up. `age_buckets` always arrives in ascending order (the backend's own
- * `NEGATIVE_AGE_BUCKET_ORDER`), never re-sorted here. */
+ * `NEGATIVE_AGE_BUCKET_ORDER`), never re-sorted here. `unexplained_count` is a materialized-balance
+ * drift (PRD §11.1), never folded into `count` silently -- an account counted there also appears
+ * in `accounts` with `negative_since: null`. */
 export interface CollectionsReportResponse {
   as_of: string
   count: number
+  unexplained_count: number
   oldest_negative_since: string | null
   exposures: CurrencyExposureResponse[]
   age_buckets: AgeBucketResponse[]

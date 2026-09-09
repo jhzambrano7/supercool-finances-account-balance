@@ -20,8 +20,11 @@ const BUCKET_LABELS: Record<AgeBucketResponse['bucket'], string> = {
 }
 
 /** Humanized duration for `age_seconds` -- the coarsest unit that still tells the operator
- * something ("3d", not "3d 4h 12m 9s"), matching the age buckets' own coarseness. */
-function formatAge(seconds: number): string {
+ * something ("3d", not "3d 4h 12m 9s"), matching the age buckets' own coarseness. `null` means the
+ * account has no explaining entry history (PRD §11.1's balance drift) -- there is no age to show,
+ * so this says so rather than rendering a `0` or NaN that would read as "just went negative". */
+function formatAge(seconds: number | null): string {
+  if (seconds === null) return 'unknown'
   if (seconds < 60) return `${seconds}s`
   const minutes = Math.floor(seconds / 60)
   if (minutes < 60) return `${minutes}m`
@@ -66,7 +69,13 @@ export function CollectionsScreen({ ownerId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerId])
 
-  const maxBucketCount = report ? Math.max(1, ...report.age_buckets.map((b) => b.count)) : 1
+  // Defaulted, not assumed present: a shape surprise (a malformed or unexpected response slipping
+  // past `getJson`'s own content-type guard) should degrade this screen to "nothing to show", not
+  // throw during render and blank the whole app -- there is no error boundary above this screen.
+  const exposures = report?.exposures ?? []
+  const ageBuckets = report?.age_buckets ?? []
+  const accounts = report?.accounts ?? []
+  const maxBucketCount = Math.max(1, ...ageBuckets.map((b) => b.count))
 
   return (
     <div className="stack">
@@ -90,6 +99,16 @@ export function CollectionsScreen({ ownerId }: Props) {
 
       {!loading && !error && report && (
         <>
+          {report.unexplained_count > 0 && (
+            <div className="banner banner--error" role="alert">
+              <strong>{report.unexplained_count}</strong> account
+              {report.unexplained_count === 1 ? ' is' : 's are'} negative with no entry history
+              that explains it (rows below marked &quot;Unexplained&quot;) -- this is a
+              materialized-balance drift (docs/prd.md §11.1), not an ordinary collections case. It
+              still counts toward the totals above; investigate before treating it as routine.
+            </div>
+          )}
+
           <div className="card stack">
             <div className="section-heading">Exposure</div>
             <div className="row" style={{ flexWrap: 'wrap', gap: 'var(--space-6)' }}>
@@ -97,10 +116,10 @@ export function CollectionsScreen({ ownerId }: Props) {
                 <div className="help-text">Negative accounts</div>
                 <div className="amount-display">{report.count}</div>
               </div>
-              {report.exposures.length === 0 && report.count === 0 && (
+              {exposures.length === 0 && report.count === 0 && (
                 <div className="help-text">No negative balances right now.</div>
               )}
-              {report.exposures.map((exposure) => (
+              {exposures.map((exposure) => (
                 <div key={exposure.currency}>
                   <div className="help-text">
                     Total owed ({exposure.currency}) · {exposure.count} account
@@ -127,10 +146,11 @@ export function CollectionsScreen({ ownerId }: Props) {
             <div className="help-text">
               Descriptive only, not a write-off policy (docs/prd.md §12 leaves that decision open)
               -- a day-old balance is a collections case, a month-old one is a write-off nobody
-              decided on (docs/prd.md §11.3).
+              decided on (docs/prd.md §11.3). Unexplained accounts (above, if any) have no known
+              age and are not counted in any bar here.
             </div>
             <div className="stack" style={{ gap: 'var(--space-2)' }}>
-              {report.age_buckets.map((bucket) => (
+              {ageBuckets.map((bucket) => (
                 <div key={bucket.bucket} className="row">
                   <div style={{ width: 120 }} className="help-text">
                     {BUCKET_LABELS[bucket.bucket]}
@@ -153,7 +173,7 @@ export function CollectionsScreen({ ownerId }: Props) {
             </div>
           </div>
 
-          {report.accounts.length === 0 ? (
+          {accounts.length === 0 ? (
             <div className="help-text">No accounts are currently negative.</div>
           ) : (
             <table>
@@ -167,14 +187,18 @@ export function CollectionsScreen({ ownerId }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {report.accounts.map((account) => (
+                {accounts.map((account) => (
                   <tr key={account.account_id}>
                     <td className="mono">{truncateId(account.account_id)}</td>
                     <td className="mono">{truncateId(account.owner_id)}</td>
                     <td className="amount tabular amount-debit">
                       {formatMinorUnits(account.balance, account.currency as Currency)}
                     </td>
-                    <td>{new Date(account.negative_since).toLocaleString()}</td>
+                    <td>
+                      {account.negative_since
+                        ? new Date(account.negative_since).toLocaleString()
+                        : 'Unexplained'}
+                    </td>
                     <td className="tabular">{formatAge(account.age_seconds)}</td>
                   </tr>
                 ))}

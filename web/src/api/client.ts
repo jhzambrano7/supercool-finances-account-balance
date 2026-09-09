@@ -201,6 +201,16 @@ async function getJson(path: string, callerId: string): Promise<unknown> {
     throw new ApiError(describeNetworkError())
   }
 
+  // A 200 with a non-JSON body is what an unproxied dev path looks like (vite.config.ts's proxy
+  // list missing an entry): Vite serves the SPA's own index.html back instead of reaching the
+  // API. Treated as a network failure here, not parsed as data -- silently accepting it as
+  // "success" is exactly what let a missing `/collections` proxy entry crash the whole screen the
+  // first time this endpoint existed (`report.age_buckets` was actually an HTML string).
+  const contentType = response.headers.get('content-type') ?? ''
+  if (response.ok && !contentType.includes('application/json')) {
+    throw new ApiError(describeNetworkError())
+  }
+
   const parsed = await parseJsonBody(response)
   if (!response.ok) {
     throw new ApiError(describeHttpError(response.status, (parsed as { detail?: unknown } | null)?.detail))
