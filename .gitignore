@@ -18,3 +18,6 @@ __pycache__/
 .coverage
 coverage.xml
 htmlcov/
+
+# Playwright MCP scratch output (browser verification, never a deliverable)
+.playwright-mcp/

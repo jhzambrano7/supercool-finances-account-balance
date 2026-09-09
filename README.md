@@ -176,6 +176,7 @@ The full reasoning is in [`docs/prd.md`](docs/prd.md); this is the index.
 | Decision | Rejected alternative | Why it lost |
 | --- | --- | --- |
 | Integer minor units for money | Decimal or float | Floats drift over repeated arithmetic; a ledger that drifts cannot be reconciled |
+| Connection pool of 10 per task, **no overflow**, injected by the deployment and divided into the database's budget to derive the task ceiling ([§5.2.1](docs/prd.md)) | SQLAlchemy's defaults (5 + 10 overflow) | The bottleneck is the row lock, not the connection: overflow moves the wait *inside* PostgreSQL, where it costs a backend process and degrades every other session. It also gives the fleet a steady connection count and a peak one, so every margin must be sized for the peak while only the steady state is enjoyed. And leaving it implicit made production capacity rest on a library default no module owned |
 | Entries are the source of truth, balance is a materialized projection | Deriving the balance on read | Honest and simpler, but a `SUM` cannot be row-locked and its cost is unbounded |
 | Transfers post atomically, no state machine | `pending → posted` states | Complexity with no client today; it needs held balances, timeouts and a sweeper for zombies |
 | `SYSTEM` accounts are never locked | Lock both accounts uniformly | Serializes every deposit in the system through one row, for an invariant that does not apply |
@@ -290,12 +291,18 @@ in the application's memory. That is precisely why the locking design is not an 
 detail. Because deposits do not contend (§5.3), throughput on the most common operation scales with
 the database rather than being pinned by a hot row.
 
-Four decisions there are worth the click; `infra/README.md` argues each in full:
+Five decisions there are worth the click; `infra/README.md` argues each in full:
 
 - **The scaling ceiling is derived from the database, not chosen.** Scaling out ECS does not scale
-  RDS: past ~24 tasks the extra ones exhaust the connection pool, and the failure mode is refused
+  RDS: past 36 tasks the extra ones exhaust the connection pool, and the failure mode is refused
   connections on perfectly valid money movements. `maxCapacity` is computed from `max_connections`
-  and the per-task pool size, so raising it forces the database sizing conversation it really is.
+  and the per-task pool, and the pool is *injected into the container* rather than assumed — one
+  number used for both, so the arithmetic and the running process cannot disagree.
+- **The connection pool has no overflow.** This service's contention is row locks, so a connection
+  a caller can only wait on is better left unallocated: waiting in the application pool costs
+  nothing and is visible, while waiting inside PostgreSQL costs a backend process and degrades
+  every other session. It also makes peak equal steady state, which is what turns the capacity
+  budget into a real bound instead of an optimistic one.
 - **Scaling is driven by requests per target, not CPU.** A transfer spends its time waiting on a row
   lock, not burning CPU — under real contention the tasks look idle while latency climbs, so a
   CPU-first policy scales exactly when it is least useful.

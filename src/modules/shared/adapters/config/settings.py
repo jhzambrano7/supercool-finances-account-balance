@@ -36,6 +36,69 @@ class Settings(BaseSettings):
     db_password: str | None = None
     db_name: str | None = None
 
+    # --- Connection pool -----------------------------------------------------------------
+    #
+    # Sized explicitly rather than left to SQLAlchemy's defaults (`pool_size` 5, `max_overflow`
+    # 10). Those defaults are a reasonable general-purpose web-app choice from the synchronous-ORM
+    # era; they are not a decision about *this* workload, and leaving them implicit made the
+    # deployment's `maxCapacity` depend on a library default nobody in this package had ever
+    # declared (`infra/stacks/service_stack.py`).
+
+    #: Connections held open per process. One engine per process (AO5), so this is the whole
+    #: footprint of one ECS task. The deployed value comes from the infrastructure, which derives
+    #: the task ceiling from the same number; this default is for local development.
+    db_pool_size: int = 10
+
+    #: **Zero on purpose, and this is the load-bearing choice.**
+    #:
+    #: Overflow exists to absorb a burst shorter than the time capacity takes to arrive. It does
+    #: not help here, for reasons that compound:
+    #:
+    #: - The bottleneck is not the connection, it is the row lock. A second transfer against the
+    #:   same account blocks on `SELECT ... FOR UPDATE` whether or not it holds a connection.
+    #:   Handing it one only moves the wait *inside* PostgreSQL, where it occupies a backend
+    #:   process, a snapshot and a lock-manager slot. Waiting in the pool queue occupies nothing.
+    #: - PostgreSQL throughput is not monotonic in connection count. Past a small multiple of the
+    #:   cores (two, on `db.t4g.medium`), more concurrent backends *reduce* total throughput
+    #:   through context switching, lock-manager contention and visibility checks. Overflow
+    #:   connections therefore degrade the requests that already had one.
+    #: - They are created on demand — TCP, TLS, and a forked backend process — so the cost lands
+    #:   as added latency during the burst, which is when latency matters most.
+    #: - They make capacity undecidable: the fleet's connection count has a steady answer and a
+    #:   peak answer, so every safety margin must use the peak while only the steady state is
+    #:   enjoyed. Overflow only saves money if the database is sized for the steady state, which
+    #:   for a ledger is exactly what must not be done.
+    #:
+    #: With overflow at zero and a short `db_pool_timeout_seconds`, a saturated task fails fast
+    #: with a local, observable signal and the caller retries safely (§6's idempotency makes that
+    #: safe by construction). The alternative failure is connection refusal at the database, which
+    #: hits every task including the healthy ones and locks operators out mid-incident.
+    db_max_overflow: int = 0
+
+    #: How long a request waits for a pooled connection before giving up. Far below SQLAlchemy's
+    #: 30-second default: thirty seconds is a request whose caller has already retried twice.
+    #: Because every mutating request carries an idempotency key, failing fast returns control to
+    #: a client that can safely retry — which beats holding a request open on the hope that a slot
+    #: frees up.
+    db_pool_timeout_seconds: float = 5.0
+
+    #: Verify a pooled connection before handing it out. The cost is one round trip per checkout;
+    #: what it buys is the RDS Multi-AZ failover we deliberately chose. A failover severs every
+    #: established connection, and without this the first request to pick up each stale one fails
+    #: with a driver error — a 500 on a money movement, at the moment of least tolerance.
+    db_pool_pre_ping: bool = True
+
+    #: Recycle connections older than this. Guards against the silent half-open connections that
+    #: NAT gateways and load balancers leave behind on idle TCP sessions.
+    db_pool_recycle_seconds: int = 1800
+
+    @property
+    def max_database_connections_per_process(self) -> int:
+        """The whole connection footprint of one process — what the infrastructure's task ceiling
+        is divided out of. A property rather than a comment somewhere else, so the two cannot
+        drift."""
+        return self.db_pool_size + self.db_max_overflow
+
     @model_validator(mode="after")
     def _compose_database_url_from_parts(self) -> Settings:
         """Builds `database_url` from the discrete fields, when they are the ones supplied.
