@@ -1284,3 +1284,10 @@ Formato de cada entrada:
 - **Veredicto:** ⏳ pendiente
 
 Además, encontré y revertí una corrupción sin commitear en `main`: `AccountType.SYSTEMprd` en `domain/account.py` (tipeo colado, habría reventado en runtime).
+
+## 2026-09-08 21:47 — Abrir el PR #9 con el test de reconciliación y el descarte de observabilidad
+<!-- id: 20260908-214730-0ba873f5 -->
+- **Qué intentaba:** Cerrar el trabajo del turno anterior en un PR que explique por qué el check de reconciliación no es redundante con la doble entrada.
+- **Prompt:** (continuación del turno anterior, sin mensaje nuevo del usuario)
+- **Respuesta:** Abrí PR #9 con las dos decisiones juntas (test de reconciliación + descarte de observabilidad), documentando en el cuerpo el argumento de la proyección materializada, el caso SYSTEM donde el argumento del usuario sí aplica, y la verificación por mutación. Gates verdes.
+- **Veredicto:** ⏳ pendiente
