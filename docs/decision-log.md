@@ -1466,3 +1466,10 @@ Además, encontré y revertí una corrupción sin commitear en `main`: `AccountT
 - **Por qué esta salida y no las otras dos:** `mypy_path = ../src` en infra le enseñaría a la infraestructura dónde viven las fuentes del servicio, un acoplamiento de rutas peor; e `ignore_missing_imports` silenciaría el chequeo, dejando el test verificando contra `Any` — justo el test cuyo único propósito es garantizar que los nombres de variable inyectados existen, o sea que lo convertiría en el test-teatro que critiqué en el mismo PR.
 - **Verificación:** en vez de asumir que el marcador viaja en el paquete, construí el wheel y lo confirmé (`modules/py.typed` presente), así que también vale para una instalación no editable.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-09 17:30 — Mergear el PR #14 del pool de conexiones
+<!-- id: 20260909-173006-a1fe3a40 -->
+- **Qué intentaba:** Cerrar el concern del pool en `main`.
+- **Prompt:** "mergea"
+- **Respuesta:** Chequeé que no hubiera comentarios abiertos (cero) y mergeé con squash (`9f18418`), borrando la rama. Verifiqué sobre el `main` mergeado, no sobre la rama: ruff, mypy strict (166 fuentes + 21 de infra), 44 tests de infra, suite completa con integración contra Postgres real, y el pool efectivo dentro del contenedor corriendo — `size=10 overflow_max=0 timeout=5.0 pre_ping=True`. Que ese último chequeo se haga contra el proceso y no contra el código es el punto entero del PR: el número que la infraestructura divide y el que el proceso abre son ahora el mismo, y esto lo demuestra.
+- **Veredicto:** ⏳ pendiente
