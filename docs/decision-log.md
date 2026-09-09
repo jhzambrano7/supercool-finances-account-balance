@@ -1457,3 +1457,12 @@ Además, encontré y revertí una corrupción sin commitear en `main`: `AccountT
 - **Veredicto:** ⏳ pendiente
 
 <!-- skip: 20260909-172218-a1fe3a40 -->
+
+## 2026-09-09 17:27 — Explicar y verificar el marcador py.typed
+<!-- id: 20260909-172742-a1fe3a40 -->
+- **Qué intentaba:** El usuario pregunta qué es el archivo vacío `src/modules/py.typed` que apareció en el PR #14.
+- **Prompt:** "qué es src/modules/py.typed?"
+- **Respuesta:** Marcador de PEP 561. Un type checker ignora por defecto las anotaciones de un paquete **instalado**; `py.typed` declara que son confiables. Nunca hizo falta antes porque el mypy de la raíz usa `mypy_path = "src"` y analiza el árbol de fuentes directamente — el marcador sólo se consulta para distribuciones instaladas. Apareció ahora porque `infra/tests/test_connection_budget.py` importa `Settings` desde afuera de `src/`, con el mypy de infra, que lo resuelve vía el editable install.
+- **Por qué esta salida y no las otras dos:** `mypy_path = ../src` en infra le enseñaría a la infraestructura dónde viven las fuentes del servicio, un acoplamiento de rutas peor; e `ignore_missing_imports` silenciaría el chequeo, dejando el test verificando contra `Any` — justo el test cuyo único propósito es garantizar que los nombres de variable inyectados existen, o sea que lo convertiría en el test-teatro que critiqué en el mismo PR.
+- **Verificación:** en vez de asumir que el marcador viaja en el paquete, construí el wheel y lo confirmé (`modules/py.typed` presente), así que también vale para una instalación no editable.
+- **Veredicto:** ⏳ pendiente
