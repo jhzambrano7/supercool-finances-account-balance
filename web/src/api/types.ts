@@ -92,3 +92,43 @@ export interface MovementsResponse {
   items: MovementResponse[]
   next_cursor: string | null
 }
+
+/** `GET /collections`'s per-account row (PRD §11.3) -- carries `owner_id`, unlike
+ * `AccountResponse`: this endpoint is operator-only and exists precisely to say who owes what. */
+export interface NegativeAccountResponse {
+  account_id: string
+  owner_id: string
+  balance: number
+  currency: string
+  negative_since: string
+  age_seconds: number
+}
+
+export interface CurrencyExposureResponse {
+  currency: string
+  count: number
+  total_owed: number
+}
+
+export type NegativeAgeBucket =
+  | 'UNDER_ONE_DAY'
+  | 'ONE_TO_SEVEN_DAYS'
+  | 'SEVEN_TO_THIRTY_DAYS'
+  | 'OVER_THIRTY_DAYS'
+
+export interface AgeBucketResponse {
+  bucket: NegativeAgeBucket
+  count: number
+}
+
+/** `GET /collections`'s body -- the stats an operator needs at a glance, plus the rows that back
+ * them up. `age_buckets` always arrives in ascending order (the backend's own
+ * `NEGATIVE_AGE_BUCKET_ORDER`), never re-sorted here. */
+export interface CollectionsReportResponse {
+  as_of: string
+  count: number
+  oldest_negative_since: string | null
+  exposures: CurrencyExposureResponse[]
+  age_buckets: AgeBucketResponse[]
+  accounts: NegativeAccountResponse[]
+}

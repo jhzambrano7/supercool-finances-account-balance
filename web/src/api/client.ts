@@ -2,6 +2,7 @@ import { describeHttpError, describeNetworkError, type DescribedError } from './
 import type {
   AccountResponse,
   AccountsResponse,
+  CollectionsReportResponse,
   DepositRequest,
   MovementsResponse,
   OpenAccountRequest,
@@ -257,4 +258,14 @@ export async function getMovements(
   const query = params.toString()
   const path = `/accounts/${accountId}/movements${query ? `?${query}` : ''}`
   return (await getJson(path, callerId)) as MovementsResponse
+}
+
+/**
+ * `GET /collections` (PRD §11.3) -- operator-only, same as `createReversal`: `callerId` is always
+ * whichever identity is active, never overridden here. A caller who is not the platform's admin
+ * principal gets a real `403`, surfaced by `CollectionsScreen` the same honest way `ReversalScreen`
+ * already surfaces one.
+ */
+export async function getCollectionsReport(callerId: string): Promise<CollectionsReportResponse> {
+  return (await getJson('/collections', callerId)) as CollectionsReportResponse
 }

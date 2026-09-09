@@ -19,6 +19,7 @@ export default defineConfig({
       '/transfers': apiTarget,
       '/deposits': apiTarget,
       '/withdrawals': apiTarget,
+      '/collections': apiTarget,
     },
   },
 })
