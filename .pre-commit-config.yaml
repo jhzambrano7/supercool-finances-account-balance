@@ -48,7 +48,17 @@ repos:
 
       - id: mypy-infra
         name: mypy (strict) — infra
-        entry: bash -c 'cd infra && uv run --group infra mypy --strict --python-version 3.14 app.py stacks runtime'
+        entry: bash -c 'cd infra && uv run --group infra mypy --strict --python-version 3.14 app.py stacks runtime tests'
+        language: system
+        files: ^infra/.*\.py$
+        pass_filenames: false
+        require_serial: true
+
+      - id: pytest-infra
+        name: pytest — infra (CDK synth assertions)
+        # Same `cd infra` as `mypy-infra`, for the same reason: `infra/tests` imports `stacks.*`,
+        # which only resolves with `infra/` on the path (see `infra/pytest.ini`).
+        entry: bash -c 'cd infra && uv run --group infra pytest'
         language: system
         files: ^infra/.*\.py$
         pass_filenames: false

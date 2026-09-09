@@ -171,6 +171,25 @@ take the network with it.
   `/ready` exist because the load balancer cannot be created without them, not as a partial
   reversal of that decision.
 
+## Testing the templates
+
+```
+cd infra && uv run --group infra pytest
+```
+
+`infra/tests` asserts properties of the *synthesized CloudFormation*
+(`aws_cdk.assertions.Template.from_stack(...)`), not of the Python that produces it — the
+adversarial review that led to the fixes above found three blockers that only a look at the actual
+template would catch: a migration task nothing invoked, `imageTag` missing from the custom
+resource's properties (which stops CloudFormation from ever re-invoking it), and ECR living in the
+stack it later had to be split out of. Each test names the one decision it protects, in comments
+next to the assertion, and reads that way deliberately rather than as one large template snapshot:
+a snapshot goes stale on every `aws-cdk-lib` patch release and a diff against it says nothing about
+which invariant broke.
+
+This is wired into `.pre-commit-config.yaml` as `pytest-infra`, alongside `mypy-infra` — both `cd`
+into `infra` for the same reason: `stacks.*` only resolves with `infra/` on `sys.path`.
+
 ## Deploy sequence
 
 ```

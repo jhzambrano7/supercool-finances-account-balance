@@ -24,6 +24,15 @@ infra = [
     "aws-cdk-lib>=2.174",
     "constructs>=10.4",
     "boto3-stubs[ecs]>=1.35",
+    # `runtime/migration_handler.py` imports boto3 itself; the Lambda runtime ships it for free
+    # (it's preinstalled on every `python3.13` execution environment), so it was never a project
+    # dependency before. `infra/tests/test_migration_handler.py` imports that module directly to
+    # unit-test it, so this group needs the real package too, not just its stubs.
+    "boto3>=1.35",
+    # For `infra/tests`: assertions against the synthesized CloudFormation template
+    # (`aws_cdk.assertions`), run via `cd infra && uv run --group infra pytest`. Kept in this
+    # group, not `dev`, for the same reason `aws-cdk-lib` is here -- the image build never needs it.
+    "pytest>=8.3",
 ]
 
 dev = [
