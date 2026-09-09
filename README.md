@@ -6,6 +6,16 @@ Everything here is subordinate to one goal: **no money is ever created, destroye
 Where a decision made the service simpler but that goal weaker, the decision was rejected — and the
 rejection is written down, because the reasoning is the deliverable, not the code.
 
+**Run it in one command**
+
+```
+docker compose up
+```
+
+Then open the **ops console at <http://localhost:5173>**, or the **API docs at
+<http://localhost:8000/docs>**. PostgreSQL, the migrations, the API and the console all come up
+together — see [Running it](#running-it-and-deploying-it) for what is going on inside.
+
 **Where to look**
 
 | Document | What it is |
@@ -230,9 +240,18 @@ one column away from being exactly that bug.
 > here because decisions belong in this document. Locally, the whole stack is real and runs.
 
 **Locally: `docker compose up`, and that is the whole command.** It brings up PostgreSQL, applies
-the migrations, serves the API on `:8000` and the demo console on `:5173`. Both application services
-mount their source and reload on change, so editing a use case or a screen on the host takes effect
-without a rebuild.
+the migrations, and starts both application services. Nothing else to install, no migration step to
+remember.
+
+| | |
+| --- | --- |
+| **Ops console** | **<http://localhost:5173>** — start here; every capability is exercisable from the browser |
+| **API docs** (OpenAPI / Swagger UI) | **<http://localhost:8000/docs>** — the generated contract, and a place to issue requests directly |
+| API | <http://localhost:8000> |
+| PostgreSQL | `localhost:5432` (`postgres` / `postgres`, database `account_balance`) |
+
+Both application services mount their source and reload on change, so editing a use case or a screen
+on the host takes effect without a rebuild. `docker compose down -v` removes the stack and its data.
 
 Three choices in there are worth naming, because each removes a class of "works on my machine":
 

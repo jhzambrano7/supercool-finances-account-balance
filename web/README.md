@@ -10,7 +10,8 @@ API on `main` serves today).
 
 **With Docker (one command).** From the repo root, `docker compose up`. PostgreSQL, the API and this
 console all come up, migrations included, with hot reload on both halves. Open
-`http://localhost:5173`.
+**<http://localhost:5173>** for this console, or **<http://localhost:8000/docs>** for the API's
+generated OpenAPI docs.
 
 **Without Docker.** Unchanged, and still supported:
 
