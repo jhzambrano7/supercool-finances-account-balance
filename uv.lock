@@ -38,6 +38,7 @@ infra = [
     { name = "aws-cdk-lib" },
     { name = "boto3-stubs", extra = ["ecs"] },
     { name = "constructs" },
+    { name = "pytest" },
 ]
 
 [package.metadata]
@@ -69,6 +70,7 @@ infra = [
     { name = "aws-cdk-lib", specifier = ">=2.174" },
     { name = "boto3-stubs", extras = ["ecs"], specifier = ">=1.35" },
     { name = "constructs", specifier = ">=10.4" },
+    { name = "pytest", specifier = ">=8.3" },
 ]
 
 [[package]]
