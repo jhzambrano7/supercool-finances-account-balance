@@ -39,7 +39,10 @@ HEADER = re.compile(
 )
 
 # Either concrete references (I2, G3, §5.1) or an explicit, justified opt-out.
-PRD_REFS = re.compile(r"^PRD: (?:(?:[GI][0-9]+|§[0-9]+(?:\.[0-9]+)?)(?:, )?)+$")
+# `§5.2.1` as well as `§5.2`: the PRD nests one level deeper where a decision needs its own
+# section, and a trailer that cannot name the section it refers to pushes commits towards a
+# vaguer reference than the author actually meant.
+PRD_REFS = re.compile(r"^PRD: (?:(?:[GI][0-9]+|§[0-9]+(?:\.[0-9]+){0,2})(?:, )?)+$")
 PRD_NA = re.compile(r"^PRD: n/a — .{6,}$")
 
 ATTRIBUTION = re.compile(r"co-authored-by|generated with|🤖", re.IGNORECASE)

@@ -16,13 +16,36 @@ from stacks.migration_runner import MigrationRunner
 
 CONTAINER_PORT = 8000
 
-#: How many database connections one task can hold: SQLAlchemy's defaults, `pool_size` 5 plus
-#: `max_overflow` 10. One engine per process (AO5), so this is per task, not per request.
-CONNECTIONS_PER_TASK = 15
+#: The pool this deployment gives each task. These are **injected into the container** as
+#: `DB_POOL_SIZE`/`DB_MAX_OVERFLOW` and divided into the connection budget below to get the task
+#: ceiling — one value, used for both, so the arithmetic and the running process cannot disagree.
+#:
+#: Before this, the ceiling was derived from a comment asserting SQLAlchemy's defaults. The
+#: service never declared a pool at all, so production capacity rested on a library default that
+#: no module owned; changing it for good local reasons would have invalidated the ceiling in
+#: silence, and the failure that follows is refused connections on valid money movements.
+#:
+#: `settings.py` argues each number. Overflow is zero because this service's contention is row
+#: locks: a connection a caller can only wait on is better left unallocated, since waiting in the
+#: application pool costs nothing while waiting inside PostgreSQL costs a backend process and
+#: degrades every other session.
+POOL_SIZE_PER_TASK = 10
+MAX_OVERFLOW_PER_TASK = 0
+
+#: One engine per process (AO5), so this is the footprint of one task, not of one request. Peak
+#: equals steady state by construction, which is what makes the budget below a real bound rather
+#: than an optimistic one.
+CONNECTIONS_PER_TASK = POOL_SIZE_PER_TASK + MAX_OVERFLOW_PER_TASK
+
+#: The migration task is a separate process with a pool of its own, and it runs *during a deploy*
+#: — while the service is at full task count. Kept deliberately small: it is one sequential
+#: `alembic upgrade head` holding one advisory lock, so it has no use for concurrency.
+MIGRATION_POOL_SIZE = 2
 
 #: `db.t4g.medium` has 4 GiB, and RDS derives `max_connections` as `DBInstanceClassMemory/9531392`
-#: — roughly 450. The reserve is for rotation, the migration task, and a human with `psql` during
-#: an incident, which is the worst possible moment to find there is no connection left.
+#: — roughly 450. The reserve covers secret rotation, the migration task's own small pool, and a
+#: human with `psql` during an incident, which is the worst possible moment to discover there is
+#: no connection left.
 DATABASE_MAX_CONNECTIONS = 450
 CONNECTIONS_RESERVED_FOR_OPERATORS = 90
 
@@ -153,6 +176,13 @@ class ServiceStack(cdk.Stack):
             "api",
             image=image,
             secrets=secrets,
+            # The pool is passed in, not left to the image's default. That is what makes
+            # `MAX_TASKS` a real bound: the number divided into the budget and the number the
+            # process actually opens are the same number.
+            environment={
+                "DB_POOL_SIZE": str(POOL_SIZE_PER_TASK),
+                "DB_MAX_OVERFLOW": str(MAX_OVERFLOW_PER_TASK),
+            },
             port_mappings=[ecs.PortMapping(container_port=CONTAINER_PORT)],
             logging=ecs.LogDrivers.aws_logs(stream_prefix="api", log_group=log_group),
             # Container-level liveness, distinct from the ALB's: this one restarts a wedged task
@@ -184,6 +214,10 @@ class ServiceStack(cdk.Stack):
             "migrate",
             image=image,
             secrets=secrets,
+            environment={
+                "DB_POOL_SIZE": str(MIGRATION_POOL_SIZE),
+                "DB_MAX_OVERFLOW": "0",
+            },
             # `docker/migrate.py`, not bare `alembic upgrade head`: during a CloudFormation
             # rollback this same resource is re-invoked with the *previous* image, whose
             # `versions/` does not contain the revision now in `alembic_version`. Plain alembic

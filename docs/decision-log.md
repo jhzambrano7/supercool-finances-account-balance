@@ -1437,3 +1437,32 @@ Además, encontré y revertí una corrupción sin commitear en `main`: `AccountT
 - **Veredicto:** ⏳ pendiente
 
 <!-- skip: 20260909-160117-a1fe3a40 -->
+
+## 2026-09-09 17:08 — Dimensionar el pool de conexiones explícitamente y hacer cumplir el presupuesto
+<!-- id: 20260909-170836-a1fe3a40 -->
+- **Qué intentaba:** Cerrar el concern del pool con la opción elegida (pool 10, overflow 0, 36 tasks) y dejar asentada la justificación.
+- **Prompt:** "Me gusta la opción 1, pero, por qué overflow cero?" / "adelante!! Asienta la justificación de la decisión"
+- **Respuesta:** Pool explícito en `Settings` y aplicado en `create_engine`, con el razonamiento de cada parámetro en el código y no en un commit. Lo importante no es el número sino **quién lo posee**: la infra ahora **inyecta** `DB_POOL_SIZE`/`DB_MAX_OVERFLOW` al contenedor y divide **ese mismo número** en el presupuesto para sacar `MAX_TASKS`. Antes el techo de producción se derivaba de un comentario que describía un default de SQLAlchemy que ningún módulo del servicio había declarado.
+- **Por qué overflow cero** (la parte que el usuario preguntó y la que carga el peso): el cuello de botella no es la conexión sino el row lock, así que darle una conexión a quien sólo puede esperar mueve la espera *adentro* de Postgres, donde ocupa un backend, un snapshot y un slot del lock manager; el throughput de Postgres no es monótono en cantidad de conexiones, así que las de overflow degradan a las requests que ya tenían una; se abren bajo demanda, o sea que su costo aterriza como latencia durante el pico; y hacen la capacidad indecidible, porque habría una cuenta de régimen y una de pico, obligando a dimensionar por el pico mientras se disfruta el régimen. En cero, pico == régimen y el presupuesto es una cota real. Además el modo de falla es mejor: pool agotado es local y observable y el cliente reintenta seguro por idempotencia (§6), contra rechazo de conexiones a nivel base que pega en todas las tasks y deja a los operadores afuera.
+- **Verificación:** probé por mutación que las aserciones muerden. Hallazgo del propio ejercicio: subir el pool **no** rompe el presupuesto porque `MAX_TASKS` se autoajusta — lo que lo rompe es hardcodear el techo, y esa es la mutación que lo pone en rojo (`60 tasks x 10 = 600, plus 90 reserved, exceeds 450`). Agregué el test de que los nombres de variable inyectados son los que `Settings` realmente lee, porque sin eso el acoplamiento es teatro: una variable no reconocida cae al default, que hoy coincide. Y verifiqué el pool efectivo en el contenedor corriendo, no en el código: `size: 10 | overflow max: 0 | timeout: 5.0 | pre_ping: True`.
+- **Descartes explícitos:** dos tests que había escrito y borré antes de commitear porque eran vacuos (`str(CONNECTIONS_PER_TASK) in readme` pasa con cualquier README) — exactamente el pecado que las dos revisiones anteriores me marcaron. Y RDS Proxy nombrado como la respuesta real a escala, fuera de alcance por decisión y no por olvido.
+- **Veredicto:** ⏳ pendiente
+
+## 2026-09-09 17:15 — Asentar la decisión del pool donde un revisor la busca
+<!-- id: 20260909-171559-a1fe3a40 -->
+- **Qué intentaba:** Corrección del usuario: había puesto la justificación en docstrings, y esto es una prueba técnica donde el revisor tiene que **ver** la decisión.
+- **Prompt:** "Cuando dije asienta la decisión, no me refería a docstring, recuerda que estamos presentando una prueba, el revisor debe poder ver la decisión tomada"
+- **Respuesta:** Tiene razón y el error es de criterio, no de ejecución: un docstring lo lee quien ya está adentro del archivo, y una decisión de capacidad la busca alguien que abre el PRD. Agregué **§5.2.1** al PRD con la forma que usa el resto del documento — tabla de parámetros, argumento, **Cost**, y dos **Rejected alternatives** (los defaults de SQLAlchemy, y RDS Proxy nombrado explícitamente como la respuesta correcta a escala descartada por alcance, para que la ausencia sea una decisión y no un olvido) — y una fila en el índice de decisiones del README, que es lo primero que se abre.
+- **De paso:** el validador de commits rechazaba referencias de tres niveles (`§5.2.1`). Lo arreglé en el script en vez de degradar la referencia a `§5.2`, porque una convención que no puede nombrar la sección a la que te referís te empuja a citar algo más vago de lo que quisiste decir.
+- **Veredicto:** ⏳ pendiente
+
+<!-- skip: 20260909-172218-a1fe3a40 -->
+
+## 2026-09-09 17:27 — Explicar y verificar el marcador py.typed
+<!-- id: 20260909-172742-a1fe3a40 -->
+- **Qué intentaba:** El usuario pregunta qué es el archivo vacío `src/modules/py.typed` que apareció en el PR #14.
+- **Prompt:** "qué es src/modules/py.typed?"
+- **Respuesta:** Marcador de PEP 561. Un type checker ignora por defecto las anotaciones de un paquete **instalado**; `py.typed` declara que son confiables. Nunca hizo falta antes porque el mypy de la raíz usa `mypy_path = "src"` y analiza el árbol de fuentes directamente — el marcador sólo se consulta para distribuciones instaladas. Apareció ahora porque `infra/tests/test_connection_budget.py` importa `Settings` desde afuera de `src/`, con el mypy de infra, que lo resuelve vía el editable install.
+- **Por qué esta salida y no las otras dos:** `mypy_path = ../src` en infra le enseñaría a la infraestructura dónde viven las fuentes del servicio, un acoplamiento de rutas peor; e `ignore_missing_imports` silenciaría el chequeo, dejando el test verificando contra `Any` — justo el test cuyo único propósito es garantizar que los nombres de variable inyectados existen, o sea que lo convertiría en el test-teatro que critiqué en el mismo PR.
+- **Verificación:** en vez de asumir que el marcador viaja en el paquete, construí el wheel y lo confirmé (`modules/py.typed` presente), así que también vale para una instalación no editable.
+- **Veredicto:** ⏳ pendiente

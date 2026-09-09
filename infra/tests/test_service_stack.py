@@ -56,14 +56,14 @@ def test_alb_health_check_targets_health_not_ready(service_template: Template) -
 
 
 def test_autoscaling_ceiling_and_floor(service_template: Template) -> None:
-    """`min_capacity=2` (no single point of failure at rest), `max_capacity=24` -- derived, in
+    """`min_capacity=2` (no single point of failure at rest), `max_capacity=36` -- derived, in
     `service_stack.py`'s `MAX_TASKS`, from the database's connection budget, not chosen. Asserting
-    the literal 24 here is what would catch someone raising it without also resizing the database
+    the literal 36 here is what would catch someone raising it without also resizing the database
     ("a database sizing decision wearing a compute costume").
     """
     service_template.has_resource_properties(
         "AWS::ApplicationAutoScaling::ScalableTarget",
-        Match.object_like({"MinCapacity": 2, "MaxCapacity": 24}),
+        Match.object_like({"MinCapacity": 2, "MaxCapacity": 36}),
     )
 
 

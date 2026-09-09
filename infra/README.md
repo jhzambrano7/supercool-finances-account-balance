@@ -91,13 +91,55 @@ deploy — a step a human has to remember, which is exactly the failure mode `do
 already refuses locally.
 
 **The scaling ceiling is derived from the database, not chosen.** `db.t4g.medium` gives roughly 450
-connections; reserving 90 for rotation, migrations and a human with `psql` during an incident
-leaves 360, and each task holds up to 15 (SQLAlchemy's `pool_size` 5 plus `max_overflow` 10, one
-engine per process — AO5). That is 24 tasks.
+connections; reserving 90 for rotation, the migration task's own pool, and a human with `psql`
+during an incident leaves 360. Each task holds **10** — one engine per process (AO5). That is
+**36 tasks**.
 
 Past that point, more tasks add no throughput — they exhaust the connection pool, and the failure
 mode is not slower responses but *refused connections*, surfacing as errors on money movements that
 were perfectly valid. Raising `maxCapacity` is a database sizing decision wearing a compute costume.
+
+**The pool is injected, not assumed.** `POOL_SIZE_PER_TASK` is passed to the container as
+`DB_POOL_SIZE` *and* divided into the budget to get the ceiling — one number, used for both, so the
+arithmetic and the running process cannot disagree. This was a real gap: the ceiling used to be
+derived from a comment describing SQLAlchemy's default, which the service had never declared, so
+production capacity rested on a library's choice that no module owned. `test_connection_budget.py`
+now asserts the arithmetic, the injection, and that the injected variable names are ones `Settings`
+actually reads — without that last one the coupling is theatre, since an unrecognised variable
+silently falls back to a default that happens to match.
+
+**`max_overflow` is zero, and that is the load-bearing decision.** Overflow absorbs a burst shorter
+than the time capacity takes to arrive. It does not help a ledger:
+
+- The bottleneck is the row lock, not the connection. A second transfer against the same account
+  blocks on `SELECT ... FOR UPDATE` whether or not it holds a connection; handing it one only moves
+  the wait *inside* PostgreSQL, where it occupies a backend process, a snapshot and a lock-manager
+  slot. Waiting in the application pool occupies nothing and is visible in the application's own
+  metrics.
+- PostgreSQL throughput is not monotonic in connection count. Past a small multiple of the cores —
+  two, here — more concurrent backends *reduce* total throughput, so overflow degrades the requests
+  that already had a connection.
+- Overflow connections are opened on demand (TCP, TLS, a forked backend), so their cost lands as
+  latency during the burst, which is when latency matters most.
+- They make capacity undecidable: the fleet would have a steady connection count and a peak one,
+  forcing every margin to be sized for the peak while only the steady state is enjoyed. Overflow
+  only saves money if the database is sized for the steady state, which for a ledger is exactly
+  what must not be done. At zero, peak equals steady state and the budget above is a real bound.
+
+The failure mode is also better. A saturated task fails fast on `pool_timeout` with a local,
+observable signal, and the caller retries safely because every mutating request carries an
+idempotency key (§6). The alternative is connection refusal *at the database*, which hits every
+task including the healthy ones and locks operators out mid-incident.
+
+**Two related choices** live in `settings.py` with the same reasoning: `pool_timeout` is 5 seconds
+rather than SQLAlchemy's 30, because thirty seconds is a request whose caller has already retried;
+and `pool_pre_ping` is on, because Multi-AZ was chosen deliberately and a failover severs every
+established connection — without it the first request to pick up each stale one returns a 500 on a
+money movement.
+
+**RDS Proxy is the answer at real scale** and is deliberately not here. It multiplexes many client
+connections onto few database ones, which would decouple the task ceiling from `max_connections`
+entirely. It is out of scope, not overlooked.
 
 **Scaling is driven by request count, not CPU.** This service is I/O-bound: a transfer spends its
 time waiting on a PostgreSQL row lock (PRD §5), not burning CPU. Under real contention the tasks

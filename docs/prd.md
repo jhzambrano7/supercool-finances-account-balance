@@ -169,6 +169,62 @@ unbounded in cost. Rejected on the strength of the locking requirement.
 - Deadlock avoidance via deterministic lock ordering (§5, step 3).
 - The `version` column on accounts is kept for diagnostics and for future optimistic paths.
 
+### 5.2.1 Connection pool: sized to the database, with no overflow
+
+The service is I/O-bound on row locks, and it autoscales horizontally against a database that does
+not. That makes the connection pool a capacity decision, not a tuning detail: the number of
+connections one process holds, multiplied by the task ceiling, must fit inside the database's
+`max_connections` with room left for operators.
+
+**Decision:** every pool parameter is explicit, and the deployment **injects** the pool size into
+the container *and* divides that same number into the connection budget to derive the task ceiling
+(`infra/stacks/service_stack.py`). One number, used for both. On `db.t4g.medium` that is
+`(450 − 90 reserved) ÷ 10 = 36 tasks`.
+
+| Parameter | Value | Why |
+| --- | --- | --- |
+| `pool_size` | 10 | One engine per process (AO5), so this is the whole footprint of a task |
+| `max_overflow` | **0** | See below — this is the load-bearing choice |
+| `pool_timeout` | 5s | Thirty seconds is a request whose caller has already retried; §6's idempotency makes failing fast safe |
+| `pool_pre_ping` | on | Multi-AZ was chosen deliberately; a failover severs every established connection, and without this the first request to pick up each stale one returns a 500 on a money movement |
+| `pool_recycle` | 1800s | Half-open connections left behind by NAT and load-balancer idle timeouts |
+
+**Why `max_overflow` is zero.** Overflow exists to absorb a burst shorter than the time capacity
+takes to arrive. It does not help a ledger, for reasons that compound:
+
+- **The bottleneck is the row lock, not the connection.** A second transfer against the same account
+  blocks on `SELECT ... FOR UPDATE` whether or not it holds a connection. Handing it one only moves
+  the wait *inside* PostgreSQL, where it occupies a backend process, a snapshot and a lock-manager
+  slot. Waiting in the application pool occupies nothing and is visible to the application.
+- **PostgreSQL throughput is not monotonic in connection count.** Past a small multiple of the cores,
+  more concurrent backends *reduce* total throughput. Overflow connections therefore degrade the
+  requests that already had one.
+- **Their cost lands at the worst moment.** They are opened on demand — TCP, TLS, a forked backend —
+  so the price is paid as added latency during the burst.
+- **They make capacity undecidable.** The fleet would have a steady connection count and a peak one,
+  forcing every margin to be sized for the peak while only the steady state is enjoyed. Overflow
+  only saves money if the database is sized for the steady state, which for a ledger is exactly what
+  must not be done. At zero, peak equals steady state and the budget is a real bound.
+
+The failure mode is also the better one. A saturated task fails fast on `pool_timeout` with a local,
+observable signal, and the caller retries safely because every mutating request carries an
+idempotency key (§6). The alternative is connection refusal *at the database*, which hits every task
+including the healthy ones and locks operators out during the incident.
+
+**Cost:** at full scale the fleet holds 360 connections open whether or not it needs them, and the
+task ceiling cannot rise without resizing the database. Both are intended: the ceiling is where the
+database sizing conversation is supposed to happen.
+
+**Rejected alternative — SQLAlchemy's defaults (`pool_size` 5, `max_overflow` 10).** This is what
+ran before, implicitly. It is a reasonable general-purpose web-app default and a poor fit here: it
+triples the peak footprint exactly during a burst, and it left the deployment's task ceiling derived
+from a library default the service had never declared — so production capacity rested on a number no
+module owned, and changing it locally would have invalidated the ceiling in silence.
+
+**Rejected alternative — RDS Proxy.** The right answer at real scale: it multiplexes many client
+connections onto few database ones, decoupling the task ceiling from `max_connections` entirely.
+Rejected on scope, not on merit, and named here so the omission is a decision rather than an
+oversight.
 
 ### 5.3 `SYSTEM` accounts are never locked, and their balance is not materialized
 
