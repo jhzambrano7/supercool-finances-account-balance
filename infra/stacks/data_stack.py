@@ -87,11 +87,17 @@ class DataStack(cdk.Stack):
         # the removal policy: the attachment because nothing should assume it is harmless to lose,
         # the secret because it is the one that actually holds the password.
         self.credentials.apply_removal_policy(cdk.RemovalPolicy.RETAIN)
-        generated_secret = self.database.node.find_child("Secret")
+        # `try_find_child`, not `find_child`: the latter raises on a missing id, so the more likely
+        # failure -- a future aws-cdk-lib renaming the child -- would surface as a bare construct
+        # error and the diagnostic below, written for exactly that case, would never be reached.
+        generated_secret = self.database.node.try_find_child("Secret")
         if not isinstance(generated_secret, rds.DatabaseSecret):
             raise RuntimeError(
-                "expected DatabaseInstance's generated secret construct at child id 'Secret'; "
-                "aws-cdk-lib's internal wiring for from_generated_secret() may have changed"
+                "expected DatabaseInstance's generated secret construct at child id 'Secret', "
+                f"found {type(generated_secret).__name__}; aws-cdk-lib's internal wiring for "
+                "from_generated_secret() may have changed. Until this is fixed the secret is NOT "
+                "retained, so a `cdk destroy` would delete the only credential that reaches the "
+                "ledger while keeping the ledger."
             )
         generated_secret.apply_removal_policy(cdk.RemovalPolicy.RETAIN)
 
