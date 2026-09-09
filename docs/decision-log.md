@@ -1328,14 +1328,14 @@ Además, encontré y revertí una corrupción sin commitear en `main`: `AccountT
 - **Qué intentaba:** El usuario prefiere la IaC en Python y sospecha que las migraciones no se corren.
 - **Prompt:** "ese código infra lo prefiero en python, una vez lo tengas en python quiero que corras una revisión de ese PR, me parece que la IaC no corre las migraciones"
 - **Respuesta:** La sospecha era correcta y lo confirmé antes de tocar nada: inspeccioné el template sintetizado y no había **ningún** recurso capaz de ejecutar la task de migración — su único consumidor era un `CfnOutput` con un string para pegar a mano. `cdk deploy` reportaba éxito dejando el servicio contra un schema sin migrar. Lo arreglé con `MigrationRunner`, un custom resource que arranca la task, la poletea hasta que termina vía el patrón async de `Provider`, y **falla el deploy** si el exit code no es cero; el `ECS::Service` declara dependencia sobre él. `imageTag` va como propiedad del recurso porque CloudFormation sólo invoca custom resources cuyas propiedades cambiaron — sin eso, el segundo deploy de una imagen nueva saltearía las migraciones en silencio. El Delete es no-op a propósito: un rollback automático de schema es cómo un rollback se convierte en pérdida de datos. El port a Python además mete la infra bajo el mismo ruff y el mismo mypy strict, con `aws-cdk-lib` en un grupo `infra` que ni `uv sync` ni el build de la imagen instalan.
-- **Veredicto:** ⏳ pendiente
+- **Veredicto:** ✅ aprobado — mergeado a main en PR #11.
 
 ## 2026-09-09 09:16 — Delegar la revisión del PR a un agente limpio
 <!-- id: 20260909-091603-a1fe3a40 -->
 - **Qué intentaba:** Yo había empezado a correr la revisión del PR #11 inline; el usuario me frenó.
 - **Prompt:** "espera no la corras tu, manda un agente limpio"
 - **Respuesta:** Corregido: lancé la revisión en un subagente sin contexto previo. El punto es real y lo guardé en memoria — la sesión que escribió el código no puede revisarlo de forma adversarial, porque ya cree en su propio razonamiento y termina reconfirmando decisiones en vez de atacarlas. Es además la regla que su propio CLAUDE.md ya fija ("fresh context for adversarial review").
-- **Veredicto:** ⏳ pendiente
+- **Veredicto:** ✅ aprobado — mergeado a main en PR #11.
 
 ## 2026-09-09 09:23 — Resolver los hallazgos de la revisión adversarial del PR #11
 <!-- id: 20260909-092301-a1fe3a40 -->
@@ -1343,4 +1343,11 @@ Además, encontré y revertí una corrupción sin commitear en `main`: `AccountT
 - **Prompt:** (resultado del subagente de revisión, sin mensaje nuevo del usuario)
 - **Respuesta:** Confirmé los tres bloqueantes de forma independiente y los cerré. (1) **`alembic/env.py` sólo leía `DATABASE_URL`**, que en AWS no existe — el contenedor recibe cinco `DB_*` —, así que caía al `localhost` de `alembic.ini` en **todo** deploy; ahora difiere a `Settings`, la misma configuración que usa el servicio, y dejé el valor del ini vacío para que no quede a qué caer. Verificado contra la imagen real: antes resolvía `127.0.0.1`, ahora el host inyectado. (2) **ECR y LogGroup con `Retain` + nombre fijo** en un stack que puede fallar en CREATE: el primer deploy era imposible (nada a lo que pushear antes) y el reintento chocaba con `RepositoryAlreadyExistsException`. ECR pasó a `RegistryStack` propio; el log group a `DESTROY`, porque el registro durable del ledger es la base, no un mes de logs de aplicación. (3) **`imageTag: "latest"`** contradecía su propio comentario y, peor, al ser constante las propiedades del custom resource nunca cambiaban → CloudFormation nunca mandaba Update → las migraciones dejaban de correr después del primer deploy; ahora es un placeholder que no puede existir en ECR, con warning.
 - **También:** el rollback re-invoca el custom resource con la imagen *vieja*, cuyo `versions/` no conoce la revisión ya aplicada — alembic pelado falla ahí y deja `UPDATE_ROLLBACK_FAILED`; `docker/migrate.py` detecta que la base está adelantada, se niega a bajar y sale limpio (probado contra Postgres real inyectando `ffffdeadbeef`). Lock advisory en `env.py` para deploys concurrentes. `Settings` ahora **falla** ante un secreto parcial en vez de degradar a `localhost`/`postgres` — el modo de falla silencioso más caro que había. IAM: saqué el `log_retention` deprecado que otorgaba `logs:*RetentionPolicy` sobre `*`, y separé permisos por lambda. Corregí la afirmación falsa de que el SG del ALB sólo admitía 443.
+- **Veredicto:** ✅ aprobado — mergeado a main en PR #11.
+
+## 2026-09-09 10:49 — Mergear PR #11 a main
+<!-- id: 20260909-104933-a1fe3a40 -->
+- **Qué intentaba:** Cerrar la IaC en CDK Python con los bloqueantes de la revisión ya resueltos.
+- **Prompt:** "mergea a main"
+- **Respuesta:** Mergeé con squash (`5d7c2b4`) y borré el branch. Verifiqué sobre el árbol mergeado: ruff, mypy strict (158 fuentes + 8 de infra), suite completa, y `cdk synth` de los tres stacks. Con esto el alcance del statement queda cubierto entero.
 - **Veredicto:** ⏳ pendiente
