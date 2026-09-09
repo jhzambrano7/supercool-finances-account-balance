@@ -1365,3 +1365,10 @@ Además, encontré y revertí una corrupción sin commitear en `main`: `AccountT
 - **Prompt:** (notificación de finalización del subagente, sin mensaje nuevo del usuario)
 - **Respuesta:** Chequeé lo mínimo por mi cuenta (rama existe, los 22 tests corren en verde) y lancé la revisión adversarial en opus sin esperar a collections, para no serializar wall clock. El foco que le di al revisor es el que importa en un suite de infraestructura: **un test que pasaría igual con la regresión que dice cubrir**. Le pedí específicamente cazar aserciones vacuamente ciertas — un `find_resources` que devuelve `{}` y se itera, un `Match.not_` que pasa porque la clave no está por otra razón, una igualdad de conjuntos que compara otra cosa que la que dice el nombre del test — y re-derivar por mutación, no confiar en la palabra del que implementó.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-09 11:23 — Lanzar la revisión en opus de la vista de collections
+<!-- id: 20260909-112322-a1fe3a40 -->
+- **Qué intentaba:** El frente de collections terminó (rama `worktree-agent-a694b4f0d8991277d`, 3 commits); ahora la segunda revisión en limpio.
+- **Prompt:** (notificación de finalización del subagente, sin mensaje nuevo del usuario)
+- **Respuesta:** Verifiqué lo mínimo (ramas, diff, y que no se haya colado ninguna dependencia de testing en `web/package.json` — no se coló) y lancé la revisión adversarial en opus. Ordené las prioridades por lo que cuesta plata: primero **autorización**, porque una lista de collections es por construcción una enumeración de deudas ajenas y este repo ya shippeó dos veces el bug de 403-que-termina-en-500; segundo el SQL de "negative since", con casos de borde que los tests existentes podrían no cubrir (recuperación exacta a cero, entradas con el mismo `occurred_at`, y si la ventana escanea el ledger entero); tercero la plata (sin floats, sin sumas entre monedas). Le pedí probar contra el stack real y mutar el código para confirmar que los tests de autorización y de recuperación se ponen en rojo.
+- **Veredicto:** ⏳ pendiente
