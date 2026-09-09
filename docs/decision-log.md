@@ -1298,3 +1298,11 @@ Además, encontré y revertí una corrupción sin commitear en `main`: `AccountT
 - **Prompt:** "mergea a main"
 - **Respuesta:** Verifiqué que no había comentarios de revisión abiertos y mergeé con squash (`91b592c`), borrando el branch. Sin conflicto en `decision-log.md` esta vez: `main` no había divergido desde que salí. Re-verifiqué sobre el árbol mergeado: ruff, mypy strict (154 archivos) y suite completa en verde.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-08 22:05 — Dockerizar el stack completo con hot reload
+<!-- id: 20260908-220528-a1fe3a40 -->
+- **Qué intentaba:** Cerrar el último pendiente del statement: containerizar back y front con recarga en caliente, para que `docker compose up` sea el único comando necesario.
+- **Prompt:** "dockerizemos el servicio, dale, back y front, con hot reloading"
+- **Respuesta:** `Dockerfile` multi-target (`dev` con reload / `runtime` non-root sin reload, mismas capas base), `web/Dockerfile`, entrypoint que migra antes de servir sólo en `dev`, y compose con los tres servicios. Tres decisiones que valen: (1) **ningún servicio montea su árbol de dependencias** — venv en `/opt/venv` y `node_modules` en `/`, ambos fuera del path monteado, aprovechando que Python y Node resuelven hacia arriba; evita que el `.venv` de macOS del host tape el del contenedor sin recurrir a volúmenes anónimos que se pudren con cada cambio de lockfile. (2) **migraciones en el entrypoint de `dev`, nunca en `runtime`** — un dev que tiene que acordarse de `alembic upgrade head` un día no se acuerda; en producción mutar el schema como efecto de bootear es un incidente esperando su primer rollout malo. (3) **`WATCHFILES_FORCE_POLLING`** porque Docker Desktop no propaga inotify confiablemente desde macOS y el reloader quedaba mudo. Hice configurable el target del proxy de Vite (`VITE_API_PROXY_TARGET`), porque dentro del contenedor web `localhost` es el contenedor web.
+- **Verificación:** levanté el stack real, confirmé migraciones aplicadas, `POST /accounts` directo y `GET /accounts` a través del proxy de Vite, ambos hot reloads disparando de verdad (uvicorn reinició al tocar `app.py`, Vite emitió `hmr update` al tocar `App.tsx`), la consola renderizando en el navegador, y que el target `runtime` buildea y corre como uid 10001.
+- **Veredicto:** ⏳ pendiente

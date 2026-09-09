@@ -8,13 +8,21 @@ API on `main` serves today).
 
 ## Running it
 
-1. Backend: from the repo root, `docker compose up -d` for PostgreSQL, then
-   `uv run alembic upgrade head`, then `PYTHONPATH=src uv run uvicorn
-   modules.shared.adapters.inbound.api.app:app --port 8000`.
-2. Frontend: from this directory, `npm install` then `npm run dev`. The dev server proxies
-   `/accounts`, `/transfers`, `/deposits` and `/withdrawals` to `http://localhost:8000`
-   (`vite.config.ts`) — there is no CORS middleware on the backend by design (see
-   `docs/web-ui-plan.md` §1.5), so the browser must only ever see same-origin requests.
+**With Docker (one command).** From the repo root, `docker compose up`. PostgreSQL, the API and this
+console all come up, migrations included, with hot reload on both halves. Open
+`http://localhost:5173`.
+
+**Without Docker.** Unchanged, and still supported:
+
+1. Backend: from the repo root, `docker compose up -d postgres`, then `uv run alembic upgrade head`,
+   then `PYTHONPATH=src uv run uvicorn modules.shared.adapters.inbound.api.app:app --port 8000`.
+2. Frontend: from this directory, `npm install` then `npm run dev`.
+
+Either way the dev server proxies `/accounts`, `/transfers`, `/deposits` and `/withdrawals` to the
+backend (`vite.config.ts`) — there is no CORS middleware on the backend by design (see
+`docs/web-ui-plan.md` §1.5), so the browser must only ever see same-origin requests. The proxy target
+is `VITE_API_PROXY_TARGET`, defaulting to `http://localhost:8000`; compose sets it to `http://api:8000`,
+because inside the web container `localhost` is the web container.
 
 Open the URL Vite prints (typically `http://localhost:5173`). Two simulated identities are seeded on
 first run — every interesting flow here needs two people.

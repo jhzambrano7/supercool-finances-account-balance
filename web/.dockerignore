@@ -1,0 +1,6 @@
+# `node_modules` above all: the host tree holds darwin-arm64 builds of esbuild and rollup, and
+# copying them into a Linux image produces a "you installed the wrong platform" failure that reads
+# like a dependency bug rather than a build-context one.
+node_modules
+dist
+.git

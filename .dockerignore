@@ -1,0 +1,23 @@
+# Everything the image builds from is copied explicitly in the Dockerfile; this list keeps the
+# build context small and, more importantly, keeps host-built artefacts out of it. `.venv` is the
+# one that matters: it holds macOS binaries that would be useless and confusing inside a Linux
+# image.
+.git
+.venv
+web/node_modules
+web/dist
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.hypothesis
+.coverage
+coverage.xml
+htmlcov
+.claude
+.cursor
+.vscode
+.atl
+.gitnexus
+.playwright-mcp
