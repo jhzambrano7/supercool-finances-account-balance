@@ -6,6 +6,16 @@ Everything here is subordinate to one goal: **no money is ever created, destroye
 Where a decision made the service simpler but that goal weaker, the decision was rejected — and the
 rejection is written down, because the reasoning is the deliverable, not the code.
 
+**Run it in one command**
+
+```
+docker compose up
+```
+
+Then open the **ops console at <http://localhost:5173>**, or the **API docs at
+<http://localhost:8000/docs>**. PostgreSQL, the migrations, the API and the console all come up
+together — see [Running it](#running-it-and-deploying-it) for what is going on inside.
+
 **Where to look**
 
 | Document | What it is |
@@ -39,7 +49,8 @@ The design is written down; the implementation is partial. This section says whe
 | Demo web console (`web/`) | **Built** — a React ops UI exercising every capability above; see `web/README.md`. Deliberately untested: it is a presentation facility, not a deliverable |
 | Observability | **Descoped** — designed, deliberately not built; see [below](#observability-designed-and-descoped) |
 | Reconciliation check (`account.balance == SUM(entries)`) | **Built as a test** (`tests/integration/account_balance/test_reconciliation.py`), across deposit, withdrawal, transfer, reversal, replay and mixed sequences. The operational job is descoped with observability |
-| Containers for the service itself, IaC | **Planned** — approach described [below](#running-it-and-deploying-it), not yet committed. `docker-compose.yml` (PostgreSQL only) is built |
+| Containers, local stack | **Built** — `docker compose up` runs PostgreSQL, the API and the console, with migrations applied and hot reload on both halves. `Dockerfile` also ships a non-root `runtime` target |
+| IaC | **Not built** — the target architecture is described [below](#running-it-and-deploying-it); no Terraform committed |
 
 ---
 
@@ -226,12 +237,44 @@ one column away from being exactly that bug.
 ## Running it, and deploying it
 
 > The cloud/IaC parts below are the decision, not yet committed as actual infrastructure — described
-> here because decisions belong in this document. Locally, PostgreSQL and the migrations are real.
+> here because decisions belong in this document. Locally, the whole stack is real and runs.
 
-**Locally.** `docker compose up` for PostgreSQL (the service itself has no container yet — see the
-status table above). Migrations run with Alembic (`alembic upgrade head`, or automatically at the
-start of the integration test suite). Integration tests use `testcontainers`, so they provision their
-own PostgreSQL and no developer has to remember to start one.
+**Locally: `docker compose up`, and that is the whole command.** It brings up PostgreSQL, applies
+the migrations, and starts both application services. Nothing else to install, no migration step to
+remember.
+
+| | |
+| --- | --- |
+| **Ops console** | **<http://localhost:5173>** — start here; every capability is exercisable from the browser |
+| **API docs** (OpenAPI / Swagger UI) | **<http://localhost:8000/docs>** — the generated contract, and a place to issue requests directly |
+| API | <http://localhost:8000> |
+| PostgreSQL | `localhost:5432` (`postgres` / `postgres`, database `account_balance`) |
+
+Both application services mount their source and reload on change, so editing a use case or a screen
+on the host takes effect without a rebuild. `docker compose down -v` removes the stack and its data.
+
+Three choices in there are worth naming, because each removes a class of "works on my machine":
+
+- **Neither service mounts its dependency tree.** The API keeps its virtualenv at `/opt/venv` and the
+  console keeps `node_modules` at `/`, both outside the mounted path. Node and Python both resolve
+  upward, so this needs no configuration — and it means the mount can be the plain `./src:/app/src`
+  it appears to be, with no anonymous volume that silently goes stale on the next lockfile change.
+  Without it, a host `.venv` full of macOS binaries would shadow the image's Linux one.
+- **Migrations run in the `dev` entrypoint, not the `runtime` one.** A developer who has to remember
+  a separate `alembic upgrade head` eventually will not, and will then debug a missing relation that
+  is not a bug. In production the opposite is true: a schema mutating as a side effect of a process
+  booting is an incident waiting for its first bad rollout, so `runtime` never migrates.
+- **File watching is forced to polling** (`WATCHFILES_FORCE_POLLING`). Docker Desktop does not
+  forward inotify events reliably from a macOS host; without this the reloader stays silent and hot
+  reload appears to work right up until it matters.
+
+The `Dockerfile` also carries a `runtime` target — non-root, no dev dependencies, no reloader — off
+the same base layers, so what runs locally is not a different lineage from what would ship.
+
+**Running it without Docker** still works and is unchanged: `docker compose up -d postgres`,
+`uv run alembic upgrade head`, then `uv run uvicorn`. Integration tests never touch this stack at
+all — `testcontainers` provisions their own PostgreSQL, so the suite is not coupled to a running
+compose project.
 
 **In the cloud.** The service is stateless; all state is in PostgreSQL. That makes it a container on
 ECS Fargate (or EKS) behind an ALB, with RDS PostgreSQL Multi-AZ, secrets in Secrets Manager, and
@@ -305,5 +348,5 @@ the proposed fix was not.
 - **The reconciliation *job* is descoped; the reconciliation *test* is not.** The invariant
   `account.balance == SUM(entries)` is asserted in CI across every money-movement path; the periodic
   operational sweep `docs/prd.md` §5.1 also names is not built.
-- No container for the service itself, no IaC yet.
+- **No IaC.** The service and the console are containerised and the local stack runs from one command; the cloud topology below is a described decision, with no Terraform behind it.
 - Open questions are listed in `docs/prd.md` §12 rather than quietly resolved.

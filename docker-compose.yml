@@ -1,3 +1,10 @@
+# The whole stack for local development: `docker compose up` and nothing else is required.
+#
+# Both application services bind-mount their source and reload on change. Neither mounts its
+# installed dependency tree: the API keeps its virtualenv at `/opt/venv` and the console keeps
+# `node_modules` at `/`, both outside the mounted path (see each Dockerfile). That is what lets the
+# mount be the plain, obvious `./src:/app/src` it looks like, with no anonymous volumes to go stale.
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -14,6 +21,51 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  api:
+    build:
+      context: .
+      target: dev
+    environment:
+      # Same variable serves both consumers: pydantic-settings maps it onto `Settings.database_url`,
+      # and `alembic/env.py` reads it directly. Host `postgres`, not `localhost` -- inside this
+      # container `localhost` is this container.
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/account_balance
+      # Docker Desktop's file sharing does not forward inotify events reliably from a macOS host,
+      # so the reloader would simply never fire. Polling costs a little CPU and is the difference
+      # between hot reload working and appearing to work.
+      WATCHFILES_FORCE_POLLING: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      # Only what the reloader watches, plus what migrations need. Not the repository root: that
+      # would drag `.venv`, `.git` and every cache directory into the container for no purpose.
+      - ./src:/app/src
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      target: dev
+    environment:
+      # `api` is the compose service name; `localhost` here would be the web container.
+      VITE_API_PROXY_TARGET: http://api:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./web/src:/app/src
+      - ./web/index.html:/app/index.html
+      - ./web/vite.config.ts:/app/vite.config.ts
+      - ./web/tsconfig.json:/app/tsconfig.json
+      - ./web/tsconfig.app.json:/app/tsconfig.app.json
+      - ./web/tsconfig.node.json:/app/tsconfig.node.json
+      - ./web/package.json:/app/package.json
+    depends_on:
+      - api
 
 volumes:
   postgres_data:
