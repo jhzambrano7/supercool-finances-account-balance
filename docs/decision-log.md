@@ -1351,3 +1351,10 @@ Además, encontré y revertí una corrupción sin commitear en `main`: `AccountT
 - **Prompt:** "mergea a main"
 - **Respuesta:** Mergeé con squash (`5d7c2b4`) y borré el branch. Verifiqué sobre el árbol mergeado: ruff, mypy strict (158 fuentes + 8 de infra), suite completa, y `cdk synth` de los tres stacks. Con esto el alcance del statement queda cubierto entero.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-09 11:00 — Lanzar en paralelo los tests de síntesis CDK y la vista de collections
+<!-- id: 20260909-110032-a1fe3a40 -->
+- **Qué intentaba:** Dos features independientes: assertions sobre el CloudFormation sintetizado, y exponer en la web las cuentas en negativo con estadísticas de mora.
+- **Prompt:** "Me gustaría tener test que hagan assertions sobre esa sintetización... Nos falta exponer en la web las cuentas sujetas de collections... Quiero que trabajes en estos aspectos en paralelo, para esos subprocesos usa sonnet"
+- **Respuesta:** Lancé ambos con sonnet en worktrees aislados. Al de infra le fijé como objetivo explícito trabar las tres regresiones que encontró la revisión adversarial (migraciones que nadie invoca, `imageTag` constante, ECR en el stack equivocado) más los hallazgos de IAM, y le exigí probar por mutación que los tests muerden. Al de collections le señalé que el PRD §11.3 ya lo especifica palabra por palabra ("count and total of negative USER balances", "age of negative balances"), que es **operator-only** y debe reusar el `AuthorizationGateway` de reversión en vez de inventar un segundo concepto de autorización — una lista de deudas ajenas es por construcción una enumeración de cuentas que no te pertenecen (§9) —, y que el cálculo de antigüedad tiene que dar el inicio del episodio negativo *actual*, no el primero: una cuenta que se hundió, se recuperó y volvió a hundirse es el caso que un `MIN(occurred_at)` ingenuo resuelve mal.
+- **Veredicto:** ⏳ pendiente
