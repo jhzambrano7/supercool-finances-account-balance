@@ -11,6 +11,9 @@ from modules.account_balance.adapters.outbound.repositories.sql.sql_account_repo
 from modules.account_balance.adapters.outbound.repositories.sql.sql_account_unit_of_work import (
     SqlAccountUnitOfWork,
 )
+from modules.account_balance.adapters.outbound.repositories.sql.sql_collections_repository import (
+    SqlCollectionsRepository,
+)
 from modules.account_balance.adapters.outbound.repositories.sql.sql_movement_repository import (
     SqlMovementRepository,
 )
@@ -24,6 +27,9 @@ from modules.account_balance.application.use_cases.account_register import Accou
 from modules.account_balance.application.use_cases.close_account import CloseAccount
 from modules.account_balance.application.use_cases.deposit import Deposit
 from modules.account_balance.application.use_cases.get_account import GetAccount
+from modules.account_balance.application.use_cases.get_collections_report import (
+    GetCollectionsReport,
+)
 from modules.account_balance.application.use_cases.list_accounts import ListAccounts
 from modules.account_balance.application.use_cases.list_movements import ListMovements
 from modules.account_balance.application.use_cases.revert_transfer import RevertTransfer
@@ -90,6 +96,14 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
         logger=logger,
     )
 
+    # Same reasoning as movement_repository above: a read, not part of any write transaction, so
+    # a fresh independently-committed session per call is enough.
+    collections_repository = providers.Factory(
+        provides=SqlCollectionsRepository,
+        logger=logger,
+        session_factory=shared.session_factory,
+    )
+
     transfer_unit_of_work = providers.Factory(
         provides=SqlTransferUnitOfWork,
         logger=logger,
@@ -146,6 +160,17 @@ class AccountBalanceContainer(containers.DeclarativeContainer):
         id_generator=shared.id_generator,
         clock=shared.clock,
         authorization_gateway=authorization_gateway,
+    )
+
+    # Shares `authorization_gateway` (R1's own singleton) rather than standing up a second
+    # authorization mechanism -- a collections list is operator-only for exactly the reason a
+    # reversal is (PRD §7.1).
+    get_collections_report = providers.Factory(
+        provides=GetCollectionsReport,
+        collections_repository=collections_repository,
+        authorization_gateway=authorization_gateway,
+        clock=shared.clock,
+        logger=logger,
     )
 
 

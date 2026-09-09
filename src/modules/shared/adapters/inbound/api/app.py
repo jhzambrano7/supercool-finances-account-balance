@@ -6,6 +6,9 @@ from fastapi import FastAPI
 from modules.account_balance.adapters.config.dependencies import (
     build_account_balance_container,
 )
+from modules.account_balance.adapters.inbound.api.collections_routes import (
+    router as collections_router,
+)
 from modules.account_balance.adapters.inbound.api.deposit_withdraw_routes import (
     router as deposit_withdraw_router,
 )
@@ -20,6 +23,7 @@ _WIRED_MODULES = [
     "modules.account_balance.adapters.inbound.api.routes",
     "modules.account_balance.adapters.inbound.api.transfer_routes",
     "modules.account_balance.adapters.inbound.api.deposit_withdraw_routes",
+    "modules.account_balance.adapters.inbound.api.collections_routes",
 ]
 
 
@@ -55,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(account_balance_router)
     app.include_router(transfer_router)
     app.include_router(deposit_withdraw_router)
+    app.include_router(collections_router)
 
     return app
 
