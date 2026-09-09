@@ -1,0 +1,9 @@
+{
+  "app": "uv run --group infra python app.py",
+  "watch": { "exclude": ["**/*.d.ts", "node_modules", "cdk.out"] },
+  "context": {
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
+    "@aws-cdk/core:checkSecretUsage": true,
+    "@aws-cdk/aws-ecs:disableEcsImdsBlocking": true
+  }
+}

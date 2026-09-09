@@ -17,6 +17,15 @@ dependencies = [
 ]
 
 [dependency-groups]
+# Infrastructure, kept out of `dev` on purpose. `uv sync` does not install it, and the image build
+# (`uv sync --no-dev`) never sees it -- so putting the CDK app in this repository's toolchain costs
+# the service nothing, while letting the same ruff and the same strict mypy cover it.
+infra = [
+    "aws-cdk-lib>=2.174",
+    "constructs>=10.4",
+    "boto3-stubs[ecs]>=1.35",
+]
+
 dev = [
     "pytest>=8.3",
     "pytest-cov>=6.0",
@@ -99,9 +108,12 @@ ignore = [
 "tests/**" = ["S101"]
 # Developer CLIs: stderr output is their interface, not a stray debug print.
 "scripts/**" = ["T20"]
+# The CDK app is a CLI too: its synth-time warning has to reach the terminal, and a logger nobody
+# configured would swallow the one message that says the templates point at placeholder ids.
+"infra/app.py" = ["T20"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["modules"]
+known-first-party = ["modules", "stacks"]
 
 # ---------------------------------------------------------------------------
 # Types
@@ -109,6 +121,10 @@ known-first-party = ["modules"]
 [tool.mypy]
 python_version = "3.14"
 mypy_path = "src"
+# `infra/` is checked, but from its own directory: its modules import `stacks.*`, which only
+# resolves with `infra/` on the path. Running it from here would report import errors that say
+# nothing about the code. See the `mypy-infra` pre-commit hook.
+exclude = ["^infra/"]
 strict = true
 warn_unreachable = true
 disallow_any_generics = true

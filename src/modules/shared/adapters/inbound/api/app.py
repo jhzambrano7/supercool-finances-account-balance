@@ -14,6 +14,7 @@ from modules.account_balance.adapters.inbound.api.transfer_routes import (
     router as transfer_router,
 )
 from modules.shared.adapters.config.dependencies import SharedDependencies
+from modules.shared.adapters.inbound.api.health_routes import router as health_router
 
 _WIRED_MODULES = [
     "modules.account_balance.adapters.inbound.api.routes",
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="SuperCool Finances — Account Balance Service", lifespan=_lifespan)
 
+    app.include_router(health_router)
     app.include_router(account_balance_router)
     app.include_router(transfer_router)
     app.include_router(deposit_withdraw_router)

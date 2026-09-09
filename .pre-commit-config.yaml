@@ -46,6 +46,14 @@ repos:
         args: [src, tests]
         require_serial: true
 
+      - id: mypy-infra
+        name: mypy (strict) — infra
+        entry: bash -c 'cd infra && uv run --group infra mypy --strict --python-version 3.14 app.py stacks runtime'
+        language: system
+        files: ^infra/.*\.py$
+        pass_filenames: false
+        require_serial: true
+
       - id: commit-msg-convention
         name: commit message follows the PRD-traced convention
         entry: uv run python scripts/check_commit_msg.py
