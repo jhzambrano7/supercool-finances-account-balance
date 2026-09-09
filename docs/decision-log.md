@@ -1427,3 +1427,13 @@ Además, encontré y revertí una corrupción sin commitear en `main`: `AccountT
 - **Prompt:** "procede a mergear ambos PRs"
 - **Respuesta:** Antes de mergear el #13 leí su revisión en vez de mergear a ciegas: aprobación sin comentarios inline, así que no había nada que resolver. Mergeé #12 (`bd8750e`) y después #13 (`da15223`), ambos con squash y borrando la rama. El #13 no necesitó rebase porque las dos ramas no compartían un solo archivo — lo había verificado al abrirlas, y ahí se cobró el beneficio. Verifiqué todos los gates sobre el `main` resultante, que es la primera vez que los dos frentes conviven: ruff, mypy strict (166 fuentes + 20 de infra), los 38 tests de infra, la suite completa con integración contra Postgres real, y el build de la web.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-09 12:36 — Abrir el debate sobre el dimensionamiento del pool de conexiones
+<!-- id: 20260909-123657-a1fe3a40 -->
+- **Qué intentaba:** El usuario señala que dimensionamos ECS contra la capacidad de RDS pero nunca asentamos el pool del lado del engine.
+- **Prompt:** "no hemos dimensionado el pool de conexiones a la BBDD... creo no lo hemos asentado del lado del engine en el propio servicio. Iniciemos debate"
+- **Respuesta:** Verifiqué y el estado es peor que el concern: `create_async_engine(settings.database_url)` sin ninguna config de pool, mientras la infra deriva `MAX_TASKS` de un `CONNECTIONS_PER_TASK = 15` que es **un comentario describiendo un default de SQLAlchemy**, no una constante que alguien eligió. El `maxCapacity` de producción cuelga de una suposición sobre una biblioteca; un `pool_size` distinto rompe la aritmética de RDS en silencio y el modo de falla es rechazo de conexiones sobre plata válida. Es el patrón `DEADLINE_SECONDS` un escalón peor: ahí había dos constantes, acá hay una constante y una suposición.
+- **Posiciones que tomé:** `max_overflow=0`, porque en una carga cuya contención son row locks las conexiones de más no compran throughput, mueven la cola del pool (gratis, observable, acotada) a Postgres (cara, invisible, degrada a todos); `pool_timeout` corto porque la idempotencia hace que reintentar sea seguro por construcción, así que fallar rápido supera a esperar 30s; `pool_pre_ping` porque elegimos Multi-AZ a propósito y un failover sin pre-ping convierte cada conexión vieja en un 500 sobre un movimiento de plata. Además señalé dos cosas que nadie contó: la task de migración es un proceso aparte que corre durante el deploy, y collections es la primera lectura cara del sistema compartiendo pool con las escrituras.
+- **Veredicto:** ⏳ pendiente
+
+<!-- skip: 20260909-160117-a1fe3a40 -->
