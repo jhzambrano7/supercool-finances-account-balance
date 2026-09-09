@@ -491,6 +491,23 @@ exists because some failure mode is invisible without it.
 | **Reversal rate, and reversals that land negative** | Growth here means either an upstream defect generating bad transfers, or abuse. Both need a human |
 | **Age of negative balances** | A balance negative for a day is a collections case; one negative for a month is a write-off nobody decided on |
 
+**The first and third rows are built, as an operator-facing read endpoint, not a metrics exporter.**
+`GET /collections` (`GetCollectionsReport`, `SqlCollectionsRepository`) answers exactly these two
+rows today: every negative `USER` account, its owner, the total owed per currency, and the start of
+its *current* negative episode — computed by a SQL window function over `entries`, so an account
+that recovered and later went negative again reports the second episode's start, not the first (see
+`queries/negative_balances.py`, the module that builds the query — `sql_collections_repository.py`
+only executes it). The join from "negative accounts" to "their episode start" is a `LEFT JOIN`,
+deliberately: if `accounts.balance_amount` is ever negative with no entry history that explains it
+— the balance-drift condition this same §11.1 exists to catch — that account is still returned,
+with `negative_since = null`, rather than silently dropped out of the report and its exposure
+total. Age is surfaced as descriptive buckets (under a day / 1–7 days / 7–30 days / over 30 days),
+not as a write-off decision — §12 is still open. This is a collections screen, not the
+alerting/exporter this section otherwise descopes: it answers "who is negative right now", on
+demand, from an operator-authorized caller, the same authorization mechanism §7.1 already
+established for reversal — it does not export a time series or
+page anyone. **Reversal rate** (the second row) remains descoped with the rest of this section.
+
 ### 11.4 What every money movement must carry
 
 Structured logs and traces on the posting path carry the `transfer_id`, the `idempotency_key`, the

@@ -4,6 +4,13 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from modules.account_balance.application.gateways.models.movement import Movement, MovementPage
+from modules.account_balance.application.gateways.models.negative_balance import (
+    NEGATIVE_AGE_BUCKET_ORDER,
+    CollectionsReport,
+    CurrencyExposure,
+    NegativeAgeBucket,
+    NegativeBalanceAccount,
+)
 from modules.account_balance.application.use_cases.account_register import OpenAccountResult
 from modules.account_balance.domain.account import AccountPurpose, AccountStatus, UserAccount
 from modules.account_balance.domain.entry import EntryDirection
@@ -188,4 +195,100 @@ class MovementsResponseDto(BaseModel):
         return cls(
             items=[MovementResponseDto.from_movement(movement) for movement in page.items],
             next_cursor=page.next_cursor,
+        )
+
+
+class NegativeAccountResponseDto(BaseModel):
+    """One row of `GET /collections` (PRD §11.3) -- deliberately carries `owner_id` (unlike
+    `AccountResponseDto`, which never needs to since its caller already *is* the owner): this
+    endpoint is operator-only and exists precisely to say who owes what.
+
+    `negative_since`/`age_seconds` are both `None` together, exactly when the account is negative
+    but no entry history explains it (PRD §11.1's balance drift -- see `NegativeBalanceAccount`'s
+    own docstring). Never a sentinel timestamp or a `0`-second age: either of those would read as
+    "just went negative", which is the opposite of what an unexplained balance means.
+    """
+
+    account_id: UUID
+    owner_id: UUID
+    balance: int
+    currency: str
+    negative_since: datetime | None
+    age_seconds: int | None
+
+    @classmethod
+    def from_account(
+        cls, account: NegativeBalanceAccount, *, as_of: datetime
+    ) -> NegativeAccountResponseDto:
+        age_seconds = (
+            None
+            if account.negative_since is None
+            else int((as_of - account.negative_since).total_seconds())
+        )
+        return cls(
+            account_id=account.account_id.value,
+            owner_id=account.owner_id.value,
+            balance=account.balance.amount,
+            currency=str(account.balance.currency),
+            negative_since=account.negative_since,
+            age_seconds=age_seconds,
+        )
+
+
+class CurrencyExposureResponseDto(BaseModel):
+    currency: str
+    count: int
+    total_owed: int
+
+    @classmethod
+    def from_exposure(cls, exposure: CurrencyExposure) -> CurrencyExposureResponseDto:
+        return cls(
+            currency=str(exposure.currency),
+            count=exposure.count,
+            total_owed=exposure.total_owed.amount,
+        )
+
+
+class AgeBucketResponseDto(BaseModel):
+    bucket: NegativeAgeBucket
+    count: int
+
+
+class CollectionsReportResponseDto(BaseModel):
+    """`GET /collections`'s body (PRD §11.3) -- the stats an operator needs at a glance
+    (`count`/`total per currency`/`oldest_negative_since`/`age_buckets`) alongside the per-account
+    rows that back them up. `age_buckets` is always emitted in `NEGATIVE_AGE_BUCKET_ORDER`, not
+    whatever order a `dict` happened to build in -- a UI rendering a fixed set of bars should never
+    have to re-sort them.
+
+    `unexplained_count` is included, not folded silently into `count`: a materialized-balance
+    drift (PRD §11.1) is a different kind of fact from an ordinary collections case, and an
+    operator screen showing one number for both would hide exactly the situation this field exists
+    to surface.
+    """
+
+    as_of: datetime
+    count: int
+    unexplained_count: int
+    oldest_negative_since: datetime | None
+    exposures: list[CurrencyExposureResponseDto]
+    age_buckets: list[AgeBucketResponseDto]
+    accounts: list[NegativeAccountResponseDto]
+
+    @classmethod
+    def from_report(cls, report: CollectionsReport) -> CollectionsReportResponseDto:
+        return cls(
+            as_of=report.as_of,
+            count=report.count,
+            unexplained_count=report.unexplained_count,
+            oldest_negative_since=report.oldest_negative_since,
+            exposures=[CurrencyExposureResponseDto.from_exposure(e) for e in report.exposures],
+            age_buckets=[
+                AgeBucketResponseDto(bucket=bucket, count=report.age_buckets[bucket])
+                for bucket in NEGATIVE_AGE_BUCKET_ORDER
+            ],
+            accounts=[
+                NegativeAccountResponseDto.from_account(account, as_of=report.as_of)
+                for account in report.accounts
+            ],
         )

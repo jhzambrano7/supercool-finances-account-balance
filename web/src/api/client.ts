@@ -2,6 +2,7 @@ import { describeHttpError, describeNetworkError, type DescribedError } from './
 import type {
   AccountResponse,
   AccountsResponse,
+  CollectionsReportResponse,
   DepositRequest,
   MovementsResponse,
   OpenAccountRequest,
@@ -200,6 +201,16 @@ async function getJson(path: string, callerId: string): Promise<unknown> {
     throw new ApiError(describeNetworkError())
   }
 
+  // A 200 with a non-JSON body is what an unproxied dev path looks like (vite.config.ts's proxy
+  // list missing an entry): Vite serves the SPA's own index.html back instead of reaching the
+  // API. Treated as a network failure here, not parsed as data -- silently accepting it as
+  // "success" is exactly what let a missing `/collections` proxy entry crash the whole screen the
+  // first time this endpoint existed (`report.age_buckets` was actually an HTML string).
+  const contentType = response.headers.get('content-type') ?? ''
+  if (response.ok && !contentType.includes('application/json')) {
+    throw new ApiError(describeNetworkError())
+  }
+
   const parsed = await parseJsonBody(response)
   if (!response.ok) {
     throw new ApiError(describeHttpError(response.status, (parsed as { detail?: unknown } | null)?.detail))
@@ -257,4 +268,14 @@ export async function getMovements(
   const query = params.toString()
   const path = `/accounts/${accountId}/movements${query ? `?${query}` : ''}`
   return (await getJson(path, callerId)) as MovementsResponse
+}
+
+/**
+ * `GET /collections` (PRD §11.3) -- operator-only, same as `createReversal`: `callerId` is always
+ * whichever identity is active, never overridden here. A caller who is not the platform's admin
+ * principal gets a real `403`, surfaced by `CollectionsScreen` the same honest way `ReversalScreen`
+ * already surfaces one.
+ */
+export async function getCollectionsReport(callerId: string): Promise<CollectionsReportResponse> {
+  return (await getJson('/collections', callerId)) as CollectionsReportResponse
 }
