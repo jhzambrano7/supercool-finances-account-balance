@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from logging import Logger
 
 from modules.account_balance.application.gateways.authorization_gateway import (
@@ -68,8 +68,18 @@ class GetCollectionsReport:
         # row's age is computed against this same instant, not against whenever its own row
         # happened to be processed.
         as_of = self._clock.now()
-        ordered = tuple(sorted(accounts, key=lambda account: account.negative_since))
+        ordered = tuple(sorted(accounts, key=_sort_key))
 
+        unexplained = sum(1 for account in ordered if account.negative_since is None)
+        if unexplained:
+            # A drifted balance is a data-integrity fact (PRD §11.1), not routine collections
+            # traffic -- worth its own log line, distinct from the ordinary count below, so an
+            # operator scanning logs does not have to open the response body to notice it.
+            self._logger.warning(
+                "collections report: %d account(s) negative with no explaining entry history "
+                "(materialized-balance drift, PRD §11.1)",
+                unexplained,
+            )
         self._logger.info("collections report: %d account(s) currently negative", len(ordered))
 
         return CollectionsReport(
@@ -78,6 +88,24 @@ class GetCollectionsReport:
             exposures=_exposures_by_currency(ordered),
             age_buckets=_age_buckets(ordered, as_of),
         )
+
+
+# The oldest datetime `datetime.min` can represent, tz-aware to compare against
+# `negative_since`'s own tz-aware values (every `Entry.occurred_at` is tz-aware by construction,
+# `NaiveTimestampError`) -- used only as an ordering key, never returned or stored.
+_UNEXPLAINED_SORT_FLOOR = datetime.min.replace(tzinfo=UTC)
+
+
+def _sort_key(account: NegativeBalanceAccount) -> tuple[int, datetime]:
+    """Unexplained accounts (`negative_since is None`, PRD §11.1's balance drift) sort first,
+    ahead of every dated row regardless of age: a data-integrity question outranks even the
+    oldest ordinary collections case. `None` cannot be compared to a `datetime` directly (`sorted`
+    would raise `TypeError`), so the tuple's first element does the partitioning and the second
+    is only ever compared within the same partition.
+    """
+    if account.negative_since is None:
+        return (0, _UNEXPLAINED_SORT_FLOOR)
+    return (1, account.negative_since)
 
 
 def _exposures_by_currency(
@@ -105,6 +133,11 @@ def _age_buckets(
 ) -> Mapping[NegativeAgeBucket, int]:
     counts: dict[NegativeAgeBucket, int] = dict.fromkeys(NEGATIVE_AGE_BUCKET_ORDER, 0)
     for account in accounts:
+        if account.negative_since is None:
+            # No known start, so no defensible age -- excluded from every bucket rather than
+            # guessed into one. `CollectionsReport.unexplained_count` is where this account is
+            # counted instead.
+            continue
         age = as_of - account.negative_since
         for bucket, ceiling in _BUCKET_CEILINGS:
             if ceiling is None or age < ceiling:

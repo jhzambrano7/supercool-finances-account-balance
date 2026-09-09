@@ -17,14 +17,21 @@ class NegativeBalanceAccount:
     `negative_since` is the start of the *current* negative episode, not the first time this
     account ever went negative -- an account that recovered (a deposit brought it back to >= 0)
     and later went negative again reports the second episode's start. See
-    `sql_collections_repository.py` for how that is computed and why a naive "oldest debit" or
-    "first time it crossed zero" would be wrong.
+    `queries/negative_balances.py` (the module that actually builds the window-function query --
+    `sql_collections_repository.py` only executes it) for how that is computed and why a naive
+    "oldest debit" or "first time it crossed zero" would be wrong.
+
+    `negative_since` is `None` when the account is negative in `accounts.balance_amount` but no
+    entry history explains it -- a materialized-balance drift (PRD §11.1), not the common case.
+    Reporting `None` rather than inventing a timestamp is deliberate: this is exactly the situation
+    the reconciliation check (`tests/integration/account_balance/test_reconciliation.py`) exists to
+    catch, and this report must make it visible, not paper over it with a guess.
     """
 
     account_id: AccountId
     owner_id: OwnerId
     balance: Money
-    negative_since: datetime
+    negative_since: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,7 +85,9 @@ class CollectionsReport:
     `as_of - negative_since`, so two rows in the same response can never be aged against two
     different instants (design D6: the application layer, not each call site, decides "now").
 
-    `accounts` is ordered oldest-`negative_since`-first: the most urgent collections case leads,
+    `accounts` orders every account with an unexplained (`negative_since is None`) balance first --
+    a materialized-balance drift outranks even the oldest ordinary collections case, since it is a
+    data-integrity question, not a customer one -- then the rest oldest-`negative_since`-first,
     matching PRD §11.3's own framing ("a balance negative for a day is a collections case").
     """
 
@@ -92,7 +101,21 @@ class CollectionsReport:
         return len(self.accounts)
 
     @property
+    def unexplained_count(self) -> int:
+        """How many negative accounts have no entry history explaining them (PRD §11.1's balance
+        drift, surfaced here rather than silently excluded -- see `NegativeBalanceAccount`'s own
+        docstring)."""
+        return sum(1 for account in self.accounts if account.negative_since is None)
+
+    @property
     def oldest_negative_since(self) -> datetime | None:
-        """`None` exactly when there are no negative balances -- the empty case, not a sentinel
-        date. `accounts` is already sorted oldest-first, so the oldest is simply the first row."""
-        return self.accounts[0].negative_since if self.accounts else None
+        """The oldest *known* negative-episode start, or `None` when there are no negative
+        balances or none of them has a known start. An unexplained account (`negative_since is
+        None`) contributes nothing here -- there is no timestamp to compare, and inventing one
+        (e.g. treating it as infinitely old) would misstate what this field actually means."""
+        known = [
+            account.negative_since
+            for account in self.accounts
+            if account.negative_since is not None
+        ]
+        return min(known) if known else None

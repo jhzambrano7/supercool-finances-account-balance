@@ -21,6 +21,10 @@ from modules.shared.domain.money import Currency, Money
 class SqlCollectionsRepository(CollectionsRepository):
     """SQLAlchemy async adapter for `CollectionsRepository` (PRD §11.3).
 
+    Only executes `negative_balances_query()` and maps its rows -- the running-balance/episode
+    logic itself (including why `negative_since` can come back `NULL`) lives in
+    `queries/negative_balances.py`, not here.
+
     A fresh, independently-committed session per call, matching `SqlMovementRepository`: this is a
     read, not part of any write transaction, so there is no unit of work to share.
     """

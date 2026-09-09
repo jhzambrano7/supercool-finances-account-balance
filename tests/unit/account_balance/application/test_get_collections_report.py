@@ -68,7 +68,11 @@ class _FakeCollectionsRepository(CollectionsRepository):
 
 
 def _account(
-    *, owner_id: OwnerId | None = None, amount: int, currency: Currency, negative_since: datetime
+    *,
+    owner_id: OwnerId | None = None,
+    amount: int,
+    currency: Currency,
+    negative_since: datetime | None,
 ) -> NegativeBalanceAccount:
     return NegativeBalanceAccount(
         account_id=AccountId(uuid4()),
@@ -181,3 +185,68 @@ async def test_every_report_is_aged_against_the_same_clock_read() -> None:
     report = await use_case.execute(caller_id=_TEST_ADMIN)
 
     assert report.as_of == _AS_OF
+
+
+# -- unexplained (drifted) accounts: `negative_since is None`, PRD §11.1 -----------------------
+#
+# A `CollectionsRepository` may return a row with `negative_since=None` when the account is
+# negative in `accounts.balance_amount` but no entry history explains it (the SQL adapter's own
+# LEFT JOIN, `queries/negative_balances.py`, is what makes this reachable in practice -- an INNER
+# JOIN would have dropped the row before it ever reached this use case, which is exactly what was
+# wrong before that join was fixed). These tests pin how the use case must treat such a row: it
+# must never disappear, never invent a timestamp, and never be silently priced at zero.
+
+
+async def test_an_unexplained_account_still_counts_toward_the_total_owed() -> None:
+    """The whole point of not dropping the row (see the module note above): a drifted balance is
+    still money the business owes, even though nothing in the ledger says since when."""
+    explained = _account(amount=-100, currency=USD, negative_since=_AS_OF - timedelta(days=1))
+    unexplained = _account(amount=-99, currency=USD, negative_since=None)
+    use_case = _use_case(_FakeCollectionsRepository((explained, unexplained)))
+
+    report = await use_case.execute(caller_id=_TEST_ADMIN)
+
+    assert report.count == 2
+    assert report.unexplained_count == 1
+    by_currency = {exposure.currency: exposure for exposure in report.exposures}
+    assert by_currency[USD].count == 2
+    assert by_currency[USD].total_owed == Money(199, USD)
+
+
+async def test_an_unexplained_account_sorts_before_every_dated_account() -> None:
+    ancient = _account(amount=-100, currency=USD, negative_since=_AS_OF - timedelta(days=400))
+    unexplained = _account(amount=-1, currency=USD, negative_since=None)
+    use_case = _use_case(_FakeCollectionsRepository((ancient, unexplained)))
+
+    report = await use_case.execute(caller_id=_TEST_ADMIN)
+
+    assert report.accounts[0] is unexplained
+    assert report.accounts[1] is ancient
+
+
+async def test_oldest_negative_since_ignores_unexplained_accounts() -> None:
+    """`None` is not a timestamp -- it must never win a `min()` comparison against a real one, and
+    an all-unexplained report must answer `None`, not crash comparing `None` to `None`."""
+    dated = _account(amount=-100, currency=USD, negative_since=_AS_OF - timedelta(days=3))
+    unexplained = _account(amount=-1, currency=USD, negative_since=None)
+    mixed = await _use_case(_FakeCollectionsRepository((dated, unexplained))).execute(
+        caller_id=_TEST_ADMIN
+    )
+    assert mixed.oldest_negative_since == dated.negative_since
+
+    only_unexplained = await _use_case(_FakeCollectionsRepository((unexplained,))).execute(
+        caller_id=_TEST_ADMIN
+    )
+    assert only_unexplained.oldest_negative_since is None
+
+
+async def test_an_unexplained_account_is_excluded_from_every_age_bucket() -> None:
+    """No known start means no defensible age -- it must not be silently counted as "under a day"
+    (the cheapest bucket to fall into by accident if age defaulted to zero)."""
+    unexplained = _account(amount=-1, currency=USD, negative_since=None)
+    use_case = _use_case(_FakeCollectionsRepository((unexplained,)))
+
+    report = await use_case.execute(caller_id=_TEST_ADMIN)
+
+    assert sum(report.age_buckets.values()) == 0
+    assert report.count == 1

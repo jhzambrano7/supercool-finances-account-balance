@@ -39,9 +39,15 @@ class CollectionsRepository(ABC):
 
         "Current episode" matters: an account that went negative, was topped up back to `>= 0`,
         and later went negative again must report the second episode's start, not the first --
-        see `sql_collections_repository.py` for how that is computed. `SYSTEM` accounts never
-        appear here (PRD §5.3): they never materialize a balance in the first place, so
-        "negative" is not even a question that can be asked of one.
+        see `queries/negative_balances.py` for how that is computed (`sql_collections_repository.py`
+        only executes the statement it builds). `SYSTEM` accounts never appear here (PRD §5.3):
+        they never materialize a balance in the first place, so "negative" is not even a question
+        that can be asked of one.
+
+        `negative_since` on a returned row is `None` when the account is negative right now but no
+        entry history explains it -- a materialized-balance drift (PRD §11.1), not the ordinary
+        case. Such an account is still returned, never dropped: see
+        `NegativeBalanceAccount`'s own docstring for why.
 
         No pagination in v1: the demo's account population is small enough that a full scan is
         cheap, and PRD §11.3 asks for this as a single operator-facing signal, not a paged list.

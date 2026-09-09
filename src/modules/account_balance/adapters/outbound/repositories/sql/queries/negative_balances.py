@@ -21,9 +21,9 @@ from modules.account_balance.domain.entry import EntryDirection
 # every entry for every negative account across the network first, for a computation SQL is
 # already built to do in one round trip. Three CTEs, each answering one question:
 #
-#   1. negative_accounts  -- which USER accounts are negative right now (cheap: an indexed-ready
-#      column comparison on the materialized balance, PRD §5.1 -- no ledger scan needed for this
-#      part).
+#   1. negative_accounts  -- which USER accounts are negative right now (cheap at today's row
+#      counts: a full comparison over the materialized balance column, PRD §5.1 -- no index backs
+#      it yet, and no ledger scan is needed for this part either way).
 #   2. running_balance    -- for each entry of those accounts only (not the whole ledger), the
 #      running balance up to and including that entry, oldest first.
 #   3. episode_starts      -- pairs each row with the *previous* row's running balance (`LAG`,
@@ -34,6 +34,18 @@ from modules.account_balance.domain.entry import EntryDirection
 # crossing, which is what makes a recovered-then-negative-again account report its second episode,
 # not its first (there is more than one qualifying row for such an account; MAX picks the most
 # recent).
+#
+# Why the final join is LEFT, not INNER: "the account is negative right now, so a crossing row must
+# exist" is exactly the assumption PRD §11.1's balance-drift signal exists to distrust --
+# `accounts.balance_amount` is a materialized projection (§5.1) that a write-path bug can desync
+# from `SUM(entries)` without touching the domain at all (§5.1's own worked example:
+# `SqlAccountRepository.update()` once shipped with `status` missing from its `.values(...)`). If
+# that ever happens, an account can be negative in `accounts` with no entry history that explains
+# it. An INNER join would make that account vanish from this report entirely -- no row, no error,
+# under-reporting the very exposure total this screen exists to get right, in precisely the
+# situation where something is already wrong. A LEFT join keeps the account visible with
+# `negative_since = NULL`; the application layer surfaces it as "unexplained" rather than inventing
+# a timestamp for it.
 # --------------------------------------------------------------------------------------------
 
 
@@ -46,6 +58,14 @@ def _negative_user_accounts_cte() -> CTE:
             AccountDbo.balance_amount,
         )
         .where(
+            # Defense in depth, not exercised by any test today: a `SYSTEM` account's
+            # `balance_amount` is seeded at zero and nothing in this codebase ever writes to it
+            # (T7, `SystemAccount` has no `credit`/`debit` at all), so `balance_amount < 0` alone
+            # already excludes every `SYSTEM` row reachable through this API -- there is no way to
+            # construct a `SYSTEM` account with a negative materialized balance to test this filter
+            # against. Kept anyway: it is what makes that exclusion true *by construction* of this
+            # query rather than *by accident* of what the API currently allows, so it stays correct
+            # even if that ever changes.
             AccountDbo.account_type == AccountType.USER.value,
             AccountDbo.balance_amount < 0,
         )
@@ -97,7 +117,11 @@ def _episode_starts_cte(running_balance: CTE) -> CTE:
 
 def negative_balances_query() -> Select[tuple[object, object, str, int, object]]:
     """One statement, three CTEs (see the module docstring above): every currently-negative
-    `USER` account, joined with the start of its *current* negative episode.
+    `USER` account, left-joined with the start of its *current* negative episode.
+
+    `negative_since` is nullable in the result on purpose (see the module docstring's "Why the
+    final join is LEFT" section): a drifted account -- negative in `accounts`, but with no entry
+    history that explains it -- must still be returned, not silently dropped.
     """
     negative_accounts = _negative_user_accounts_cte()
     running_balance = _running_balance_cte(negative_accounts)
@@ -110,6 +134,11 @@ def negative_balances_query() -> Select[tuple[object, object, str, int, object]]
         )
         .where(
             episode_starts.c.running_balance < 0,
+            # >= 0, not > 0: a running balance that sits at *exactly* zero right before the entry
+            # that takes it negative is still a valid episode start (PRD §7.3's own shape -- a
+            # reversal can debit an account whose balance is precisely zero, not just positive).
+            # `>  0` would silently fail to recognize that crossing and leave the account looking
+            # unexplained instead.
             episode_starts.c.previous_balance >= 0,
         )
         .group_by(episode_starts.c.account_id)
@@ -122,4 +151,8 @@ def negative_balances_query() -> Select[tuple[object, object, str, int, object]]
         negative_accounts.c.currency,
         negative_accounts.c.balance_amount,
         negative_since.c.negative_since,
-    ).join(negative_since, negative_since.c.account_id == negative_accounts.c.account_id)
+    ).join(
+        negative_since,
+        negative_since.c.account_id == negative_accounts.c.account_id,
+        isouter=True,
+    )
