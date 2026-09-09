@@ -1455,3 +1455,5 @@ Además, encontré y revertí una corrupción sin commitear en `main`: `AccountT
 - **Respuesta:** Tiene razón y el error es de criterio, no de ejecución: un docstring lo lee quien ya está adentro del archivo, y una decisión de capacidad la busca alguien que abre el PRD. Agregué **§5.2.1** al PRD con la forma que usa el resto del documento — tabla de parámetros, argumento, **Cost**, y dos **Rejected alternatives** (los defaults de SQLAlchemy, y RDS Proxy nombrado explícitamente como la respuesta correcta a escala descartada por alcance, para que la ausencia sea una decisión y no un olvido) — y una fila en el índice de decisiones del README, que es lo primero que se abre.
 - **De paso:** el validador de commits rechazaba referencias de tres niveles (`§5.2.1`). Lo arreglé en el script en vez de degradar la referencia a `§5.2`, porque una convención que no puede nombrar la sección a la que te referís te empuja a citar algo más vago de lo que quisiste decir.
 - **Veredicto:** ⏳ pendiente
+
+<!-- skip: 20260909-172218-a1fe3a40 -->
