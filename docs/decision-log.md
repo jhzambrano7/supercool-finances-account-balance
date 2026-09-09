@@ -1281,7 +1281,7 @@ Formato de cada entrada:
 - **Qué intentaba:** El usuario acepta el split y pide que el enforcement cubra también depósitos y retiros, no sólo transferencias.
 - **Prompt:** "Me gusta la idea de enforzar en test, definitivamente debemos y no solo en transferencias sino en depósitos y retiros (que al final también ejecutan una transferencia)"
 - **Respuesta:** Escribí `tests/integration/account_balance/test_reconciliation.py` con `_assert_reconciled()` global (no scopeado a una cuenta: un path que corrompe una cuenta distinta a la que toca es justo lo que una aserción por-cuenta deja pasar), cubriendo depósito, retiro, transferencia, reversión que cruza cero, replay idempotente y secuencia mixta. Chequea tres cosas: drift de la columna materializada en cuentas USER, I1 por transferencia, y que las cuentas SYSTEM nunca materialicen balance (§5.3). **Verifiqué que el test muerde**: rompí `SqlAccountRepository.update()` sacándole `balance_amount` del `.values()` y los 6 tests pasaron a rojo con el diagnóstico exacto; restauré. Actualicé PRD §5.1/§10.8/§11 y README con el descarte de observabilidad y la excepción del drift.
-- **Veredicto:** ⏳ pendiente
+- **Veredicto:** ✅ aprobado — mergeado a main en PR #9.
 
 Además, encontré y revertí una corrupción sin commitear en `main`: `AccountType.SYSTEMprd` en `domain/account.py` (tipeo colado, habría reventado en runtime).
 
@@ -1290,4 +1290,11 @@ Además, encontré y revertí una corrupción sin commitear en `main`: `AccountT
 - **Qué intentaba:** Cerrar el trabajo del turno anterior en un PR que explique por qué el check de reconciliación no es redundante con la doble entrada.
 - **Prompt:** (continuación del turno anterior, sin mensaje nuevo del usuario)
 - **Respuesta:** Abrí PR #9 con las dos decisiones juntas (test de reconciliación + descarte de observabilidad), documentando en el cuerpo el argumento de la proyección materializada, el caso SYSTEM donde el argumento del usuario sí aplica, y la verificación por mutación. Gates verdes.
+- **Veredicto:** ✅ aprobado — mergeado a main en PR #9.
+
+## 2026-09-08 21:56 — Mergear PR #9 a main
+<!-- id: 20260908-215651-a1fe3a40 -->
+- **Qué intentaba:** Cerrar el PR del test de reconciliación y el descarte de observabilidad.
+- **Prompt:** "mergea a main"
+- **Respuesta:** Verifiqué que no había comentarios de revisión abiertos y mergeé con squash (`91b592c`), borrando el branch. Sin conflicto en `decision-log.md` esta vez: `main` no había divergido desde que salí. Re-verifiqué sobre el árbol mergeado: ruff, mypy strict (154 archivos) y suite completa en verde.
 - **Veredicto:** ⏳ pendiente
