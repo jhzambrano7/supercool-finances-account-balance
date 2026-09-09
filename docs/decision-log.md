@@ -1499,3 +1499,10 @@ Además, encontré y revertí una corrupción sin commitear en `main`: `AccountT
 - **Dos respuestas dieron más de lo que yo había anticipado.** (1) El contendiente real de FastAPI no era Flask ni Django sino **Lambda + API Gateway**, y perdió por *vendor lock-in*: la prueba pide IaC y CDK lo cumple, pero el IaC nunca se ejecuta, así que el servicio sigue siendo un contenedor que corre en cualquier lado y sólo el deployment sabe de AWS. Ese punto era demasiado bueno para quedar en una celda, así que también lo puse en la sección de nube, que es donde un revisor evalúa cloud-nativeness. (2) `dependency-injector` le ganó a `Depends` en parte porque **el diseño original contemplaba jobs y colas** — o sea que no todo adapter inbound sería HTTP.
 - **Hallazgo de la propia entrevista:** FastAPI, la tecnología más visible del servicio, no aparecía **ni una vez** en el README ni en el PRD. No estaba en mi lista de ocho brechas; salió de preparar las preguntas.
 - **Veredicto:** ⏳ pendiente
+
+## 2026-09-09 18:00 — Abrir el PR del README como punto de entrada
+<!-- id: 20260909-180044-a1fe3a40 -->
+- **Qué intentaba:** Cerrar las ocho brechas del README en un PR revisable.
+- **Prompt:** "dale"
+- **Respuesta:** Abrí el **PR #15**. Ordené el cuerpo por lo que le importa a un revisor y no por orden de ejecución: primero los dos errores de hecho, porque quien verifica una afirmación y la encuentra falsa deja de confiar en las demás; después el cumplimiento del statement; después la defensa del stack, marcando explícitamente que las alternativas rechazadas salieron de **entrevistar al autor** y no de razonamiento verosímil, y separando cuáles escribí yo desde la evidencia del repo. Cerré con el link roto que apareció al validar anclas y links programáticamente — no estaba en mi lista de ocho, salió de verificar en lugar de confiar — y con el balance de tamaño, para que se vea que la concisión se cuidó quitando y no sólo agregando.
+- **Veredicto:** ⏳ pendiente
