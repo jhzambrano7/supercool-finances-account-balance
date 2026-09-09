@@ -14,6 +14,15 @@ from constructs import Construct
 
 _RUNTIME_DIRECTORY = Path(__file__).resolve().parent.parent / "runtime"
 
+#: Must stay strictly greater than `runtime/migration_handler.py`'s `DEADLINE_SECONDS`. If this
+#: resource's own timeout elapses first, CloudFormation gives up on the custom resource while
+#: `is_complete`'s poller is still waiting out its own, longer deadline -- the task keeps running,
+#: still holding the advisory lock `alembic/env.py` takes, against a schema CloudFormation has
+#: already decided to roll back. `infra/tests/test_migration_runner.py` asserts the ordering
+#: across both files; nothing enforces it at import time because the two run in different
+#: processes (this one at synth time, the other inside the Lambda runtime).
+PROVIDER_TOTAL_TIMEOUT = cdk.Duration.hours(1)
+
 
 class MigrationRunner(Construct):
     """Applies `alembic upgrade head` before the service is allowed to update.
@@ -119,7 +128,7 @@ class MigrationRunner(Construct):
             # for many minutes, and Lambda's 15-minute ceiling is not something to bet a schema
             # change against.
             query_interval=cdk.Duration.seconds(15),
-            total_timeout=cdk.Duration.hours(1),
+            total_timeout=PROVIDER_TOTAL_TIMEOUT,
         )
 
         self.resource = CustomResource(

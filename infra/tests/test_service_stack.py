@@ -10,7 +10,7 @@ from aws_cdk.assertions import Match, Template
 _DB_SECRET_KEYS = {"DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME"}
 
 
-def test_both_task_definitions_receive_exactly_the_five_db_secret_keys(
+def test_every_container_with_db_secrets_gets_exactly_the_five_keys(
     service_template: Template,
 ) -> None:
     """Blocker: `alembic/env.py` used to read `DATABASE_URL` directly, which ECS never sets --
@@ -18,6 +18,11 @@ def test_both_task_definitions_receive_exactly_the_five_db_secret_keys(
     a URL. It fell through to `alembic.ini`'s development default and migrated `localhost` on
     every deploy. Asserting the exact key set (not "at least these five") is what would catch
     `DATABASE_URL` sneaking back in alongside them, half-fixed.
+
+    Scoped to containers that receive *some* secret, not every container in the app: a future
+    sidecar with no reason to touch the database (say, an OpenTelemetry collector) is not this
+    blocker's concern, and asserting on it too would fail with a message about DB keys that has
+    nothing to do with what actually broke.
     """
     template_json = service_template.to_json()
     checked = 0
@@ -25,13 +30,16 @@ def test_both_task_definitions_receive_exactly_the_five_db_secret_keys(
         if resource["Type"] != "AWS::ECS::TaskDefinition":
             continue
         for container in resource["Properties"]["ContainerDefinitions"]:
-            secret_keys = {secret["Name"] for secret in container.get("Secrets", [])}
+            secrets = container.get("Secrets")
+            if not secrets:
+                continue
+            secret_keys = {secret["Name"] for secret in secrets}
             assert secret_keys == _DB_SECRET_KEYS, (
                 f"container {container['Name']!r} secrets: {secret_keys}"
             )
             checked += 1
     assert checked == 2, (
-        f"expected exactly 2 containers (api, migrate) with secrets, found {checked}"
+        f"expected exactly 2 containers with DB secrets (api, migrate), found {checked}"
     )
 
 
@@ -96,27 +104,25 @@ def test_autoscaling_has_both_request_count_and_cpu_policies(service_template: T
     )
 
 
-def test_no_retained_resource_in_the_service_stack_has_a_hardcoded_name(
-    service_template: Template,
-) -> None:
+def test_no_resource_in_the_service_stack_is_retained(service_template: Template) -> None:
     """The combination that made a failed CREATE unrecoverable before ECR moved to its own stack
     (`RegistryStack`): `DeletionPolicy: Retain` plus a fixed physical name means deleting a
     `ROLLBACK_COMPLETE` stack orphans the named resource, and every retry then fails with
-    `AlreadyExists`. Compute rolls forward and back several times a day, so nothing in this stack
-    may carry that combination -- today, nothing does, and this is what would catch it coming back
-    (e.g. ECR or the log group drifting back into this stack with RETAIN re-attached).
+    `AlreadyExists`.
+
+    An earlier version of this test matched only properties whose key ended in `"Name"` -- which a
+    mutation caught missing: `family=` (an ECS task definition's identity property) and any
+    `*Identifier` property sail straight through a `key.endswith("Name")` filter while being
+    exactly the same class of CloudFormation-assigned identity. Rather than chase the next
+    identity property CloudFormation invents, this asserts the stronger, simpler claim
+    `infra/README.md` and `service_stack.py`'s own comments already make: compute rolls forward
+    and back several times a day, and *nothing* in this stack needs RETAIN at all -- not just
+    nothing with a name.
     """
     template_json = service_template.to_json()
-    offenders = {}
-    for logical_id, resource in template_json["Resources"].items():
-        if resource.get("DeletionPolicy") != "Retain":
-            continue
-        properties = resource.get("Properties", {})
-        hardcoded_names = {
-            key: value
-            for key, value in properties.items()
-            if key.endswith("Name") and isinstance(value, str)
-        }
-        if hardcoded_names:
-            offenders[logical_id] = hardcoded_names
-    assert not offenders, f"Retain + hardcoded name in the service stack: {offenders}"
+    retained = {
+        logical_id: resource["Type"]
+        for logical_id, resource in template_json["Resources"].items()
+        if resource.get("DeletionPolicy") == "Retain"
+    }
+    assert not retained, f"service stack must retain nothing; found: {retained}"

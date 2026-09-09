@@ -19,15 +19,27 @@ JsonDict = dict[str, Any]
 JsonMapping = Mapping[str, Any]
 
 
+#: Where an inline IAM-statement document can appear as a *direct* property of a resource. Covers
+#: `AWS::IAM::Policy`/`AWS::IAM::ManagedPolicy` (`PolicyDocument`), ECR resource policies
+#: (`RepositoryPolicyText`), and KMS key policies (`KeyPolicy`) -- anywhere CDK might attach a
+#: statement granting the two actions these tests backstop against, not just the identity-based
+#: policies the migration runner happens to use today.
+_INLINE_DOCUMENT_PROPERTIES = ("PolicyDocument", "RepositoryPolicyText", "KeyPolicy")
+
+
 def iam_statements(template_json: JsonMapping) -> list[JsonDict]:
-    """Every IAM statement in the template, wherever CDK chose to put it."""
+    """Every IAM statement the template carries *inline* -- wherever CDK chose to put it.
+
+    Blind spot, by necessity: a statement referenced only by ARN (`AWS::IAM::Role.Properties.
+    ManagedPolicyArns`, e.g. an AWS-managed policy like `AdministratorAccess`) has no content in
+    this template at all -- CloudFormation resolves it at deploy time, against a policy this repo
+    does not own. `managed_policy_arns` below is the narrower backstop for that case: it cannot see
+    what such a policy grants, only that a role attaches a suspicious *name*.
+    """
     statements: list[JsonDict] = []
     for resource in template_json["Resources"].values():
         properties = resource.get("Properties", {})
-        documents = []
-        policy_document = properties.get("PolicyDocument")
-        if policy_document:
-            documents.append(policy_document)
+        documents = [properties[key] for key in _INLINE_DOCUMENT_PROPERTIES if properties.get(key)]
         for inline in properties.get("Policies", []) or []:
             inline_document = inline.get("PolicyDocument")
             if inline_document:
@@ -35,6 +47,23 @@ def iam_statements(template_json: JsonMapping) -> list[JsonDict]:
         for document in documents:
             statements.extend(document.get("Statement", []))
     return statements
+
+
+def managed_policy_arns(template_json: JsonMapping) -> list[Any]:
+    """Every `ManagedPolicyArns` entry on every `AWS::IAM::Role` in the template.
+
+    These are the statements `iam_statements` cannot see the content of -- an ARN reference to a
+    policy (typically AWS-managed) whose actual permissions live outside this template entirely.
+    The best available backstop is checking the ARN itself against a short list of obviously
+    too-broad AWS-managed policies; it cannot catch a narrowly-scoped customer-managed policy
+    referenced by ARN instead of declared inline, which is a real remaining gap.
+    """
+    arns: list[Any] = []
+    for resource in template_json["Resources"].values():
+        if resource["Type"] != "AWS::IAM::Role":
+            continue
+        arns.extend(resource.get("Properties", {}).get("ManagedPolicyArns", []) or [])
+    return arns
 
 
 def actions_of(statement: JsonDict) -> list[str]:

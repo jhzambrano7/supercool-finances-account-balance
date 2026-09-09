@@ -74,6 +74,27 @@ class DataStack(cdk.Stack):
             enable_performance_insights=True,
         )
 
+        # `Credentials.from_generated_secret` creates the secret as a construct separate from the
+        # instance above -- it does not inherit the instance's `removal_policy`. Left alone it
+        # defaults to Delete, so `cdk destroy AccountBalanceData` would RETAIN the database
+        # (correctly) while deleting the one credential that can still reach it: recoverable
+        # inside Secrets Manager's recovery window, then not. The secret must be retained for the
+        # same reason the instance is.
+        #
+        # `self.database.secret` (== `self.credentials`) is the *attachment* wrapper
+        # (`SecretTargetAttachment`), not the underlying `AWS::SecretsManager::Secret` -- CDK nests
+        # the actual secret as a child construct named "Secret" of the `DatabaseInstance`. Both get
+        # the removal policy: the attachment because nothing should assume it is harmless to lose,
+        # the secret because it is the one that actually holds the password.
+        self.credentials.apply_removal_policy(cdk.RemovalPolicy.RETAIN)
+        generated_secret = self.database.node.find_child("Secret")
+        if not isinstance(generated_secret, rds.DatabaseSecret):
+            raise RuntimeError(
+                "expected DatabaseInstance's generated secret construct at child id 'Secret'; "
+                "aws-cdk-lib's internal wiring for from_generated_secret() may have changed"
+            )
+        generated_secret.apply_removal_policy(cdk.RemovalPolicy.RETAIN)
+
         cdk.CfnOutput(
             self,
             "DatabaseEndpoint",

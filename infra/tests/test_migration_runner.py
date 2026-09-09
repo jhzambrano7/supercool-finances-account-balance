@@ -150,3 +150,57 @@ def test_pass_role_is_scoped_to_the_migration_task_roles_never_a_wildcard(
             "expected exactly the task role and execution role of MigrationTaskDefinition "
             f"(see MigrationRunner.passable_roles), found {len(resources)}: {resources}"
         )
+
+
+def test_the_pollers_deadline_stays_under_the_providers_total_timeout() -> None:
+    """Two files, one invariant, enforced nowhere at import time because the two run in different
+    processes: `migration_handler.py`'s `DEADLINE_SECONDS` is read inside the Lambda runtime;
+    `migration_runner.py`'s `PROVIDER_TOTAL_TIMEOUT` is read at synth time, by CDK. If the
+    resource's own timeout ever drops to or below the poller's deadline, CloudFormation gives up
+    on the custom resource first -- the task keeps running, still holding the advisory lock
+    `alembic/env.py` takes, against a schema CloudFormation has already decided to roll back.
+    """
+    from runtime.migration_handler import DEADLINE_SECONDS
+
+    from stacks.migration_runner import PROVIDER_TOTAL_TIMEOUT
+
+    assert PROVIDER_TOTAL_TIMEOUT.to_seconds() > DEADLINE_SECONDS, (
+        f"poller deadline ({DEADLINE_SECONDS}s) must stay under the provider's total_timeout "
+        f"({PROVIDER_TOTAL_TIMEOUT.to_seconds()}s), or CloudFormation gives up first"
+    )
+
+
+def test_the_lambdas_container_name_matches_the_migration_containers_name(
+    service_template: Template,
+) -> None:
+    """`service_stack.py` names the container `"migrate"` in two places (the container
+    definition, and `MigrationRunner`'s `container_name=`), and `migration_handler.py` looks it up
+    by that name from its own `CONTAINER_NAME` env var. Rename one and every deploy fails inside
+    `is_complete` *after* the migration already ran, rolling back a successfully applied schema
+    because the poller can no longer find the container it is meant to inspect.
+    """
+    template_json = service_template.to_json()
+
+    container_names_from_lambda_env = {
+        resource["Properties"]["Environment"]["Variables"]["CONTAINER_NAME"]
+        for resource in template_json["Resources"].values()
+        if resource["Type"] == "AWS::Lambda::Function"
+        and "CONTAINER_NAME" in resource["Properties"].get("Environment", {}).get("Variables", {})
+    }
+    assert container_names_from_lambda_env, (
+        "expected at least one Lambda with a CONTAINER_NAME env var"
+    )
+
+    migrate_container_names = {
+        container["Name"]
+        for resource in template_json["Resources"].values()
+        if resource["Type"] == "AWS::ECS::TaskDefinition"
+        for container in resource["Properties"]["ContainerDefinitions"]
+        if container.get("Command") == ["python", "docker/migrate.py"]
+    }
+    assert migrate_container_names, "expected to find the migration container by its command"
+
+    assert container_names_from_lambda_env == migrate_container_names, (
+        f"Lambda CONTAINER_NAME env var(s) {container_names_from_lambda_env} must match the "
+        f"migration container's actual name(s) {migrate_container_names}"
+    )
