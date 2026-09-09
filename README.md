@@ -20,19 +20,34 @@ together — see [Running it](#running-it-and-deploying-it) for what is going on
 
 | Document | What it is |
 | --- | --- |
+| [`docs/statement.md`](docs/statement.md) | The brief this answers, with the evaluation signals extracted verbatim |
 | [`docs/prd.md`](docs/prd.md) | The product contract. Every rule, with its rejected alternative |
 | [`docs/coding-conventions.md`](docs/coding-conventions.md) | How code is written, independent of feature — e.g. Tell, Don't Ask |
-| [`openspec/changes/account-balance-domain/proposal.md`](openspec/changes/account-balance-domain/proposal.md) | The domain model design: aggregates, invariants, twelve decisions |
+| [`openspec/changes/archive/…/proposal.md`](openspec/changes/archive/2026-09-07-account-balance-domain/proposal.md) | The domain model design: aggregates, invariants, twelve decisions |
 | [`docs/decision-log.md`](docs/decision-log.md) | Chronological record of what was decided and why |
 | [`docs/ai-transcript.md`](docs/ai-transcript.md) | Every prompt and every response, verbatim (see [AI usage](#ai-usage)) |
 | [`web/README.md`](web/README.md) | A React ops console for exercising the API in a browser — a demo aid, not a production deliverable |
 | [`infra/README.md`](infra/README.md) | The AWS CDK stacks: what would be deployed, and the reasoning behind each choice |
 
+**What the brief asks for, and where it is.** The five signals below are
+[`docs/statement.md`](docs/statement.md)'s own, quoted from the instructions because they drive
+scope:
+
+| Signal | Where it is met |
+| --- | --- |
+| Judgment over volume | [What is not done](#what-is-not-done-stated-plainly) — the scope boundary is argued, not padded |
+| Reasoning must be visible | [`docs/prd.md`](docs/prd.md) carries every rule with its rejected alternative; [`docs/decision-log.md`](docs/decision-log.md) carries the chronology and a verdict per exchange |
+| Architecture choice must be defended | [Why a microservice](#why-a-microservice-and-why-this-shape-inside-it), with the two alternatives that lost and why |
+| Money safety is the core | [How the money is kept safe](#how-the-money-is-kept-safe) — double-entry, locks, idempotency, and the tests that prove each |
+| AI usage must be auditable | [AI usage](#ai-usage) — a generated, append-only transcript of every turn, not a summary |
+
 ---
 
 ## Status — read this first
 
-The design is written down; the implementation is partial. This section says where the line is.
+Every capability in the product contract is built, along with containers, IaC and the
+reconciliation check. This section says exactly what exists, and the one below on
+[what is not done](#what-is-not-done-stated-plainly) says what was deliberately left out.
 
 | Area | State |
 | --- | --- |
@@ -53,6 +68,33 @@ The design is written down; the implementation is partial. This section says whe
 | Reconciliation check (`account.balance == SUM(entries)`) | **Built as a test** (`tests/integration/account_balance/test_reconciliation.py`), across deposit, withdrawal, transfer, reversal, replay and mixed sequences. The operational job is descoped with observability |
 | Containers, local stack | **Built** — `docker compose up` runs PostgreSQL, the API and the console, with migrations applied and hot reload on both halves. `Dockerfile` also ships a non-root `runtime` target |
 | IaC | **Built** — [`infra/`](infra/README.md), AWS CDK in Python: three stacks covering ECR, RDS + Secrets Manager, and ECS/Fargate behind an ALB with autoscaling and migrations applied during the deploy. `cdk synth` runs with no AWS account |
+
+---
+
+## How this was built
+
+The brief asks for the thinking process, so here it is as a process rather than as a conclusion.
+
+**The contract came before the code.** `docs/prd.md` was written first and every rule in it carries
+the alternative that lost. Implementation then followed the contract, and where the code and the
+document disagreed, one of them was wrong and had to be fixed — twice it was the document.
+
+**Every non-trivial change was reviewed in a fresh context**, by an agent with no memory of having
+written the code. That distinction turned out to matter more than any checklist: the session that
+writes something already believes its own reasoning and re-confirms it, while a reader with no stake
+attacks it. Those reviews found a migration task nothing ever invoked, a database retained while its
+only credential was deleted, and three tests that stayed green through the exact regression they were
+named after.
+
+**A test is not evidence until it has been seen to fail.** Assertions that protect an invariant were
+verified by breaking the thing on purpose, watching the right test go red with a useful message, and
+restoring — recorded in the pull requests. Two tests were written and deleted before committing
+because they passed against anything.
+
+**The AI was directed, and its output was checked.** One instance is preserved in the decision log:
+asked to review the domain, it correctly found a contradiction in the PRD, then proposed restating
+the authorization rule as "the caller must own every `USER` leg" — a rule that would forbid sending
+money to another customer. The gap was real; the proposed fix was not.
 
 ---
 
@@ -209,7 +251,7 @@ The full reasoning is in [`docs/prd.md`](docs/prd.md); this is the index.
 ## Observability: designed, and descoped
 
 **Decision: not built, on purpose.** The statement asks for correctness under concurrency, and does
-not ask for instrumentation. Metrics, alert routing and health endpoints are a feature in their own
+not ask for instrumentation. Metrics and alert routing are a feature in their own
 right — one large enough that building a shallow version of it would say less about how this service
 was reasoned about than leaving the design visible and the scope honest.
 
@@ -279,6 +321,17 @@ the same base layers, so what runs locally is not a different lineage from what 
 all — `testcontainers` provisions their own PostgreSQL, so the suite is not coupled to a running
 compose project.
 
+**Working on it**, as opposed to running it:
+
+```bash
+uv sync                          # creates .venv, installs everything
+uv run pytest                    # the full suite; integration tests need Docker
+uv run pre-commit install        # enable the gates
+```
+
+`pre-commit run --all-files` only inspects files **tracked by git** — a green run over untracked
+code proves nothing.
+
 **In the cloud: [`infra/`](infra/README.md), AWS CDK in Python.** `npx cdk synth` runs with no AWS
 account, so the templates can be read without deploying anything. Three stacks, split by lifecycle:
 the ECR registry (deployed first — nothing can pull an image that was never pushed); RDS PostgreSQL
@@ -334,20 +387,6 @@ without them.
 | ruff + mypy strict | Enforced in pre-commit, not suggested |
 | pytest | Domain tested with no infrastructure; `testcontainers` provisions a real PostgreSQL for the persistence and locking tests |
 
-### Getting started
-
-```bash
-uv sync                          # creates .venv, installs everything
-uv run pytest                    # run the tests
-uv run pre-commit install        # enable the gates
-uv run pre-commit run --all-files
-```
-
-> Note: `pre-commit run --all-files` only inspects files **tracked by git**. A green run over
-> untracked code proves nothing.
-
----
-
 ## AI usage
 
 The instructions require every prompt and every response. Meeting that with a summary is not possible
@@ -362,20 +401,21 @@ The instructions require every prompt and every response. Meeting that with a su
 - **[`docs/decision-log.md`](docs/decision-log.md)** is the curated layer: what was decided, why, and
   the verdict on each exchange. Two artifacts, two different questions.
 
-The AI was directed rather than asked what to think, and its output was checked rather than
-accepted. One instance is preserved in the log: asked to review the domain, it correctly found a
-contradiction in the PRD, then proposed restating the authorization rule as "the caller must own
-every `USER` leg" — a rule that would forbid sending money to another customer. The gap was real and
-the proposed fix was not.
+**How to check that for yourself**, since a claim of completeness is worth exactly what it can be
+verified against: turns are numbered and timestamped, so `grep -c '^## Turn ' docs/ai-transcript.md`
+counts them and any gap in the sequence is visible. The transcript regenerates from the store
+committed alongside it, so it can be rebuilt from a clone with no access to my machine.
+[How this was built](#how-this-was-built) has an example of the AI being directed and corrected
+rather than followed.
 
 ---
 
 ## What is not done, stated plainly
 
 - **Observability is descoped, not forgotten** — the signals are specified (`docs/prd.md` §11,
-  [above](#observability-designed-and-descoped)); nothing exports them, and there is no
-  `/health`/`/ready`. This is a scope decision, taken because the statement asks for correctness
-  under concurrency and instrumentation is a feature of its own size.
+  [above](#observability-designed-and-descoped)); nothing exports them. `/health` and `/ready` do
+  exist, because a load balancer target group cannot be created without one, but they are a
+  deployment requirement rather than the start of an instrumentation layer.
 - **The reconciliation *job* is descoped; the reconciliation *test* is not.** The invariant
   `account.balance == SUM(entries)` is asserted in CI across every money-movement path; the periodic
   operational sweep `docs/prd.md` §5.1 also names is not built.
